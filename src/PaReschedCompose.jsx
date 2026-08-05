@@ -89,7 +89,7 @@ export default function PaReschedCompose() {
 
         {/* PITCH */}
         <Card title="The reschedule page pitch (the “inspection result” box)">
-          <div style={{ fontSize: 12.5, color: "#64748b", marginBottom: 8 }}>This is the sales message the homeowner reads above their roof photos. Tokens: <Tok t="{first_name}" /> <Tok t="{address}" />.</div>
+          <div style={{ fontSize: 12.5, color: "#64748b", marginBottom: 8 }}>This is the sales message the homeowner reads above their roof photos. Tokens: <Tok t="{first_name}" /> <Tok t="{address}" />. Emphasize: <Tok t="**bold**" /> <Tok t="*bigger*" /> · blank line = new paragraph.</div>
           <label style={lbl}>Headline</label>
           <input value={pitch.headline} onChange={(e) => setPitch({ ...pitch, headline: e.target.value })}
             style={{ width: "100%", boxSizing: "border-box", fontFamily: OSWALD, fontWeight: 800, fontSize: 17, padding: "9px 12px", border: "1px solid #cbd5e1", borderRadius: 10, marginBottom: 10 }} />

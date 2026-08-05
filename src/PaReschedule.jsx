@@ -15,6 +15,14 @@ const api = async (action, payload) => {
 const dayKey = (iso) => new Date(iso).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
 const dayLabel = (iso) => new Date(iso).toLocaleDateString("en-US", { timeZone: "America/New_York", weekday: "long", month: "short", day: "numeric" });
 const timeLabel = (iso) => new Date(iso).toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" });
+// Light markdown so the office can emphasize the pitch: **bold**, and *big* (larger).
+function renderRich(text) {
+  return String(text || "").split(/(\*\*[^*]+\*\*|\*[^*]+\*)/g).map((p, i) => {
+    if (/^\*\*[^*]+\*\*$/.test(p)) return <b key={i} style={{ fontWeight: 900 }}>{p.slice(2, -2)}</b>;
+    if (/^\*[^*]+\*$/.test(p)) return <span key={i} style={{ fontSize: "1.18em", fontWeight: 800 }}>{p.slice(1, -1)}</span>;
+    return <React.Fragment key={i}>{p}</React.Fragment>;
+  });
+}
 
 export default function PaReschedule() {
   const token = useMemo(() => { try { return new URLSearchParams(window.location.search).get("t") || ""; } catch { return ""; } }, []);
@@ -86,7 +94,7 @@ export default function PaReschedule() {
         <div style={{ background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 14, padding: "12px 14px", marginBottom: 16 }}>
           <div style={{ fontSize: 12.5, fontWeight: 800, color: "#b91c1c", textTransform: "uppercase", letterSpacing: ".04em" }}>⚠️ Inspection result</div>
           {pitch.headline && <div style={{ fontSize: 20, fontWeight: 900, fontFamily: OSWALD, color: "#991b1b", marginTop: 3 }}>{pitch.headline}</div>}
-          {pitch.body && <div style={{ fontSize: 14, color: "#7f1d1d", marginTop: 6, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{pitch.body}</div>}
+          {pitch.body && <div style={{ fontSize: 15.5, color: "#7f1d1d", marginTop: 8, lineHeight: 1.65, whiteSpace: "pre-wrap", fontWeight: 500 }}>{renderRich(pitch.body)}</div>}
         </div>
       )}
 
@@ -105,7 +113,11 @@ export default function PaReschedule() {
       )}
 
       {/* 2) THE ASK — schedule with the Public Adjuster (reschedule the missed appt). */}
-      <div style={{ fontSize: 22, fontWeight: 900, fontFamily: OSWALD, color: NAVY }}>Schedule with your Public Adjuster</div>
+      <style>{`@keyframes paCtaPulse{0%,100%{transform:scale(1);box-shadow:0 4px 14px rgba(22,163,74,.35),0 0 0 0 rgba(22,163,74,.5)}50%{transform:scale(1.035);box-shadow:0 4px 14px rgba(22,163,74,.35),0 0 0 12px rgba(22,163,74,0)}}@media(prefers-reduced-motion:reduce){.pa-cta-flash{animation:none!important}}`}</style>
+      <div className="pa-cta-flash" style={{ textAlign: "center", background: "#16a34a", color: "#fff", fontFamily: OSWALD, fontWeight: 900, fontSize: 21, letterSpacing: ".03em", padding: "15px 16px", borderRadius: 14, marginBottom: 12, animation: "paCtaPulse 1.25s ease-in-out infinite" }}>
+        📅 SCHEDULE YOUR APPOINTMENT
+      </div>
+      <div style={{ fontSize: 24, fontWeight: 900, fontFamily: OSWALD, color: NAVY }}>Schedule with your Public Adjuster</div>
       <div style={{ fontSize: 14.5, color: "#334155", marginTop: 6, lineHeight: 1.5 }}>
         {isDamage ? <>We missed you last time — pick a new time and a Public Adjuster will meet you to get your claim started:</>
                   : <>Hi {firstName} — we missed you for your roof adjuster appointment{appt.address ? <> at <b>{[appt.address, appt.city].filter(Boolean).join(", ")}</b></> : ""}. Pick a new time that works for you:</>}
