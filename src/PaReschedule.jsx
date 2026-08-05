@@ -15,11 +15,16 @@ const api = async (action, payload) => {
 const dayKey = (iso) => new Date(iso).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
 const dayLabel = (iso) => new Date(iso).toLocaleDateString("en-US", { timeZone: "America/New_York", weekday: "long", month: "short", day: "numeric" });
 const timeLabel = (iso) => new Date(iso).toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" });
-// Light markdown so the office can emphasize the pitch: **bold**, and *big* (larger).
+// Light markdown so the office can emphasize the pitch. The composer's toolbar
+// writes these markers; keep the two in sync.
+//   **bold**   *bigger*   _italic_   ==highlight==   !!red!!
 function renderRich(text) {
-  return String(text || "").split(/(\*\*[^*]+\*\*|\*[^*]+\*)/g).map((p, i) => {
+  return String(text || "").split(/(\*\*[^*]+\*\*|\*[^*]+\*|_[^_]+_|==[^=]+==|!![^!]+!!)/g).map((p, i) => {
     if (/^\*\*[^*]+\*\*$/.test(p)) return <b key={i} style={{ fontWeight: 900 }}>{p.slice(2, -2)}</b>;
     if (/^\*[^*]+\*$/.test(p)) return <span key={i} style={{ fontSize: "1.18em", fontWeight: 800 }}>{p.slice(1, -1)}</span>;
+    if (/^_[^_]+_$/.test(p)) return <i key={i}>{p.slice(1, -1)}</i>;
+    if (/^==[^=]+==$/.test(p)) return <mark key={i} style={{ background: "#fde047", padding: "0 3px", borderRadius: 3 }}>{p.slice(2, -2)}</mark>;
+    if (/^!![^!]+!!$/.test(p)) return <span key={i} style={{ color: "#dc2626", fontWeight: 800 }}>{p.slice(2, -2)}</span>;
     return <React.Fragment key={i}>{p}</React.Fragment>;
   });
 }

@@ -15,6 +15,49 @@ const api = async (action, payload = {}) => {
   return j;
 };
 const ORIGIN = (() => { try { return window.location.origin; } catch { return "https://free-roof-inspections.netlify.app"; } })();
+
+// Formatting toolbar buttons. Each wraps the selected text in a marker that the
+// homeowner page's renderRich() turns into real styling. The button itself is
+// styled to look like what it does, so no symbols to memorize.
+const MARKS = [
+  { key: "b", label: "Bold", pre: "**", post: "**", css: { fontWeight: 900 } },
+  { key: "i", label: "Italic", pre: "_", post: "_", css: { fontStyle: "italic" } },
+  { key: "big", label: "Bigger", pre: "*", post: "*", css: { fontSize: 16, fontWeight: 800 } },
+  { key: "hl", label: "Highlight", pre: "==", post: "==", css: { background: "#fde047", fontWeight: 700 } },
+  { key: "red", label: "Red", pre: "!!", post: "!!", css: { color: "#dc2626", fontWeight: 800 } },
+];
+// A textarea with a little formatting toolbar above it. Select text, tap a
+// button, and it wraps the selection (or drops a "text" placeholder if nothing
+// is selected), keeping the selection so you can stack styles.
+function RichField({ value, onChange, rows = 3 }) {
+  const ref = React.useRef(null);
+  const apply = (pre, post) => {
+    const ta = ref.current;
+    const v = value || "";
+    const start = ta ? ta.selectionStart : v.length;
+    const end = ta ? ta.selectionEnd : v.length;
+    const sel = v.slice(start, end) || "text";
+    onChange(v.slice(0, start) + pre + sel + post + v.slice(end));
+    requestAnimationFrame(() => {
+      try { ta.focus(); ta.setSelectionRange(start + pre.length, start + pre.length + sel.length); } catch { /* ignore */ }
+    });
+  };
+  return (
+    <div>
+      <div style={{ display: "flex", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>
+        {MARKS.map((m) => (
+          <button key={m.key} type="button" title={m.label}
+            onMouseDown={(e) => e.preventDefault()} onClick={() => apply(m.pre, m.post)}
+            style={{ fontFamily: FONT, fontSize: 13, padding: "5px 11px", border: "1px solid #cbd5e1", borderRadius: 8, background: "#f8fafc", cursor: "pointer", ...m.css }}>
+            {m.label}
+          </button>
+        ))}
+      </div>
+      <textarea ref={ref} value={value} onChange={(e) => onChange(e.target.value)} rows={rows}
+        style={{ width: "100%", boxSizing: "border-box", fontFamily: FONT, fontSize: 14.5, padding: 12, border: "1px solid #cbd5e1", borderRadius: 10, lineHeight: 1.5 }} />
+    </div>
+  );
+}
 const fill = (tpl, c, link) => String(tpl || "")
   .replace(/\{first[_ ]?name\}/gi, c.first_name || "there")
   .replace(/\{address\}/gi, [c.address, c.city].filter(Boolean).join(", "))
@@ -89,16 +132,14 @@ export default function PaReschedCompose() {
 
         {/* PITCH */}
         <Card title="The reschedule page pitch (the “inspection result” box)">
-          <div style={{ fontSize: 12.5, color: "#64748b", marginBottom: 8 }}>This is the sales message the homeowner reads above their roof photos. Tokens: <Tok t="{first_name}" /> <Tok t="{address}" />. Emphasize: <Tok t="**bold**" /> <Tok t="*bigger*" /> · blank line = new paragraph.</div>
+          <div style={{ fontSize: 12.5, color: "#64748b", marginBottom: 8 }}>This is the sales message the homeowner reads above their roof photos. <b>Select any words, then tap a style button</b> — Bold, Italic, Bigger, Highlight, or Red. Tokens: <Tok t="{first_name}" /> <Tok t="{address}" /> · blank line = new paragraph.</div>
           <label style={lbl}>Headline</label>
           <input value={pitch.headline} onChange={(e) => setPitch({ ...pitch, headline: e.target.value })}
             style={{ width: "100%", boxSizing: "border-box", fontFamily: OSWALD, fontWeight: 800, fontSize: 17, padding: "9px 12px", border: "1px solid #cbd5e1", borderRadius: 10, marginBottom: 10 }} />
           <label style={lbl}>Body</label>
-          <textarea value={pitch.body} onChange={(e) => setPitch({ ...pitch, body: e.target.value })} rows={3}
-            style={{ width: "100%", boxSizing: "border-box", fontFamily: FONT, fontSize: 14.5, padding: 12, border: "1px solid #cbd5e1", borderRadius: 10, lineHeight: 1.5 }} />
+          <RichField value={pitch.body} onChange={(v) => setPitch({ ...pitch, body: v })} rows={4} />
           <label style={{ ...lbl, marginTop: 10 }}>Scheduler line <span style={{ fontWeight: 600, color: "#94a3b8" }}>(sits right above the appointment times)</span></label>
-          <textarea value={pitch.schedule} onChange={(e) => setPitch({ ...pitch, schedule: e.target.value })} rows={2}
-            style={{ width: "100%", boxSizing: "border-box", fontFamily: FONT, fontSize: 14.5, padding: 12, border: "1px solid #cbd5e1", borderRadius: 10, lineHeight: 1.5 }} />
+          <RichField value={pitch.schedule} onChange={(v) => setPitch({ ...pitch, schedule: v })} rows={2} />
         </Card>
 
         <div style={{ display: "flex", alignItems: "center", gap: 12, margin: "4px 0 20px" }}>
