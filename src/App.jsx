@@ -26,6 +26,7 @@ import HarvestLinks from "./HarvestLinks";
 import HarvestReport from "./HarvestReport";
 import MasterInspectionReports from "./MasterInspectionReports";
 import PaReschedule from "./PaReschedule";
+import PaReschedCompose from "./PaReschedCompose";
 import InspectionMap from "./InspectionMap";
 import InspectorLinks from "./InspectorLinks";
 import RoofMeasure from "./RoofMeasure";
@@ -4479,6 +4480,7 @@ const MANAGER_TILES = [
   { group: "inspections", key: "bulkreport", emoji: "📦", label: "Bulk Inspection Reports", desc: "Run insp reports across every JN job with a chosen status" },
   // ── Master Inspection Reports ──
   { group: "master_reports", key: "master_inspection_report", emoji: "📑", label: "Master Inspection Reports", desc: "The whole free-roof-inspection pipeline on one page: still-to-inspect, inspected-but-no-go-back-status, retail breakdown with %s, damage with/without PA appointments, and every PA appointment that's passed (outcome, PA/company, filed date) — plus missed PA appointments.", href: "/?mode=masterinspreport" },
+  { group: "master_reports", key: "pa_resched_compose", emoji: "✉️", label: "Reschedule Text Composer", desc: "Compose the personalized bulk text to homeowners whose PA appointment passed with NO paperwork signed — the link shows their damage photos + a Five Star reschedule page. Write the message + edit the pitch. BUILD/PREVIEW ONLY — nothing sends yet.", href: "/?mode=pareschedcompose" },
   // ── Public Adjuster ──
   { group: "pa", key: "team_roles", emoji: "🧑‍🤝‍🧑", label: "Team Roles", desc: "One list of everyone — check Inspector and/or PA to set each person's role. Start here when setting someone up." },
   { group: "pa", key: "pamgmt", emoji: "🔌", label: "PA Management", desc: "Turn the in-app PA paperwork (LoR + PA Authorization signing) on or off." },
@@ -9547,6 +9549,10 @@ export default function App() {
     // ?mode=pareschedule — homeowner self-reschedules a missed PA appointment.
     if (portalMode === "pareschedule") {
       return <PaReschedule />;
+    }
+    // ?mode=pareschedcompose — office composer for the missed/unsigned reschedule text campaign.
+    if (portalMode === "pareschedcompose") {
+      return <PaReschedCompose />;
     }
     // ?mode=inspectmap — inspector's map of inspections needing inspection (route-my-day + route-lock).
     if (portalMode === "inspectmap") {
