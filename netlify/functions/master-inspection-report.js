@@ -136,8 +136,8 @@ export const handler = async (event) => {
 
     // 3) RETAIL breakdown + percentages. retail_outcome: ni / no_sale / sold / btr_appt / (null = pending)
     const retailDeals = live.filter((i) => i.result === "retail");
-    const RB = { ni: "BTR – Not Interested", btr_appt: "BTR – Appointment", sold: "BTR Sold", no_sale: "BTR – No Sale", pending: "Not worked yet (rep hasn't gone back)" };
-    const buckets = { ni: 0, btr_appt: 0, sold: 0, no_sale: 0, pending: 0 };
+    const RB = { ni: "BTR – Not Interested", btr_appt: "BTR – Appointment", sold: "BTR Sold", credit_denial: "BTR – Credit Denial", no_sale: "BTR – No Sale", pending: "Not worked yet (rep hasn't gone back)" };
+    const buckets = { ni: 0, btr_appt: 0, sold: 0, credit_denial: 0, no_sale: 0, pending: 0 };
     for (const i of retailDeals) { const k = i.retail_outcome && buckets[i.retail_outcome] != null ? i.retail_outcome : "pending"; buckets[k]++; }
     const rTotal = retailDeals.length || 1;
     const pct = {}; for (const k of Object.keys(buckets)) pct[k] = Math.round((buckets[k] / rTotal) * 1000) / 10;

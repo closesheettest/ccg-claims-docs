@@ -7,9 +7,14 @@
 //
 // JN status → outcome:
 //   sold pipeline (Sit Sold, Signed Contract, … Install Set, etc.) → "sold"
+//   "Credit Denial"                                                → "credit_denial"  (a SALE they couldn't finance — counts toward gross sold)
 //   "Sit - No Sale"                                                → "no_sale"
 //   "BTR - NI"                                                      → "ni"
 //   (Lost retail deals get cancelled elsewhere, so they already drop off.)
+//
+// Also stamps the RAW jn_status on every retail deal so reports can show the true
+// current status (Sit-Pending, Credit Denial, Appointment Scheduled, …) instead of
+// the coarse outcome bucket.
 //
 // GET /.netlify/functions/cron-sync-retail-status   (also runs on schedule)
 // Env: VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY, JOBNIMBUS_API_KEY.
@@ -26,16 +31,19 @@ function norm(s) { return String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, "
 function outcomeFor(status) {
   const s = norm(status);
   if (!s) return null;
+  if (s.includes("credit") && (s.includes("deni") || s.includes("declin"))) return "credit_denial"; // sold, couldn't finance
   if (SOLD.has(s)) return "sold";
   if (s === "sit no sale") return "no_sale";
   if (s === "btr ni" || s === "not interested") return "ni";
-  return null; // still active (Sit Sold Insp, Appointment Scheduled, etc.)
+  return null; // still active (Sit Sold Insp, Appointment Scheduled, Sit - Pending, etc.)
 }
 
 exports.handler = async () => {
   if (!SB_URL || !SB_KEY || !JN_KEY) return j(500, { ok: false, error: "env missing" });
   try {
-    const rows = await sbGet("inspections?result=eq.retail&cancelled_at=is.null&retail_outcome=is.null&jn_job_id=not.is.null&select=id,jn_job_id&limit=2000");
+    // ALL retail deals (not just unresolved) so we refresh jn_status on every one and
+    // catch late transitions (e.g. a Credit Denial that appears after the first pass).
+    const rows = await sbGet("inspections?result=eq.retail&cancelled_at=is.null&jn_job_id=not.is.null&select=id,jn_job_id,retail_outcome,jn_status&limit=3000");
     const ids = rows.map((r) => r.jn_job_id).filter(Boolean);
     const statusById = {};
     for (let i = 0; i < ids.length; i += 100) {
@@ -45,17 +53,22 @@ exports.handler = async () => {
       const d = await r.json().catch(() => ({}));
       for (const job of (d.results || d.jobs || [])) statusById[job.jnid || job.id] = job.status_name;
     }
-    let updated = 0; const byOutcome = {};
+    let updated = 0, statusUpdated = 0; const byOutcome = {};
     for (const row of rows) {
-      const outcome = outcomeFor(statusById[row.jn_job_id]);
-      if (!outcome) continue;
+      const live = statusById[row.jn_job_id] || null;
+      const outcome = outcomeFor(live);
+      const patch = {};
+      if (live && live !== row.jn_status) patch.jn_status = live;   // keep the raw status fresh for reports
+      if (outcome && outcome !== row.retail_outcome) {              // terminal outcome (incl. credit_denial)
+        patch.retail_outcome = outcome; patch.retail_outcome_at = new Date().toISOString(); patch.retail_outcome_by = "JN sync";
+      }
+      if (!Object.keys(patch).length) continue;
       const up = await fetch(`${SB_URL}/rest/v1/inspections?id=eq.${encodeURIComponent(row.id)}`, {
-        method: "PATCH", headers: { ...sb, Prefer: "return=minimal" },
-        body: JSON.stringify({ retail_outcome: outcome, retail_outcome_at: new Date().toISOString(), retail_outcome_by: "JN sync" }),
+        method: "PATCH", headers: { ...sb, Prefer: "return=minimal" }, body: JSON.stringify(patch),
       });
-      if (up.ok) { updated++; byOutcome[outcome] = (byOutcome[outcome] || 0) + 1; }
+      if (up.ok) { if (patch.retail_outcome) { updated++; byOutcome[outcome] = (byOutcome[outcome] || 0) + 1; } if (patch.jn_status) statusUpdated++; }
     }
-    return j(200, { ok: true, checked: rows.length, updated, byOutcome });
+    return j(200, { ok: true, checked: rows.length, updated, status_updated: statusUpdated, byOutcome });
   } catch (e) {
     return j(500, { ok: false, error: e.message || "error" });
   }

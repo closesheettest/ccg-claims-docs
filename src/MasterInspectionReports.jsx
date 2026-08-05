@@ -44,7 +44,7 @@ function Grouped({ groups, renderRow, keyFn }) {
 
 const OUT_COLOR = { signed: "#16a34a", refused: "#b91c1c", pending: "#d97706" };
 const OUT_LABEL = { signed: "✅ Signed", refused: "❌ Refused", pending: "⏳ No outcome" };
-const RETAIL_COLOR = { ni: "#64748b", btr_appt: "#2563eb", sold: "#16a34a", no_sale: "#b45309", pending: "#94a3b8" };
+const RETAIL_COLOR = { ni: "#64748b", btr_appt: "#2563eb", sold: "#16a34a", credit_denial: "#0891b2", no_sale: "#b45309", pending: "#94a3b8" };
 // Inspection-result display labels (per bossman): Damage → BTPA, Retail → BTR, No Damage → ND.
 const GOBACK_LABEL = { damage: "BTPA", retail: "BTR", no_damage: "ND" };
 const GOBACK_COLOR = { damage: "#b91c1c", retail: "#0891b2", no_damage: "#64748b" };
@@ -82,7 +82,10 @@ export default function MasterInspectionReports() {
     <div style={{ maxWidth: 1000, margin: "0 auto", padding: "20px 16px 80px", fontFamily: FONT }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
         <div style={{ fontSize: 25, fontWeight: 900, fontFamily: OSWALD }}>📑 Master Inspection Reports</div>
-        <button onClick={load} style={btn("#0f172a")}>↻ Refresh</button>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <a href="/?mode=pareschedcompose" style={{ ...btn("#7c3aed"), textDecoration: "none" }}>✉️ Message for PA Appointment</a>
+          <button onClick={load} style={btn("#0f172a")}>↻ Refresh</button>
+        </div>
       </div>
       <div style={{ fontSize: 12.5, color: "#94a3b8", marginBottom: 14 }}>Generated {fmtDateTime(data.generated_at)} · live from the pipeline</div>
 
@@ -176,9 +179,10 @@ function RetailBars({ retail }) {
   const g = (k) => Number(b[k] || 0);
   const notWorked = g("pending");
   const worked = Math.max(0, total - notWorked);
-  const reached = g("btr_appt") + g("sold") + g("no_sale");   // reached an appointment
+  const reached = g("btr_appt") + g("sold") + g("credit_denial") + g("no_sale");   // reached an appointment
   const declined = g("ni");                                    // worked, declined the appointment
-  const sat = g("sold") + g("no_sale");                        // appointment actually sat
+  const sat = g("sold") + g("credit_denial") + g("no_sale");   // appointment actually sat
+  const grossSold = g("sold") + g("credit_denial");            // credit denial = they SOLD it, couldn't finance
   const pct = (n, d) => (d > 0 ? Math.round((n / d) * 1000) / 10 : 0);
   const Bar = ({ label, n, d, color }) => (
     <div style={{ marginBottom: 9 }}>
@@ -204,8 +208,13 @@ function RetailBars({ retail }) {
         <div style={{ fontSize: 15, fontWeight: 800, fontFamily: OSWALD }}>② Appointment → Sale</div>
         <div style={{ fontSize: 12, color: "#94a3b8", marginBottom: 10 }}>Of <b>{reached}</b> appointments — {sat} have sat, {g("btr_appt")} still to sit.</div>
         <Bar label="Sold" n={g("sold")} d={sat} color="#16a34a" />
+        {g("credit_denial") > 0 && <Bar label="Credit denial — sold, couldn't finance" n={g("credit_denial")} d={sat} color="#0891b2" />}
         <Bar label="No sale" n={g("no_sale")} d={sat} color="#b45309" />
-        <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 4 }}>Close rate (of {sat} sat): <b style={{ color: "#16a34a" }}>{pct(g("sold"), sat)}%</b> · {g("btr_appt")} still on the calendar</div>
+        <div style={{ fontSize: 12, color: "#334155", marginTop: 6, lineHeight: 1.7 }}>
+          Net close (sold ÷ sat): <b style={{ color: "#16a34a" }}>{pct(g("sold"), sat)}%</b><br />
+          Gross close (incl. {g("credit_denial")} credit denial{g("credit_denial") === 1 ? "" : "s"}): <b style={{ color: "#0891b2" }}>{pct(grossSold, sat)}%</b>
+          <span style={{ color: "#94a3b8" }}> · {g("btr_appt")} still on the calendar</span>
+        </div>
       </div>
     </div>
   );
@@ -254,7 +263,7 @@ function NeedsGoBack({ rows }) {
 
 function Retail({ retail }) {
   const [filter, setFilter] = useState("all");
-  const order = ["sold", "btr_appt", "ni", "no_sale", "pending"];
+  const order = ["sold", "credit_denial", "btr_appt", "ni", "no_sale", "pending"];
   const labels = retail.labels || {};
   const buckets = retail.buckets || {};
   const deals = filter === "all" ? retail.deals : (retail.deals || []).filter((d) => (d.outcome || "pending") === filter);
