@@ -87,6 +87,32 @@ function recentNotes(insp) {
   return out;
 }
 
+// The REAL BTR pipeline stage from the live JobNimbus status (falls back to the
+// coarse retail_outcome when status is blank). This is the true pipeline the office
+// works — Sit-Pending, No-Sit, Credit Denial, etc. are all distinct now.
+function retailNorm(s) { return String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim(); }
+function retailStage(status, outcome) {
+  const s = retailNorm(status);
+  if (s) {
+    if (s.includes("sit sold insp")) return "not_worked";               // signed inspection, retail go-back not started
+    if (/sit sold|signed contract|production review|job prep|funding|pace|upcoming install|install set|roof started|new roof|paid|commission|collection|sitsold pa/.test(s)) return "sold";
+    if (s.includes("credit") && (s.includes("deni") || s.includes("declin"))) return "credit_denial";
+    if (s.includes("no sale")) return "no_sale";
+    if (s.includes("pending")) return "sit_pending";
+    if (s.includes("appointment scheduled")) return "appt_scheduled";
+    if (s.includes("no sit") || s.includes("no show")) return "no_sit";
+    if (s.includes("btr ni") || s.includes("not interested") || s.includes("refused")) return "declined";
+    if (s.includes("lost") || s === "dq" || s.includes("stale") || s.includes("dead") || s.includes("no response")) return "lost";
+  }
+  if (outcome === "sold") return "sold";
+  if (outcome === "credit_denial") return "credit_denial";
+  if (outcome === "no_sale") return "no_sale";
+  if (outcome === "ni") return "declined";
+  if (outcome === "btr_appt") return "appt_scheduled";
+  return "not_worked";
+}
+const RETAIL_STAGES = ["not_worked", "declined", "no_sit", "appt_scheduled", "sit_pending", "no_sale", "credit_denial", "sold", "lost"];
+
 const person = (insp) => insp.client_name || insp.homeowner_name || "—";
 const rep = (insp) => insp.sales_rep_name || insp.original_sales_rep_name || null;
 
@@ -141,9 +167,12 @@ export const handler = async (event) => {
     for (const i of retailDeals) { const k = i.retail_outcome && buckets[i.retail_outcome] != null ? i.retail_outcome : "pending"; buckets[k]++; }
     const rTotal = retailDeals.length || 1;
     const pct = {}; for (const k of Object.keys(buckets)) pct[k] = Math.round((buckets[k] / rTotal) * 1000) / 10;
+    // The REAL pipeline from live JN status (LOST/DQ split out, Sit-Pending its own stage).
+    const pipeline = {}; RETAIL_STAGES.forEach((k) => { pipeline[k] = 0; });
+    for (const i of retailDeals) pipeline[retailStage(i.jn_status, i.retail_outcome)]++;
     const retail = {
-      total: retailDeals.length, labels: RB, buckets, pct,
-      deals: retailDeals.map((i) => ({ ...card(i), outcome: i.retail_outcome || "pending", outcome_at: toISO(i.retail_outcome_at), jn_status: i.jn_status || null, notes: recentNotes(i) }))
+      total: retailDeals.length, labels: RB, buckets, pct, pipeline,
+      deals: retailDeals.map((i) => ({ ...card(i), outcome: i.retail_outcome || "pending", stage: retailStage(i.jn_status, i.retail_outcome), outcome_at: toISO(i.retail_outcome_at), jn_status: i.jn_status || null, notes: recentNotes(i) }))
         .sort((a, b) => (b.outcome_at || "").localeCompare(a.outcome_at || "")),
     };
 

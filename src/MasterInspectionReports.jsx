@@ -48,6 +48,9 @@ const RETAIL_COLOR = { ni: "#64748b", btr_appt: "#2563eb", sold: "#16a34a", cred
 // Inspection-result display labels (per bossman): Damage → BTPA, Retail → BTR, No Damage → ND.
 const GOBACK_LABEL = { damage: "BTPA", retail: "BTR", no_damage: "ND" };
 const GOBACK_COLOR = { damage: "#b91c1c", retail: "#0891b2", no_damage: "#64748b" };
+// The real BTR pipeline stages, from live JobNimbus status.
+const STAGE_LABEL = { not_worked: "Not worked yet", declined: "Declined", no_sit: "No-sit / no-show", appt_scheduled: "Appointment set", sit_pending: "Sit-Pending (working)", no_sale: "No sale", credit_denial: "Credit denial", sold: "Sold", lost: "Lost / dead" };
+const STAGE_COLOR = { not_worked: "#94a3b8", declined: "#64748b", no_sit: "#a16207", appt_scheduled: "#2563eb", sit_pending: "#7c3aed", no_sale: "#b45309", credit_denial: "#0891b2", sold: "#16a34a", lost: "#9ca3af" };
 
 export default function MasterInspectionReports() {
   const [data, setData] = useState(null);
@@ -174,15 +177,19 @@ function DealList({ title, sub, rows, cols = [] }) {
 //      vs declined it. (Deals that later sold/no-saled DID reach an appointment.)
 //   ② Appointment → Sale: of the appointments that SAT, how many sold.
 function RetailBars({ retail }) {
-  const b = retail.buckets || {};
+  const p = retail.pipeline || {};
   const total = retail.total || 0;
-  const g = (k) => Number(b[k] || 0);
-  const notWorked = g("pending");
-  const worked = Math.max(0, total - notWorked);
-  const reached = g("btr_appt") + g("sold") + g("credit_denial") + g("no_sale");   // reached an appointment
-  const declined = g("ni");                                    // worked, declined the appointment
-  const sat = g("sold") + g("credit_denial") + g("no_sale");   // appointment actually sat
-  const grossSold = g("sold") + g("credit_denial");            // credit denial = they SOLD it, couldn't finance
+  const g = (k) => Number(p[k] || 0);
+  const lost = g("lost");
+  const notWorked = g("not_worked");
+  const active = Math.max(0, total - lost);                    // exclude dead deals from the funnel
+  const worked = Math.max(0, active - notWorked);              // worked = active minus not-yet-worked
+  const reached = g("appt_scheduled") + g("sit_pending") + g("no_sale") + g("credit_denial") + g("sold"); // got an appointment
+  const declined = g("declined");
+  const noSit = g("no_sit");                                   // set an appt but didn't sit
+  const sat = g("sit_pending") + g("no_sale") + g("credit_denial") + g("sold");   // actually sat down
+  const resulted = g("no_sale") + g("credit_denial") + g("sold");                 // sat AND has a result
+  const grossSold = g("sold") + g("credit_denial");            // credit denial = SOLD, couldn't finance
   const pct = (n, d) => (d > 0 ? Math.round((n / d) * 1000) / 10 : 0);
   const Bar = ({ label, n, d, color }) => (
     <div style={{ marginBottom: 9 }}>
@@ -199,21 +206,22 @@ function RetailBars({ retail }) {
     <div style={{ display: "grid", gap: 12 }}>
       <div style={card}>
         <div style={{ fontSize: 15, fontWeight: 800, fontFamily: OSWALD }}>① Inspection → Appointment</div>
-        <div style={{ fontSize: 12, color: "#94a3b8", marginBottom: 10 }}>Of <b>{worked}</b> worked retail leads (the go-back). {notWorked} not worked yet.</div>
-        <Bar label="Got an appointment" n={reached} d={worked} color="#2563eb" />
-        <Bar label="Not interested — declined" n={declined} d={worked} color="#64748b" />
-        <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 4 }}>Not worked yet: <b>{notWorked}</b> of {total} total BTR</div>
+        <div style={{ fontSize: 12, color: "#94a3b8", marginBottom: 10 }}>Of <b>{worked}</b> worked leads (excludes {notWorked} not-worked &amp; {lost} lost/dead).</div>
+        <Bar label="Got an appointment" n={reached} d={worked} color={STAGE_COLOR.appt_scheduled} />
+        <Bar label="No-sit / no-show" n={noSit} d={worked} color={STAGE_COLOR.no_sit} />
+        <Bar label="Declined" n={declined} d={worked} color={STAGE_COLOR.declined} />
+        <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 4 }}>Not worked yet: <b>{notWorked}</b> · Lost/dead: <b>{lost}</b> · of {total} total BTR</div>
       </div>
       <div style={card}>
         <div style={{ fontSize: 15, fontWeight: 800, fontFamily: OSWALD }}>② Appointment → Sale</div>
-        <div style={{ fontSize: 12, color: "#94a3b8", marginBottom: 10 }}>Of <b>{reached}</b> appointments — {sat} have sat, {g("btr_appt")} still to sit.</div>
-        <Bar label="Sold" n={g("sold")} d={sat} color="#16a34a" />
-        {g("credit_denial") > 0 && <Bar label="Credit denial — sold, couldn't finance" n={g("credit_denial")} d={sat} color="#0891b2" />}
-        <Bar label="No sale" n={g("no_sale")} d={sat} color="#b45309" />
+        <div style={{ fontSize: 12, color: "#94a3b8", marginBottom: 10 }}>Of <b>{reached}</b> appointments — {sat} sat ({resulted} resulted, {g("sit_pending")} still working), {g("appt_scheduled")} still to sit.</div>
+        <Bar label="Sold" n={g("sold")} d={resulted} color={STAGE_COLOR.sold} />
+        {g("credit_denial") > 0 && <Bar label="Credit denial — sold, couldn't finance" n={g("credit_denial")} d={resulted} color={STAGE_COLOR.credit_denial} />}
+        <Bar label="No sale" n={g("no_sale")} d={resulted} color={STAGE_COLOR.no_sale} />
         <div style={{ fontSize: 12, color: "#334155", marginTop: 6, lineHeight: 1.7 }}>
-          Net close (sold ÷ sat): <b style={{ color: "#16a34a" }}>{pct(g("sold"), sat)}%</b><br />
-          Gross close (incl. {g("credit_denial")} credit denial{g("credit_denial") === 1 ? "" : "s"}): <b style={{ color: "#0891b2" }}>{pct(grossSold, sat)}%</b>
-          <span style={{ color: "#94a3b8" }}> · {g("btr_appt")} still on the calendar</span>
+          Net close (funded — sold ÷ {resulted} resulted): <b style={{ color: STAGE_COLOR.sold }}>{pct(g("sold"), resulted)}%</b><br />
+          Gross close (incl. {g("credit_denial")} credit denial{g("credit_denial") === 1 ? "" : "s"}): <b style={{ color: STAGE_COLOR.credit_denial }}>{pct(grossSold, resulted)}%</b>
+          <span style={{ color: "#94a3b8" }}> · {g("sit_pending")} still working · {g("appt_scheduled")} to sit</span>
         </div>
       </div>
     </div>
@@ -263,10 +271,9 @@ function NeedsGoBack({ rows }) {
 
 function Retail({ retail }) {
   const [filter, setFilter] = useState("all");
-  const order = ["sold", "credit_denial", "btr_appt", "ni", "no_sale", "pending"];
-  const labels = retail.labels || {};
-  const buckets = retail.buckets || {};
-  const deals = filter === "all" ? retail.deals : (retail.deals || []).filter((d) => (d.outcome || "pending") === filter);
+  const order = ["sold", "credit_denial", "no_sale", "sit_pending", "appt_scheduled", "no_sit", "declined", "not_worked", "lost"];
+  const pipe = retail.pipeline || {};
+  const deals = filter === "all" ? retail.deals : (retail.deals || []).filter((d) => d.stage === filter);
   const pill = (active, color) => ({
     fontFamily: OSWALD, fontSize: 12.5, fontWeight: 800, padding: "7px 13px", borderRadius: 999, cursor: "pointer",
     border: `2px solid ${color}`, background: active ? color : "#fff", color: active ? "#fff" : color, whiteSpace: "nowrap",
@@ -284,8 +291,8 @@ function Retail({ retail }) {
         )}
       </div>
       <div style={{ textAlign: "right", fontSize: 12 }}>
-        <div><span style={{ color: "#94a3b8" }}>Outcome: </span><b>{r.outcome}</b></div>
-        <div><span style={{ color: "#94a3b8" }}>When: </span>{fmtDate(r.outcome_at)}</div>
+        <div><b style={{ color: STAGE_COLOR[r.stage] || "#0f172a" }}>{STAGE_LABEL[r.stage] || r.stage}</b></div>
+        {r.outcome_at && <div style={{ color: "#94a3b8" }}>{fmtDate(r.outcome_at)}</div>}
       </div>
     </div>
   );
@@ -293,16 +300,16 @@ function Retail({ retail }) {
     <div>
       <RetailBars retail={retail} />
       <div style={{ height: 14 }} />
-      {/* Outcome filter — press one to narrow the deal list to just those (still grouped zone → rep). */}
+      {/* Pipeline-stage filter — press one to narrow the deal list to just that stage (grouped zone → rep). */}
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 14 }}>
         <button onClick={() => setFilter("all")} style={pill(filter === "all", "#334155")}>All · {retail.total}</button>
-        {order.filter((k) => buckets[k] != null).map((k) => (
-          <button key={k} onClick={() => setFilter(k)} style={pill(filter === k, RETAIL_COLOR[k])}>{labels[k] || k} · {buckets[k]}</button>
+        {order.filter((k) => (pipe[k] || 0) > 0).map((k) => (
+          <button key={k} onClick={() => setFilter(k)} style={pill(filter === k, STAGE_COLOR[k])}>{STAGE_LABEL[k]} · {pipe[k]}</button>
         ))}
       </div>
       <Section
-        title={`${filter === "all" ? "BTR deals" : (labels[filter] || "BTR deals")} (${deals.length})`}
-        sub={filter === "all" ? "Every BTR-track deal — its current JobNimbus status + outcome, grouped by zone → rep." : `Only ${String(labels[filter] || "").toLowerCase()} — each with its current JobNimbus status, grouped by zone → rep.`}>
+        title={`${filter === "all" ? "BTR deals" : STAGE_LABEL[filter]} (${deals.length})`}
+        sub={filter === "all" ? "Every BTR-track deal — its real pipeline stage from live JobNimbus status, grouped by zone → rep." : `Only ${String(STAGE_LABEL[filter] || "").toLowerCase()} — grouped by zone → rep.`}>
         {!deals.length ? <Empty /> : <Grouped groups={twoLevel(deals, (r) => r.zone, (r) => r.rep || "—")} renderRow={retailRow} />}
       </Section>
     </div>
