@@ -167,12 +167,17 @@ async function buildSlots(days, home, apptZone, onlyPaId, homeLang) {
     }));
   }
 
+  // No SAME-DAY PA appointments — the adjuster needs lead time (per Neal). Offer
+  // tomorrow onward by skipping today's ET date in the loop below.
+  const _t0 = etDateParts(nowMs);
+  const todayStr = `${_t0.y}-${String(_t0.mo).padStart(2, "0")}-${String(_t0.day).padStart(2, "0")}`;
   const slots = [];
   for (let d = 0; d < days; d++) {
     const { y, mo, day, weekday } = etDateParts(nowMs + d * 864e5);
     const times = SLOT_TIMES_MIN[weekday] || [];
     if (!times.length) continue;
     const dateStr = `${y}-${String(mo).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    if (dateStr === todayStr) continue;   // no same-day appointments
     for (const pa of pas) {
       // Company paused scheduling (setup/training not done) → the REP booker
       // offers that company's PAs nothing. But a PA scheduling their OWN deal
