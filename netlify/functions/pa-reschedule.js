@@ -27,6 +27,7 @@ export const handler = async (event) => {
 
   try {
     if (action === "send") return await send(body);
+    if (action === "preview") return await preview();   // office composer: token-less page preview
     const t = String(body.t || "").trim();
     if (!t) return cors(400, JSON.stringify({ ok: false, error: "link token required" }));
     const appt = (await sbGet(`pa_appointments?reschedule_token=eq.${encodeURIComponent(t)}&select=id,homeowner_name,homeowner_phone,address,start_at,pa_id,inspection_id,status&limit=1`))[0];
@@ -118,6 +119,28 @@ async function send(body) {
   if (phone) { try { await fetch(`${BASE}/.netlify/functions/ghl-sms`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ to: phone, name, message: msg }) }); sms = true; } catch { /* best-effort */ } }
   if (email) { try { await fetch(`${BASE}/.netlify/functions/send-email`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ to: email, subject: "Reschedule your roof adjuster appointment", html: `<p>Hi ${name},</p><p>We missed you for your roof adjuster appointment. No problem — pick a new time that works for you:</p><p><a href="${link}">${link}</a></p>` }) }); mail = true; } catch { /* best-effort */ } }
   return cors(200, JSON.stringify({ ok: true, sent: sms || mail, sms, email: mail }));
+}
+
+// Token-less PREVIEW for the office composer — the current pitch filled with a
+// sample homeowner + real sample damage photos, so they can see the page as they edit.
+async function preview() {
+  let tpl = await getSetting("pa_reschedule_pitch");
+  if (typeof tpl === "string") { try { tpl = JSON.parse(tpl); } catch { tpl = null; } }
+  if (!tpl || typeof tpl !== "object") tpl = {};
+  const S = { first_name: "Chris", address: "123 Main St, Tampa" };
+  const fill = (s) => String(s || "").replace(/\{first[_ ]?name\}/gi, S.first_name).replace(/\{address\}/gi, S.address).replace(/\{city\}/gi, "Tampa");
+  const pitch = {
+    headline: fill(tpl.headline || "Your roof came back with damage"),
+    body: fill(tpl.body || "Hi {first_name} — our inspector documented damage on your roof at {address}. This is often covered by your insurance, and a licensed Public Adjuster can file the claim for you."),
+  };
+  let photos = [];
+  try {
+    const dmg = (await sbGet(`inspections?result=eq.damage&inspection_photos=not.is.null&select=inspection_photos&limit=1`))[0];
+    let items = dmg && dmg.inspection_photos;
+    if (typeof items === "string") { try { items = JSON.parse(items); } catch { items = []; } }
+    if (Array.isArray(items)) photos = await signSupabasePhotos(items.slice(0, 9), SB_URL, sb);
+  } catch { /* no sample photos available */ }
+  return cors(200, JSON.stringify({ ok: true, appt: { name: "Chris Sample", address: "123 Main St", city: "Tampa", result: "damage", pitch, photos, preview: true } }));
 }
 
 async function callScheduler(payload) {

@@ -18,6 +18,7 @@ const timeLabel = (iso) => new Date(iso).toLocaleTimeString("en-US", { timeZone:
 
 export default function PaReschedule() {
   const token = useMemo(() => { try { return new URLSearchParams(window.location.search).get("t") || ""; } catch { return ""; } }, []);
+  const preview = useMemo(() => { try { return new URLSearchParams(window.location.search).get("preview") === "1"; } catch { return false; } }, []);
   const [appt, setAppt] = useState(null);
   const [slots, setSlots] = useState(null);
   const [err, setErr] = useState("");
@@ -26,12 +27,16 @@ export default function PaReschedule() {
   const [zoom, setZoom] = useState(null);   // enlarged damage photo (URL) or null
 
   useEffect(() => {
+    if (preview) {
+      (async () => { try { const j = await api("preview", {}); setAppt(j.appt); setSlots([]); } catch (e) { setErr(e.message); } })();
+      return;
+    }
     if (!token) { setErr("This link is missing its code — please use the link from your text or email."); return; }
     (async () => {
       try { const j = await api("load", { t: token }); setAppt(j.appt); } catch (e) { setErr(e.message); return; }
       try { const j = await api("slots", { t: token }); setSlots(j.slots || []); } catch (e) { setErr(e.message); setSlots([]); }
     })();
-  }, [token]);
+  }, [token, preview]);
 
   const book = async (s) => {
     setBooking(s.start_at + s.pa_id); setErr("");
@@ -73,6 +78,7 @@ export default function PaReschedule() {
   const pitch = appt.pitch || {};
   return (
     <Wrap>
+      {preview && <div style={{ background: "#eef2ff", border: "1px solid #c7d2fe", borderRadius: 10, padding: "8px 12px", marginBottom: 14, fontSize: 12.5, fontWeight: 800, color: "#4338ca" }}>👁 PREVIEW — sample homeowner &amp; photos. This is exactly what a homeowner sees.</div>}
       {/* 1) THE PROOF — why they need this appointment: their own roof, documented.
              Headline + body are an OFFICE-EDITABLE pitch (appt.pitch), tokens filled
              server-side. Falls back to the default copy if the feed is old. */}
@@ -105,7 +111,8 @@ export default function PaReschedule() {
                   : <>Hi {firstName} — we missed you for your roof adjuster appointment{appt.address ? <> at <b>{[appt.address, appt.city].filter(Boolean).join(", ")}</b></> : ""}. Pick a new time that works for you:</>}
       </div>
       {err && <div style={{ color: "#b91c1c", fontSize: 13.5, marginTop: 12, fontWeight: 700 }}>{err}</div>}
-      {slots === null ? <Msg text="Finding open times…" plain />
+      {preview ? <div style={{ marginTop: 16, padding: 14, background: "#f8fafc", border: "1px dashed #cbd5e1", borderRadius: 12, color: "#64748b", fontSize: 13.5 }}>🗓️ The homeowner picks from their available Five Star appointment times here.</div>
+        : slots === null ? <Msg text="Finding open times…" plain />
         : !dayKeys.length ? <div style={{ marginTop: 16, color: "#64748b", fontSize: 14 }}>No open times online right now — we'll call you to set one up.</div>
         : (
         <div style={{ marginTop: 18, display: "grid", gap: 16 }}>

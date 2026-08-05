@@ -51,6 +51,13 @@ export default function PaReschedCompose() {
     catch (e) { setErr(e.message); }
     setSaving(false);
   };
+  // Save the current pitch, then open the real landing page in preview mode (sample
+  // homeowner + sample damage photos) so you see exactly what a homeowner gets.
+  const openPreview = async () => {
+    setErr("");
+    try { await api("save", { sms, pitch }); setSaved("Saved."); } catch (e) { setErr(e.message); }
+    window.open("/?mode=pareschedule&preview=1", "_blank", "noopener");
+  };
 
   return (
     <div style={{ minHeight: "100vh", background: "#f1f5f9", fontFamily: FONT, padding: "22px 16px 80px" }}>
@@ -93,6 +100,7 @@ export default function PaReschedCompose() {
 
         <div style={{ display: "flex", alignItems: "center", gap: 12, margin: "4px 0 20px" }}>
           <button onClick={save} disabled={saving} style={{ fontFamily: OSWALD, fontSize: 14, fontWeight: 800, color: "#fff", background: NAVY, border: "none", borderRadius: 10, padding: "10px 20px", cursor: saving ? "default" : "pointer" }}>{saving ? "Saving…" : "Save message + pitch"}</button>
+          <button onClick={openPreview} style={{ fontFamily: OSWALD, fontSize: 14, fontWeight: 800, color: NAVY, background: "#fff", border: `2px solid ${NAVY}`, borderRadius: 10, padding: "10px 20px", cursor: "pointer" }}>👁 Preview page</button>
           {saved && <span style={{ color: "#16a34a", fontSize: 13.5, fontWeight: 700 }}>{saved}</span>}
         </div>
 
