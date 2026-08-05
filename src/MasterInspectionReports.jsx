@@ -214,15 +214,19 @@ function RetailBars({ retail }) {
       </div>
       <div style={card}>
         <div style={{ fontSize: 15, fontWeight: 800, fontFamily: OSWALD }}>② Appointment → Sale</div>
-        <div style={{ fontSize: 12, color: "#94a3b8", marginBottom: 10 }}>Of <b>{reached}</b> appointments — {sat} sat ({resulted} resulted, {g("sit_pending")} still working), {g("appt_scheduled")} still to sit.</div>
+        <div style={{ fontSize: 12, color: "#94a3b8", marginBottom: 10 }}>Of <b>{reached}</b> appointments — <b>{resulted}</b> resolved. Close rates are off the resolved ones (pending is still live, so it's not a loss).</div>
         <Bar label="Sold" n={g("sold")} d={resulted} color={STAGE_COLOR.sold} />
         {g("credit_denial") > 0 && <Bar label="Credit denial — sold, couldn't finance" n={g("credit_denial")} d={resulted} color={STAGE_COLOR.credit_denial} />}
-        <Bar label="No sale" n={g("no_sale")} d={resulted} color={STAGE_COLOR.no_sale} />
+        <Bar label="Not interested (no sale)" n={g("no_sale")} d={resulted} color={STAGE_COLOR.no_sale} />
         <div style={{ fontSize: 12, color: "#334155", marginTop: 6, lineHeight: 1.7 }}>
-          Net close (funded — sold ÷ {resulted} resulted): <b style={{ color: STAGE_COLOR.sold }}>{pct(g("sold"), resulted)}%</b><br />
+          Net close (funded — sold ÷ {resulted} resolved): <b style={{ color: STAGE_COLOR.sold }}>{pct(g("sold"), resulted)}%</b><br />
           Gross close (incl. {g("credit_denial")} credit denial{g("credit_denial") === 1 ? "" : "s"}): <b style={{ color: STAGE_COLOR.credit_denial }}>{pct(grossSold, resulted)}%</b>
-          <span style={{ color: "#94a3b8" }}> · {g("sit_pending")} still working · {g("appt_scheduled")} to sit</span>
         </div>
+        {(g("sit_pending") > 0 || g("appt_scheduled") > 0) && (
+          <div style={{ marginTop: 10, padding: "8px 11px", background: "#faf5ff", border: "1px solid #e9d5ff", borderRadius: 10, fontSize: 12.5, color: "#6b21a8", lineHeight: 1.6 }}>
+            🟣 <b>Pending — still live: {g("sit_pending")}</b> (sat, still being worked — NOT counted as a loss){g("appt_scheduled") > 0 ? <> · <b>{g("appt_scheduled")}</b> still to sit</> : null}
+          </div>
+        )}
       </div>
     </div>
   );
