@@ -168,7 +168,14 @@ export const handler = async (event) => {
 
     // 5) PA APPOINTMENTS THAT HAVE PASSED — status, outcome, which PA / company, when filed.
     const pa_passed = appts
-      .filter((a) => a.start_at && new Date(a.start_at).getTime() < nowMs)
+      .filter((a) => {
+        if (!(a.start_at && new Date(a.start_at).getTime() < nowMs)) return false;
+        // Converted to retail at the door → it's a BTR deal now, not a PA appointment
+        // to reschedule. Drop it from the PA report; it lives in the BTR bucket.
+        const insp = a.inspection_id ? inspById[a.inspection_id] : null;
+        if (insp && String(insp.result || "").toLowerCase() === "retail") return false;
+        return true;
+      })
       .map((a) => {
         const insp = a.inspection_id ? inspById[a.inspection_id] : null;
         const outcome = insp ? paOutcome(insp) : "pending";
