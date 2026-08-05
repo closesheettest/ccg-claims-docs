@@ -21,8 +21,8 @@ const ORIGIN = (() => { try { return window.location.origin; } catch { return "h
 // styled to look like what it does, so no symbols to memorize.
 const MARKS = [
   { key: "b", label: "Bold", pre: "**", post: "**", css: { fontWeight: 900 } },
-  { key: "i", label: "Italic", pre: "_", post: "_", css: { fontStyle: "italic" } },
-  { key: "big", label: "Bigger", pre: "*", post: "*", css: { fontSize: 16, fontWeight: 800 } },
+  { key: "i", label: "Italic", pre: "__", post: "__", css: { fontStyle: "italic" } },
+  { key: "big", label: "Bigger", pre: "~~", post: "~~", css: { fontSize: 16, fontWeight: 800 } },
   { key: "hl", label: "Highlight", pre: "==", post: "==", css: { background: "#fde047", fontWeight: 700 } },
   { key: "red", label: "Red", pre: "!!", post: "!!", css: { color: "#dc2626", fontWeight: 800 } },
 ];

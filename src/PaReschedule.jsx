@@ -17,14 +17,24 @@ const dayLabel = (iso) => new Date(iso).toLocaleDateString("en-US", { timeZone: 
 const timeLabel = (iso) => new Date(iso).toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" });
 // Light markdown so the office can emphasize the pitch. The composer's toolbar
 // writes these markers; keep the two in sync.
-//   **bold**   *bigger*   _italic_   ==highlight==   !!red!!
-function renderRich(text) {
-  return String(text || "").split(/(\*\*[^*]+\*\*|\*[^*]+\*|_[^_]+_|==[^=]+==|!![^!]+!!)/g).map((p, i) => {
-    if (/^\*\*[^*]+\*\*$/.test(p)) return <b key={i} style={{ fontWeight: 900 }}>{p.slice(2, -2)}</b>;
-    if (/^\*[^*]+\*$/.test(p)) return <span key={i} style={{ fontSize: "1.18em", fontWeight: 800 }}>{p.slice(1, -1)}</span>;
-    if (/^_[^_]+_$/.test(p)) return <i key={i}>{p.slice(1, -1)}</i>;
-    if (/^==[^=]+==$/.test(p)) return <mark key={i} style={{ background: "#fde047", padding: "0 3px", borderRadius: 3 }}>{p.slice(2, -2)}</mark>;
-    if (/^!![^!]+!!$/.test(p)) return <span key={i} style={{ color: "#dc2626", fontWeight: 800 }}>{p.slice(2, -2)}</span>;
+//   **bold**   ~~bigger~~   __italic__   ==highlight==   !!red!!   (*legacy bigger*)
+// Recursive + lazy so styles STACK (e.g. bold+bigger+red = **~~!!words!!~~**) and an
+// internal "!" (e.g. "COST YOU LESS!") doesn't break the red marker. Bigger has its
+// own ~~ delimiter so it never collides with ** bold; single *…* stays as a legacy
+// alias so pitches saved before the toolbar still render bigger.
+const RICH_RE = /(\*\*[\s\S]+?\*\*|__[\s\S]+?__|~~[\s\S]+?~~|==[\s\S]+?==|!![\s\S]+?!!|\*[\s\S]+?\*)/g;
+const BIG = { fontSize: "1.18em", fontWeight: 800 };
+function renderRich(text, depth = 0) {
+  const s = String(text || "");
+  if (depth > 5) return s; // safety net against pathological nesting
+  return s.split(RICH_RE).map((p, i) => {
+    const inner = (a, b) => renderRich(p.slice(a, b), depth + 1);
+    if (/^\*\*[\s\S]+\*\*$/.test(p)) return <b key={i} style={{ fontWeight: 900 }}>{inner(2, -2)}</b>;
+    if (/^__[\s\S]+__$/.test(p)) return <i key={i}>{inner(2, -2)}</i>;
+    if (/^~~[\s\S]+~~$/.test(p)) return <span key={i} style={BIG}>{inner(2, -2)}</span>;
+    if (/^==[\s\S]+==$/.test(p)) return <mark key={i} style={{ background: "#fde047", padding: "0 3px", borderRadius: 3 }}>{inner(2, -2)}</mark>;
+    if (/^!![\s\S]+!!$/.test(p)) return <span key={i} style={{ color: "#dc2626", fontWeight: 800 }}>{inner(2, -2)}</span>;
+    if (/^\*[\s\S]+\*$/.test(p)) return <span key={i} style={BIG}>{inner(1, -1)}</span>;
     return <React.Fragment key={i}>{p}</React.Fragment>;
   });
 }
