@@ -69,29 +69,26 @@ function titleAddr(s) {
     .replace(/\b(N|S|E|W|Ne|Nw|Se|Sw)\b/g, (m) => m.toUpperCase());
 }
 
-// The MAP PIN behind a credit, shown next to each address in the drill-down so a
-// manager sees exactly which kind of pin the rep worked. Never says "Harvesting" —
-// a plain canvassed door off the map is a "Knock pin". (Referral is excluded from
-// the board entirely — a call-in referral is a company lead, not harvested.)
-function pinType(src) {
-  const s = String(src || "").toLowerCase();
-  if (/self.?gen/.test(s)) return "Drop pin";
-  if (/instant\s*quote/.test(s)) return "IQ pin";
-  if (/facebook/.test(s)) return "FB pin";
-  if (/\bai\b/.test(s)) return "AI pin";
-  if (/harvest/.test(s)) return "Knock pin";
-  return String(src || "").trim();
-}
-// Map-side pins carry the origin as a from_status code, not a source name.
-function pinTypeFromStatus(fs) {
-  switch (String(fs || "").toLowerCase()) {
-    case "iq": return "IQ pin";
-    case "fb": return "FB pin";
-    case "ai": return "AI pin";
-    case "self_gen": return "Drop pin";
-    case "no_sit_reschedule": return "Knock pin";
-    default: return "";
-  }
+// The actual MAP PIN TYPE behind a credit, shown next to each address in the
+// drill-down — read from the pin's own status (the from_status it had when the rep
+// booked it), NOT the coarse JobNimbus source. So it lists exactly WHAT IT WAS ON
+// THE MAP: "IQ Pin", "Facebook Pin", "No-Sit Rebook", "Inspection Lead", "Drop Pin",
+// etc. — never a generic "Knock pin".
+const PIN_LABEL = {
+  iq: "IQ Pin", iq_ni: "IQ Pin", fb: "Facebook Pin", ai: "AI Pin",
+  self_gen: "Drop Pin", no_sit_reschedule: "No-Sit Rebook", insp: "Inspection Lead",
+  referral: "Referral", clover: "Clover Pin", damage_observed: "Damage Pin",
+};
+function pinLabel(fromStatus, srcName) {
+  const f = String(fromStatus || "").toLowerCase();
+  if (PIN_LABEL[f]) return PIN_LABEL[f];
+  // Fallback to the JN source only when the pin's original status isn't on its log.
+  const s = String(srcName || "").toLowerCase();
+  if (/self.?gen/.test(s)) return "Drop Pin";
+  if (/instant\s*quote/.test(s)) return "IQ Pin";
+  if (/facebook/.test(s)) return "Facebook Pin";
+  if (/\bai\b/.test(s)) return "AI Pin";
+  return "Field lead";
 }
 
 const ZONE_TEAMS = { "Zone 1": "SQUAD", "Zone 2": "SitSold", "Zone 3": "SHARKS", "Zone 4": "HURRICANE" };
@@ -166,7 +163,7 @@ export const handler = async (event) => {
         for (const p of rows) { if (p.address) pinAddr[p.id] = titleAddr(`${p.address}${p.city ? ", " + p.city : ""}`); if (p.jn_job_id) mapJobIds.add(p.jn_job_id); }
       }
     }
-    for (const d of mapDealRefs) { const z = agg[d.zone]; if (z) z.deals.push({ rep: d.rep, label: pinAddr[d.pin_id] || "Map lead", source: pinTypeFromStatus(d.from) }); }
+    for (const d of mapDealRefs) { const z = agg[d.zone]; if (z) z.deals.push({ rep: d.rep, label: pinAddr[d.pin_id] || "Map lead", source: pinLabel(d.from, null) }); }
     if (auditOn) for (const r of auditRows) if (r.origin === "map" && r.pin_id) r.label = pinAddr[r.pin_id] || "Map lead";
 
     // ── JN-SIDE HARVESTED APPOINTMENTS (reverse direction, per Neal) ─────────
@@ -277,6 +274,7 @@ export const handler = async (event) => {
         // booking. A rep's OWN field job (self-gen / harvesting) is created when they
         // set the appt, so its creation date counts as the booking too.
         const creationIsBooking = (s) => /self.?gen|harvest/i.test(String(s || ""));
+        const jnDealsToLabel = []; // { obj, jobid, src } → labeled by the real map pin type after the loop
         for (const [id, job] of candidates) {
           if (!job || mapJobIds.has(id)) continue;
           const src = job.source_name || "";
@@ -294,8 +292,29 @@ export const handler = async (event) => {
           const z = agg[zone] || (agg[zone] = { count: 0, byRep: {}, deals: [] });
           z.count += 1;
           z.byRep[rep || "—"] = (z.byRep[rep || "—"] || 0) + 1;
-          z.deals.push({ rep: rep || "—", label: titleAddr(jobAddress(job)), source: pinType(src) });
+          const dealObj = { rep: rep || "—", label: titleAddr(jobAddress(job)), source: null };
+          z.deals.push(dealObj);
+          jnDealsToLabel.push({ obj: dealObj, jobid: id, src });
           jnCounted += 1;
+        }
+        // Label each JN-side credit with the ACTUAL map pin type it was — read from
+        // the pin's status_log (the status it had when the rep booked it), so the
+        // drill-down lists "IQ Pin / Inspection Lead / No-Sit Rebook / Drop Pin",
+        // never the coarse JN source. Falls back to the source only if no pin/log.
+        if (jnDealsToLabel.length) {
+          const ids = [...new Set(jnDealsToLabel.map((x) => x.jobid))];
+          const pinFromByJob = {};
+          for (let i = 0; i < ids.length; i += 100) {
+            const inList = ids.slice(i, i + 100).map((x) => `"${x}"`).join(",");
+            const pins = await sbGet(`canvass_prospects?jn_job_id=in.(${encodeURIComponent(inList)})&select=jn_job_id,status_log`);
+            for (const p of pins) {
+              const log = Array.isArray(p.status_log) ? p.status_log : [];
+              const appt = log.find((e) => e && e.to === "appt");
+              const from = (appt && appt.from) || (log[0] && log[0].from) || null;
+              if (p.jn_job_id) pinFromByJob[p.jn_job_id] = from;
+            }
+          }
+          for (const x of jnDealsToLabel) x.obj.source = pinLabel(pinFromByJob[x.jobid], x.src);
         }
       }
     } catch { /* board still renders from map bookings alone */ }
