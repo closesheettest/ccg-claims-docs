@@ -81,6 +81,7 @@ export const handler = async (event) => {
       const level = override || zoneInfo?.level || "junior";
       cards.push({
         id: r.id,
+        jobnimbus_id: r.jobnimbus_id || null,   // so other apps (TMS manager dashboard) can match a rep to their link
         name: r.name || "Rep",
         level,
         override,                       // the explicit office assignment, if any
