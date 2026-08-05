@@ -8419,6 +8419,27 @@ function InspectionActions({ d, base = "", onChanged }) {
     } catch { setMsg("Network error."); }
     setBusy(false);
   };
+  // Change which pipeline the deal is in (mis-inspected, or tried-retail-then-PA).
+  const [confirmResult, setConfirmResult] = useState(null); // pending target awaiting confirm
+  const RESULT_OPTS = [
+    { key: "damage", label: "🏚️ Damage / Need PA", note: "Moves the JobNimbus job to the insurance location (PA record type) and re-queues it for a Public Adjuster." },
+    { key: "retail", label: "🏡 Retail", note: "Moves it to the retail lane (Lead record type, retail location)." },
+    { key: "no_damage", label: "✅ No Damage", note: "Marks the roof as no damage." },
+  ];
+  const RESULT_NAME = { damage: "Damage", retail: "Retail", no_damage: "No Damage" };
+  const changeResult = async (result) => {
+    setBusy(true); setMsg("");
+    try {
+      const j = await post("inspection-action", { action: "change_result", inspection_id: d.inspection_id, result, by: "Manager (lookup)" });
+      if (!j.ok) setMsg(j.error || "Change failed.");
+      else {
+        const jnErr = (j.jn?.errors || []).length ? ` ⚠ JobNimbus: ${j.jn.errors.join("; ")}` : "";
+        setMsg(`✓ ${j.note || "Changed."}${jnErr}`);
+        setTimeout(() => onChanged && onChanged(), 1200);
+      }
+    } catch { setMsg("Network error."); }
+    setBusy(false); setConfirmResult(null); setOpen(null);
+  };
   const canPa = d.result === "damage";
 
   return (
@@ -8426,7 +8447,36 @@ function InspectionActions({ d, base = "", onChanged }) {
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
         <button type="button" onClick={() => setOpen(open === "fix" ? null : "fix")} style={actBtn}>✏️ Fix homeowner info</button>
         {canPa && <button type="button" onClick={() => (open === "pa" ? setOpen(null) : loadSlots())} style={actBtn}>📅 Schedule a PA</button>}
+        <button type="button" onClick={() => { setConfirmResult(null); setOpen(open === "result" ? null : "result"); }} style={actBtn}>🔄 Change result</button>
       </div>
+      {open === "result" && (
+        <div style={{ marginTop: 10, background: "#fff", border: "1px solid #e5e7eb", borderRadius: 10, padding: 12 }}>
+          <div style={{ fontSize: 13, color: "#374151", marginBottom: 8 }}>
+            Currently <b>{RESULT_NAME[d.result] || d.result || "—"}</b>. Change the inspection result — this moves the deal between the retail and insurance/PA pipelines in the app <i>and</i> JobNimbus.
+          </div>
+          {!confirmResult ? (
+            <div style={{ display: "grid", gap: 6 }}>
+              {RESULT_OPTS.filter((o) => o.key !== d.result).map((o) => (
+                <button key={o.key} type="button" onClick={() => setConfirmResult(o.key)} style={{ ...actBtn, textAlign: "left", padding: "9px 12px" }}>
+                  <div style={{ fontWeight: 800 }}>{o.label}</div>
+                  <div style={{ fontSize: 11.5, color: "#6b7280", fontWeight: 500, marginTop: 1 }}>{o.note}</div>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div style={{ display: "grid", gap: 8 }}>
+              <div style={{ fontSize: 13.5, color: "#0f172a", fontWeight: 700 }}>
+                Change {d.client_name || "this deal"} from <b>{RESULT_NAME[d.result] || d.result}</b> → <b>{RESULT_NAME[confirmResult]}</b>?
+              </div>
+              <div style={{ fontSize: 12, color: "#6b7280" }}>{RESULT_OPTS.find((o) => o.key === confirmResult)?.note}</div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button type="button" onClick={() => changeResult(confirmResult)} disabled={busy} style={{ ...actBtn, background: "#199c2e", color: "#fff", border: "none" }}>{busy ? "Changing…" : `Yes, change to ${RESULT_NAME[confirmResult]}`}</button>
+                <button type="button" onClick={() => setConfirmResult(null)} disabled={busy} style={actBtn}>Cancel</button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
       {open === "fix" && (
         <div style={{ marginTop: 10, display: "grid", gap: 6 }}>
           {[["client_name", "Name"], ["mobile", "Phone"], ["email", "Email"], ["address", "Address"], ["city", "City"], ["state", "State"], ["zip", "Zip"]].map(([k, lbl]) => (
