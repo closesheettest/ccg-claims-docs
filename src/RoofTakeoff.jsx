@@ -61,6 +61,8 @@ export default function RoofTakeoff() {
   const [address, setAddress] = useState("");
   const [ref, setRef] = useState(null);       // independent reference numbers for cross-check
   const [looking, setLooking] = useState(false);
+  const [showReport, setShowReport] = useState(false);
+  const [reportAck, setReportAck] = useState(false);   // rep acknowledged the safeguard flags
 
   const num = (v) => { const n = parseFloat(v); return isNaN(n) ? 0 : n; };
   const setW = (i, k, v) => setWings((ws) => ws.map((w, j) => (j === i ? { ...w, [k]: v } : w)));

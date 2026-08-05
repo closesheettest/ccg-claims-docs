@@ -118,8 +118,8 @@ export default function PaReschedule() {
         📅 SCHEDULE YOUR APPOINTMENT
       </div>
       <div style={{ fontSize: 24, fontWeight: 900, fontFamily: OSWALD, color: NAVY }}>Schedule with your Public Adjuster</div>
-      <div style={{ fontSize: 14.5, color: "#334155", marginTop: 6, lineHeight: 1.5 }}>
-        {isDamage ? <>We missed you last time — pick a new time and a Public Adjuster will meet you to get your claim started:</>
+      <div style={{ fontSize: 14.5, color: "#334155", marginTop: 6, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>
+        {isDamage ? renderRich(pitch.schedule || "We missed you last time — pick a new time and a Public Adjuster will meet you to get your claim started:")
                   : <>Hi {firstName} — we missed you for your roof adjuster appointment{appt.address ? <> at <b>{[appt.address, appt.city].filter(Boolean).join(", ")}</b></> : ""}. Pick a new time that works for you:</>}
       </div>
       {err && <div style={{ color: "#b91c1c", fontSize: 13.5, marginTop: 12, fontWeight: 700 }}>{err}</div>}

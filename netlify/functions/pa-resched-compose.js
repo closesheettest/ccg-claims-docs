@@ -28,6 +28,7 @@ const DEFAULT_SMS = "Hi {first_name}, it's U.S. Shingle & Metal. Your roof inspe
 const DEFAULT_PITCH = {
   headline: "Your roof came back with damage",
   body: "Hi {first_name} — our inspector documented damage on your roof at {address}. This is often covered by your insurance, and a licensed Public Adjuster can file the claim for you.",
+  schedule: "We missed you last time — pick a new time and a Public Adjuster will meet you to get your claim started:",
 };
 
 exports.handler = async (event) => {
@@ -44,7 +45,7 @@ exports.handler = async (event) => {
     }
     if (action === "save") {
       const writes = [];
-      if (body.pitch && typeof body.pitch === "object") writes.push(setSetting("pa_reschedule_pitch", { headline: String(body.pitch.headline || "").trim(), body: String(body.pitch.body || "").trim() }));
+      if (body.pitch && typeof body.pitch === "object") writes.push(setSetting("pa_reschedule_pitch", { headline: String(body.pitch.headline || "").trim(), body: String(body.pitch.body || "").trim(), schedule: String(body.pitch.schedule || "").trim() }));
       if (typeof body.sms === "string") writes.push(setSetting("pa_reschedule_sms", body.sms));
       await Promise.all(writes);
       return cors(200, { ok: true, saved: writes.length });
@@ -136,7 +137,7 @@ function recentNotes(insp) {
 function normPitch(p) {
   if (typeof p === "string") { try { p = JSON.parse(p); } catch { p = null; } }
   if (!p || typeof p !== "object") return { ...DEFAULT_PITCH };
-  return { headline: p.headline || DEFAULT_PITCH.headline, body: p.body || DEFAULT_PITCH.body };
+  return { headline: p.headline || DEFAULT_PITCH.headline, body: p.body || DEFAULT_PITCH.body, schedule: p.schedule || DEFAULT_PITCH.schedule };
 }
 
 async function getSetting(key) { const rows = await sbGet(`app_settings?key=eq.${encodeURIComponent(key)}&select=value&limit=1`); return rows[0]?.value ?? null; }

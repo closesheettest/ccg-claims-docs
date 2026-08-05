@@ -69,6 +69,7 @@ export const handler = async (event) => {
       const pitch = {
         headline: fill(tpl.headline || "Your roof came back with damage"),
         body: fill(tpl.body || "Hi {first_name} — our inspector documented damage on your roof at {address}. This is often covered by your insurance, and a licensed Public Adjuster can file the claim for you."),
+        schedule: fill(tpl.schedule || "We missed you last time — pick a new time and a Public Adjuster will meet you to get your claim started:"),
       };
       return cors(200, JSON.stringify({ ok: true, appt: { name: appt.homeowner_name, address: appt.address, city, old_start_at: appt.start_at, result, photos, pitch } }));
     }
@@ -132,6 +133,7 @@ async function preview() {
   const pitch = {
     headline: fill(tpl.headline || "Your roof came back with damage"),
     body: fill(tpl.body || "Hi {first_name} — our inspector documented damage on your roof at {address}. This is often covered by your insurance, and a licensed Public Adjuster can file the claim for you."),
+    schedule: fill(tpl.schedule || "We missed you last time — pick a new time and a Public Adjuster will meet you to get your claim started:"),
   };
   let photos = [];
   try {

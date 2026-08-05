@@ -25,14 +25,14 @@ export default function PaReschedCompose() {
   const [err, setErr] = useState("");
   const [sel, setSel] = useState(() => new Set());
   const [sms, setSms] = useState("");
-  const [pitch, setPitch] = useState({ headline: "", body: "" });
+  const [pitch, setPitch] = useState({ headline: "", body: "", schedule: "" });
   const [saved, setSaved] = useState("");
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     (async () => {
       try {
-        const s = await api("settings"); setSms(s.sms || ""); setPitch(s.pitch || { headline: "", body: "" });
+        const s = await api("settings"); setSms(s.sms || ""); setPitch(s.pitch || { headline: "", body: "", schedule: "" });
         const l = await api("list");
         setCands(l.candidates || []);
         setSel(new Set((l.candidates || []).map((c) => c.appt_id)));   // default: all selected
@@ -95,6 +95,9 @@ export default function PaReschedCompose() {
             style={{ width: "100%", boxSizing: "border-box", fontFamily: OSWALD, fontWeight: 800, fontSize: 17, padding: "9px 12px", border: "1px solid #cbd5e1", borderRadius: 10, marginBottom: 10 }} />
           <label style={lbl}>Body</label>
           <textarea value={pitch.body} onChange={(e) => setPitch({ ...pitch, body: e.target.value })} rows={3}
+            style={{ width: "100%", boxSizing: "border-box", fontFamily: FONT, fontSize: 14.5, padding: 12, border: "1px solid #cbd5e1", borderRadius: 10, lineHeight: 1.5 }} />
+          <label style={{ ...lbl, marginTop: 10 }}>Scheduler line <span style={{ fontWeight: 600, color: "#94a3b8" }}>(sits right above the appointment times)</span></label>
+          <textarea value={pitch.schedule} onChange={(e) => setPitch({ ...pitch, schedule: e.target.value })} rows={2}
             style={{ width: "100%", boxSizing: "border-box", fontFamily: FONT, fontSize: 14.5, padding: 12, border: "1px solid #cbd5e1", borderRadius: 10, lineHeight: 1.5 }} />
         </Card>
 

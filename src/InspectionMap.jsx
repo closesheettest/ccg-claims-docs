@@ -49,6 +49,9 @@ export default function InspectionMap() {
   const [selected, setSelected] = useState(null);
   const [loc, setLoc] = useState(null);
   const [mapReady, setMapReady] = useState(false);
+  // First-open how-to: play the 52-sec inspection video once, then straight to the
+  // map on every open after (flag lives on the inspector's device). No test.
+  const [howtoDone, setHowtoDone] = useState(() => { try { return localStorage.getItem("ccg_inspect_howto_v1") === "1"; } catch { return false; } });
   const restored = useRef(false);
 
   const mapEl = useRef(null), map = useRef(null);
@@ -223,6 +226,7 @@ export default function InspectionMap() {
 
   if (err) return <Splash msg={err} />;
   if (!me) return <Splash msg="Loading your inspection map…" plain />;
+  if (!howtoDone) return <HowToGate onDone={() => { try { localStorage.setItem("ccg_inspect_howto_v1", "1"); } catch { /* ignore */ } setHowtoDone(true); }} />;
 
   return (
     <div style={{ position: "fixed", inset: 0, fontFamily: FONT }}>
@@ -287,6 +291,36 @@ export default function InspectionMap() {
 
 function btnStyle(bg, size) { return { background: bg, color: "#fff", border: "none", borderRadius: 12, padding: "12px 16px", fontSize: size, fontWeight: 800, fontFamily: OSWALD, cursor: "pointer" }; }
 function btn(bg, size) { return { ...btnStyle(bg, size), boxShadow: "0 3px 12px rgba(0,0,0,.25)" }; }
+// First-open how-to gate: the 52-sec inspection video plays, then "Continue" lets
+// them onto the map. Watched-flag is set by the caller so it only shows once per
+// device. Fail-open: if the video is missing or errors, never trap the inspector.
+function HowToGate({ onDone }) {
+  const [ready, setReady] = useState(false); // video finished (or failed) → can continue
+  const url = useMemo(() => {
+    try { return supabase.storage.from("harvest-training").getPublicUrl("inspection-howto/inspection-map-howto.mp4").data.publicUrl; }
+    catch { return ""; }
+  }, []);
+  useEffect(() => { if (!url) onDone(); }, [url]); // eslint-disable-line react-hooks/exhaustive-deps
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "#0b1424", fontFamily: FONT, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 18, gap: 14 }}>
+      <div style={{ textAlign: "center", color: "#fff" }}>
+        <div style={{ fontSize: 22, fontWeight: 900, fontFamily: OSWALD, letterSpacing: ".01em" }}>Your Inspection Map</div>
+        <div style={{ fontSize: 13.5, color: "#9fb0c4", fontWeight: 700, marginTop: 4 }}>Watch this quick how-to — then you're in.</div>
+      </div>
+      <div style={{ position: "relative", width: "100%", maxWidth: 380, aspectRatio: "9 / 16", maxHeight: "64vh", background: "#000", borderRadius: 16, overflow: "hidden", boxShadow: "0 12px 44px rgba(0,0,0,.5)" }}>
+        <video src={url} controls playsInline
+          onEnded={() => setReady(true)} onError={() => setReady(true)}
+          style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "contain", background: "#000" }} />
+      </div>
+      <button onClick={onDone} disabled={!ready}
+        style={{ width: "100%", maxWidth: 380, padding: 16, borderRadius: 12, border: "none", fontFamily: OSWALD, fontSize: 18, fontWeight: 800, letterSpacing: ".02em",
+          color: "#fff", background: ready ? "#4285F4" : "#33415a", boxShadow: ready ? "0 10px 26px rgba(66,133,244,.4)" : "none", cursor: ready ? "pointer" : "default", opacity: ready ? 1 : 0.75 }}>
+        {ready ? "Continue to your map →" : "▶ Finish the how-to to continue"}
+      </button>
+    </div>
+  );
+}
+
 function Splash({ msg, plain }) {
   return (
     <div style={{ position: "fixed", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FONT, background: "#f1f5f9", padding: 24 }}>
