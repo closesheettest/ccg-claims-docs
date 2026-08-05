@@ -53,7 +53,23 @@ export const handler = async (event) => {
           photos = urls;
         }
       }
-      return cors(200, JSON.stringify({ ok: true, appt: { name: appt.homeowner_name, address: appt.address, city, old_start_at: appt.start_at, result, photos } }));
+      // The "inspection result" pitch is EDITABLE by the office (app_settings key
+      // 'pa_reschedule_pitch' = { headline, body }) — it's a sales message, so they
+      // control every word. Falls back to a default. Tokens: {first_name} {address} {city}.
+      let tpl = await getSetting("pa_reschedule_pitch");
+      if (typeof tpl === "string") { try { tpl = JSON.parse(tpl); } catch { tpl = null; } }
+      if (!tpl || typeof tpl !== "object") tpl = {};
+      const firstName = String(appt.homeowner_name || "there").trim().split(/\s+/)[0] || "there";
+      const addrFull = [appt.address, city].filter(Boolean).join(", ");
+      const fill = (s) => String(s || "")
+        .replace(/\{first[_ ]?name\}/gi, firstName)
+        .replace(/\{address\}/gi, addrFull)
+        .replace(/\{city\}/gi, city || "");
+      const pitch = {
+        headline: fill(tpl.headline || "Your roof came back with damage"),
+        body: fill(tpl.body || "Hi {first_name} — our inspector documented damage on your roof at {address}. This is often covered by your insurance, and a licensed Public Adjuster can file the claim for you."),
+      };
+      return cors(200, JSON.stringify({ ok: true, appt: { name: appt.homeowner_name, address: appt.address, city, old_start_at: appt.start_at, result, photos, pitch } }));
     }
     if (action === "slots") {
       const visitTok = await getSetting("visit_token") || await getSetting("dialer_token");

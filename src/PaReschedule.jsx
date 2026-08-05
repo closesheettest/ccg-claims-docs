@@ -70,16 +70,17 @@ export default function PaReschedule() {
   const firstName = (appt.name || "there").split(" ")[0];
   const photos = Array.isArray(appt.photos) ? appt.photos : [];
   const isDamage = appt.result === "damage";
+  const pitch = appt.pitch || {};
   return (
     <Wrap>
-      {/* 1) THE PROOF — why they need this appointment: their own roof, documented. */}
-      {isDamage && (
+      {/* 1) THE PROOF — why they need this appointment: their own roof, documented.
+             Headline + body are an OFFICE-EDITABLE pitch (appt.pitch), tokens filled
+             server-side. Falls back to the default copy if the feed is old. */}
+      {isDamage && (pitch.headline || pitch.body) && (
         <div style={{ background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 14, padding: "12px 14px", marginBottom: 16 }}>
           <div style={{ fontSize: 12.5, fontWeight: 800, color: "#b91c1c", textTransform: "uppercase", letterSpacing: ".04em" }}>⚠️ Inspection result</div>
-          <div style={{ fontSize: 20, fontWeight: 900, fontFamily: OSWALD, color: "#991b1b", marginTop: 3 }}>Your roof came back with damage</div>
-          <div style={{ fontSize: 14, color: "#7f1d1d", marginTop: 6, lineHeight: 1.5 }}>
-            Hi {firstName} — our inspector documented damage on your roof{appt.address ? <> at <b>{[appt.address, appt.city].filter(Boolean).join(", ")}</b></> : ""}. This is often covered by your insurance, and a licensed <b>Public Adjuster</b> can file the claim for you.
-          </div>
+          {pitch.headline && <div style={{ fontSize: 20, fontWeight: 900, fontFamily: OSWALD, color: "#991b1b", marginTop: 3 }}>{pitch.headline}</div>}
+          {pitch.body && <div style={{ fontSize: 14, color: "#7f1d1d", marginTop: 6, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{pitch.body}</div>}
         </div>
       )}
 
