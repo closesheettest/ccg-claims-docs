@@ -2548,11 +2548,18 @@ export default function CanvassMap() {
     const inBox = source.filter((p) =>
       typeof p.latitude === "number" && typeof p.longitude === "number" && b.contains([p.latitude, p.longitude])
       && inFilter(p.status) && (!visKeys || visKeys.has(p.status)) && !nonRoutableStatuses.has(p.status) && !workedTodayET(p));
-    if (!inBox.length) { alert("No doors in that box — draw around some pins."); return; }
+    // Also route any GO-BACKS inside the box — so a box drawn over a go-back cluster
+    // (e.g. the office/admin with no regular pins loaded) actually routes them, worked
+    // inline via VisitActions like the "Add go-backs" fold.
+    const gobackStops = (visits || [])
+      .filter((v) => typeof v.latitude === "number" && typeof v.longitude === "number" && b.contains([v.latitude, v.longitude]) && visitNeedsWork(v))
+      .map((v) => ({ id: `v_${v.inspection_id}`, latitude: Number(v.latitude), longitude: Number(v.longitude), name: v.client_name || v.address, address: v.address, city: v.city, state: v.state, zip: v.zip, status: "goback", _visit: v }));
+    const pool = [...inBox, ...gobackStops];
+    if (!pool.length) { alert("No doors or go-backs in that box — draw around some pins."); return; }
     const start = myLoc || { lat: b.getCenter().lat, lng: b.getCenter().lng };
-    // Route the box's doors (nearest-first within it), ceilinged so a giant zoomed-out
-    // box can't build a thousand-stop day.
-    const r = buildRoute(start, inBox, Math.min(inBox.length, 300), true);
+    // Route the box's doors + go-backs (nearest-first within it), ceilinged so a giant
+    // zoomed-out box can't build a thousand-stop day.
+    const r = buildRoute(start, pool, Math.min(pool.length, 300), true);
     if (!r.length) return;
     workingRef.current = new Set(r.map((p) => p.id));
     setStartPt(start); setRoute(r); setStopIdx(0); setRound(1); setResolvedIds(new Set()); setDayMode("active"); setFillOffer(null);
@@ -3712,7 +3719,7 @@ export default function CanvassMap() {
             the rep's day is manager-assigned, they have required stops (reviews /
             definitive come-back appts), OR they have an appointment today — with an appt
             they "📅 Plan your day" (weave doors around it) instead of routing a raw box. */}
-        {dayMode === null && !selecting && !(assignedIds && assignedIds.size > 0) && (requiredCount === 0 || isRouteManager || me?.level === "admin") && !forceApptPlan && (prospects.length > 0 || clusters.length > 0) && (
+        {dayMode === null && !selecting && !(assignedIds && assignedIds.size > 0) && (requiredCount === 0 || isRouteManager || me?.level === "admin") && !forceApptPlan && (prospects.length > 0 || clusters.length > 0 || (me?.level === "admin" && visits.length > 0)) && (
           <button type="button" onClick={startSelecting}
             style={{ position: "absolute", left: 12, bottom: (requiredCount > 0 && (isRouteManager || me?.level === "admin")) ? 160 : 68, zIndex: 601, background: "#1d4ed8", color: "#fff", border: "none", borderRadius: 999, padding: "10px 16px", fontSize: 13, fontWeight: 800, fontFamily: "'Oswald', sans-serif", boxShadow: "0 3px 12px rgba(0,0,0,.25)", cursor: "pointer" }}>
             ▢ Route an area
