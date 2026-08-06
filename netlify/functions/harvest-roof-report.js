@@ -284,17 +284,54 @@ export const handler = async (event) => {
 
     const [appraiser, femaSqft] = await Promise.all([fetchLivingArea(lat, lng), fetchFemaFootprintSqft(lat, lng)]);
 
-    // Cross-source confidence: compare our (calibrated) footprint against FEMA's
-    // independent roof outline, de-biased to Roofr. A big gap = probable wrong/
-    // partial building — flag it so the rep verifies with the trace or appraiser.
-    const FEMA_BIAS = 0.895;
-    let confidence = null;
-    if (femaSqft && groundM2) {
-      const satSqft = groundM2 * 10.7639;          // already ×CAL
-      const femaEst = femaSqft / FEMA_BIAS;
-      const delta = Math.abs(satSqft - femaEst) / Math.max(satSqft, femaEst);
-      confidence = { level: delta > 0.2 ? "low" : "high", delta_pct: Math.round(delta * 100), satellite_sqft: Math.round(satSqft), fema_sqft: femaSqft };
+    // ── Cross-source confidence. Hold the satellite read up against two
+    // independent records — an imagery-derived building outline (FEMA USA
+    // Structures) and the county parcel's living area — plus Google's own
+    // imagery grade, and surface a plain-English reason when something's off.
+    // Validated against 9 Roofr ground-truth roofs: this reliably catches the
+    // geocode/parcel-mismatch blowup (e.g. an address that lands on a 36k-sq-ft
+    // complex) and stops the old FEMA-only check from false-alarming an accurate
+    // read. KNOWN BLIND SPOT: a pool/screen enclosure reads as roof to BOTH the
+    // satellite AND FEMA, so neither flags it — that inflated read is what the
+    // LiDAR cross-check (next phase) is built to catch and trim.
+    const reasons = [];
+    const satFootSqft = groundM2 ? Math.round(groundM2 * 10.7639) : null;   // already ×CAL
+    const livingSqft = appraiser?.living_sqft || null;
+
+    // 1) Parcel / geocode mismatch — a single-family roof cannot sit on a 12k+
+    // sq-ft "living area"; that's a complex, commercial parcel, or a wrong pin.
+    if (livingSqft && livingSqft > 12000) {
+      reasons.push({ code: "parcel_mismatch", weight: "high",
+        text: `County records show ${livingSqft.toLocaleString()} sq ft of living area here — too large for a single home, so the address likely landed on the wrong parcel or a multi-building lot. Confirm the address before trusting these numbers.` });
     }
+    // 2) Low-resolution imagery — Solar fell back below HIGH; the outline is softer.
+    if (String(data.imageryQuality || "").toUpperCase() === "LOW") {
+      reasons.push({ code: "low_imagery", weight: "high",
+        text: "Only low-resolution satellite imagery was available at this address, so the roof outline is less precise than usual — trace to confirm." });
+    }
+    // 3) Independent-outline gap (FEMA). A weak signal on its own — a pool cage
+    // fools both sources and living-area quirks make small gaps noisy — so only
+    // an EXTREME disagreement flags. The raw delta is kept for reference either way.
+    const FEMA_BIAS = 0.895;
+    let femaDelta = null;
+    if (femaSqft && satFootSqft) {
+      const femaEst = femaSqft / FEMA_BIAS;
+      femaDelta = Math.round((Math.abs(satFootSqft - femaEst) / Math.max(satFootSqft, femaEst)) * 100);
+      if (femaDelta > 35) {
+        reasons.push({ code: "outline_disagree", weight: "medium",
+          text: `The satellite outline and an independent building outline disagree by ${femaDelta}% — Google may have grabbed a wrong or partial building. Verify with the trace or the appraiser sq ft below.` });
+      }
+    }
+
+    const confidence = {
+      level: reasons.some((r) => r.weight === "high") ? "low" : "high",
+      reasons,
+      message: reasons[0]?.text || null,
+      delta_pct: femaDelta,               // back-compat with the current UI
+      satellite_sqft: satFootSqft,
+      fema_sqft: femaSqft || null,
+      living_sqft: livingSqft,
+    };
 
     return json(200, {
       ok: true,

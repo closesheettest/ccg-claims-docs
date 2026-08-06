@@ -190,7 +190,8 @@ function ResultCard({ d }) {
 
       {d.confidence?.level === "low" && (
         <div style={{ background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 10, padding: "9px 13px", marginBottom: 14, fontSize: 13, color: "#92400e" }}>
-          ⚠️ <b>Low confidence</b> — the satellite footprint and the independent building outline disagree by {d.confidence.delta_pct}%. Google likely grabbed the wrong or partial building. Verify with the map (Buildings mode / trace) or the appraiser sq ft below.
+          ⚠️ <b>Low confidence</b> — {d.confidence.message
+            || `the satellite footprint and the independent building outline disagree by ${d.confidence.delta_pct}%. Google likely grabbed the wrong or partial building. Verify with the map (Buildings mode / trace) or the appraiser sq ft below.`}
         </div>
       )}
 
