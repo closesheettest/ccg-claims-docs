@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { supabase } from "./lib/supabase";
 
 // Appointment-Setter Portal (?mode=setter) — for inbound-call setters (Viviana
@@ -12,6 +12,33 @@ import { supabase } from "./lib/supabase";
 // (it returns { address, city, state, zip, county, lat, lng }).
 const FN = "/.netlify/functions";
 const SETTERS = ["Viviana De Toro", "Hannah Davidson", "Dustin Hunt", "David Macella"];
+
+// A little dopamine hit when a booking lands — a random, name-personalized cheer.
+// Kept off-color-free and genuinely warm; the whole point is a smile.
+const CHEERS = [
+  (n) => `${n.toUpperCase()}, DON'T BE AFRAID — IT'S ALL GOOD! 🎉`,
+  (n) => `Boom. ${n} strikes again. 💥`,
+  (n) => `${n}, you absolute legend. 🏆`,
+  (n) => `That's how it's DONE, ${n}. 🔥`,
+  (n) => `${n} out here making it look easy. 😎`,
+  (n) => `Money move, ${n}. 🤑`,
+  (n) => `The homeowners never stood a chance, ${n}. 🎯`,
+  (n) => `Certified ${n} classic. ✨`,
+  (n) => `Smooth like butter, ${n}. 🧈`,
+  (n) => `${n} = closer energy. ⚡`,
+  (n) => `Somebody give ${n} a raise. 💸`,
+  (n) => `Another one bites the dust, ${n}. 🎶`,
+  (n) => `${n}, you're built different. 🦾`,
+  (n) => `Nothing but net, ${n}. 🏀`,
+  (n) => `Look at ${n} GO! 🚀`,
+  (n) => `${n} said "watch this." 👀`,
+  (n) => `Elite. Simply elite, ${n}. 👑`,
+  (n) => `${n} is on FIRE today. 🔥🔥`,
+  (n) => `Chef's kiss, ${n}. 👌`,
+  (n) => `Big ${n} energy. 💪`,
+  (n) => `${n} just made it look too easy. 🎩`,
+  (n) => `Put ${n} in the Hall of Fame. 📜`,
+];
 // Retail lead sources (the 3 insurance ones — NEED, INS, Raw Insurance — are
 // excluded; so are auto/internal values like Inspection & Foreman-*).
 // "Instant Quote" = IQ, the default.
@@ -60,6 +87,11 @@ export default function SetterPortal({ Address }) {
   const [weekIdx, setWeekIdx] = useState(0);
   const [booking, setBooking] = useState(false);
   const [result, setResult] = useState(null);
+  // Random name-personalized cheer, re-rolled each new booking (stable per booking).
+  const cheer = useMemo(() => {
+    const first = (setter || "").trim().split(/\s+/)[0] || "Superstar";
+    return CHEERS[Math.floor(Math.random() * CHEERS.length)](first);
+  }, [result, setter]);
   const [err, setErr] = useState("");
   const [todayOpen, setTodayOpen] = useState(false);
   const [today, setToday] = useState(null);
@@ -256,6 +288,11 @@ export default function SetterPortal({ Address }) {
         {result.reset && <div style={{ fontSize: 13, color: "#1d4ed8", marginTop: 6, fontWeight: 700 }}>↻ Reschedule — booked as a Reset Appointment (this was a No-Sit lead).</div>}
         {result.out_of_range && <div style={{ fontSize: 13, color: "#92400e", marginTop: 6 }}>⚠️ Outside rep range — a manager will assign a rep.</div>}
         {result.jn_ok === false && <div style={{ fontSize: 13, color: "#b91c1c", marginTop: 6, fontWeight: 700 }}>⚠️ Saved here, but the JobNimbus sync failed — it's in your "Today" list for a manager to repair.</div>}
+        {result.jn_ok !== false && (
+          <div style={{ marginTop: 14, padding: "12px 14px", background: "linear-gradient(90deg,#fef9c3,#fde68a)", border: "2px solid #facc15", borderRadius: 14, fontWeight: 900, fontSize: 16, color: "#92400e", lineHeight: 1.3 }}>
+            {cheer}
+          </div>
+        )}
         <button onClick={reset} style={{ ...C.btn, background: "#1a2e5a", color: "#fff", marginTop: 16 }}>Set another appointment</button>
         <button onClick={openToday} style={{ ...C.btn, background: "#eef2ff", color: "#1a2e5a", marginTop: 8 }}>📋 View today's appointments</button>
       </div>
