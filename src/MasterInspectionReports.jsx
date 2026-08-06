@@ -51,10 +51,10 @@ const GOBACK_COLOR = { damage: "#b91c1c", retail: "#0891b2", no_damage: "#64748b
 // BTPA lifecycle buckets — the filter buttons on the BTPA tab.
 const BTPA_BUCKETS = [
   { key: "need_appt", label: "Needs appointment", color: "#b45309" },
+  { key: "missed", label: "Needs reschedule", color: "#b91c1c" },
   { key: "upcoming", label: "Upcoming", color: "#2563eb" },
-  { key: "missed", label: "Missed", color: "#b91c1c" },
   { key: "signed", label: "Signed", color: "#16a34a" },
-  { key: "unknown", label: "No idea", color: "#64748b" },
+  { key: "dead", label: "Dead / Not interested", color: "#64748b" },
 ];
 const BTPA_META = Object.fromEntries(BTPA_BUCKETS.map((b) => [b.key, b]));
 // The real BTR pipeline stages, from live JobNimbus status.
@@ -374,12 +374,12 @@ function Damage({ damage }) {
       <Section
         title={`${filter === "all" ? "All BTPA" : meta(filter).label} (${deals.length})`}
         sub={filter === "all"
-          ? "Needs appointment (no PA appt yet — includes ones the PA sat on) · Upcoming (scheduled, hasn't happened) · Missed (appt came and went, no-show) · Signed (PA paperwork done) · No idea (unclear)."
-          : filter === "need_appt" ? "Damage roofs with no PA appointment booked yet — the rep still needs to set the first one (includes deals the PA marked dead / did nothing with)."
+          ? "Needs appointment (never had one → rep schedules) · Needs reschedule (appt came and went, nothing signed → rep rebooks) · Upcoming (scheduled, hasn't happened) · Signed (PA signed the homeowner) · Dead (Not Interested or office-closed DQ)."
+          : filter === "need_appt" ? "Damage roofs that never had a PA appointment — the rep goes back to schedule the first one. (A PA merely 'opening' the deal doesn't count; only a real booked appointment does.)"
           : filter === "upcoming" ? "A PA appointment is on the books and hasn't happened yet — scheduled for later."
-          : filter === "missed" ? "Had a PA appointment that came and went with no result — a no-show to reschedule."
-          : filter === "signed" ? "PA paperwork is signed — these are working the claim."
-          : "Has a PA appointment but we can't tell what happened — refused or unclear. Check the notes."}>
+          : filter === "missed" ? "Had a PA appointment that came and went with nothing signed — the rep goes back to reschedule it."
+          : filter === "signed" ? "The PA signed the homeowner (or is collecting docs) — the claim is moving."
+          : "Homeowner Not Interested, or the office/PA closed the lead as a dead DQ — no go-back needed."}>
         {!deals.length ? <Empty /> : <Grouped groups={twoLevel(deals, (r) => r.zone, (r) => r.rep || "—")} renderRow={row} />}
       </Section>
     </div>

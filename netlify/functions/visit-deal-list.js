@@ -12,6 +12,7 @@
 // Env: VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY.
 
 import { retailStage } from "./_retail.js";
+import { damageState, damageNeedsGoback } from "./_btpa.js";
 
 const SB_URL = process.env.VITE_SUPABASE_URL;
 const SB_KEY = process.env.VITE_SUPABASE_ANON_KEY;
@@ -55,26 +56,26 @@ export const handler = async (event) => {
     let rows = await sbGet(`inspections?select=${SEL_BASE},review_availability,referral_outcome,retail_outcome,result_task_at,manager_assigned_to_rep_at${tail}`);
     if (!rows.length) rows = await sbGet(`inspections?select=${SEL_BASE}${tail}`);
 
-    // Damage list: a rep is going out to PUSH the homeowner to start their claim.
-    // Drop a deal only once a PA has ACTUALLY ENGAGED — signed them, opened the
-    // deal, is waiting on docs, or has LOR/PAC paperwork. A stale PA *assignment*
-    // that was never opened (e.g. from the old auto-assign) must NOT hide a deal
-    // a manager just handed the rep. Also drop rep-marked Not Interested (BTR-NI).
+    // Damage list: the rep goes back to (re)schedule the Public-Adjuster appointment.
+    // Appointment-driven via the shared classifier (_btpa.js): show only deals that
+    // still need one — need_appt (no PA appt ever) or missed (appt came and went, no
+    // signing → reschedule). Signed / dead (Not Interested or office-closed DQ) /
+    // upcoming all drop off. The OLD auto-assign flags (pa_opened_at, pa_stage
+    // "active") are ignored — a PA merely "opening" a deal never meant an appointment.
     if (result === "damage") {
-      rows = rows.filter((r) => {
-        // A manager who assigns the deal to this rep is an explicit override: show
-        // it even if a PA merely OPENED it (pa_opened_at). Real PA engagement —
-        // signed the homeowner, waiting on docs, or LOR/PAC paperwork — still hides
-        // it (the claim's already moving, the rep doesn't need to push).
-        const managerAssigned = !!r.manager_assigned_to_rep_at;
-        // A PA who signed the homeowner DIRECTLY in JobNimbus (status "Sitsold PA",
-        // "Signed Contract", … a won status) leaves no pa_signed_at — the claim is
-        // already moving, so the rep shouldn't be pushed back out to it.
-        const jnSigned = /sitsold pa|signed contract|production review|job prep|funding|pace|upcoming install|install|new roof|paid|collection/i.test(String(r.jn_status || ""));
-        const paEngaged = r.pa_signed_at || r.pa_stage === "waiting_docs" || /\b(lor|pac)\b/i.test(r.docs_signed || "") || jnSigned;
-        const paOpenedHide = r.pa_opened_at && !managerAssigned;
-        return !(paEngaged || paOpenedHide) && String(r.jn_status || "").trim().toLowerCase() !== "btr - ni";
-      });
+      const ids = rows.map((r) => r.id);
+      const latestAppt = {};
+      if (ids.length) {
+        const inList = ids.map((id) => `"${id}"`).join(",");
+        const appts = await sbGet(`pa_appointments?inspection_id=in.(${encodeURIComponent(inList)})&status=neq.cancelled&select=inspection_id,start_at,status`);
+        for (const a of appts) {
+          if (!a.inspection_id) continue;
+          const cur = latestAppt[a.inspection_id];
+          if (!cur || String(a.start_at || "") > String(cur.start_at || "")) latestAppt[a.inspection_id] = a;
+        }
+      }
+      const nowMs = Date.now();
+      rows = rows.filter((r) => damageNeedsGoback(damageState(r, latestAppt[r.id] || null, nowMs)));
     }
     // No-Damage list: once handled — certificate sent or referral declined
     // (inspections.referral_outcome set) — it drops off the rep's list.

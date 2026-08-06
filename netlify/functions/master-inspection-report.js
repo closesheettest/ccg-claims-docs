@@ -13,6 +13,7 @@
 // Env: VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY
 
 import { retailStage, RETAIL_STAGES } from "./_retail.js";
+import { damageState, damageNeedsGoback, jnPaSigned } from "./_btpa.js";
 
 const SB_URL = process.env.VITE_SUPABASE_URL;
 const SB_KEY = process.env.VITE_SUPABASE_ANON_KEY;
@@ -66,10 +67,9 @@ function paOutcome(insp) {
   const f = paFields(insp);
   const signup = String(f.pa_signup || "").toLowerCase();
   // A PA who signs the homeowner DIRECTLY in JobNimbus (never touching our app)
-  // leaves no pa_signed_at/pa_status — only a won JN status. Treat that as signed too,
-  // so a signed claim can never leak into the "needs appointment" bucket.
-  const jnSigned = /sitsold pa|signed contract|production review|job prep|funding|pace|upcoming install|install|new roof|paid|collection/i.test(String(insp.jn_status || ""));
-  if (insp.pa_signed_at || insp.pa_status === "signed" || signup.startsWith("signed") || jnSigned) return "signed";
+  // leaves no pa_signed_at/pa_status — only a won JN status. Treat that as signed too
+  // (shared jnPaSigned handles the "Sit Sold PA" spacing the old inline regex missed).
+  if (insp.pa_signed_at || insp.pa_status === "signed" || signup.startsWith("signed") || jnPaSigned(insp.jn_status)) return "signed";
   if (insp.pa_status === "refused" || signup.includes("refus") || signup.includes("retail")) return "refused";
   return "pending"; // no outcome recorded yet
 }
@@ -152,18 +152,16 @@ export const handler = async (event) => {
     //     handed it back to the rep. Also drop rep-marked Not Interested (BTR-NI).
     //   • BTR  — a retail options appt is already booked, or it's marked Not Interested.
     //   • ND   — a referral go-back was already recorded.
-    const SIGNED_JN = /sitsold pa|signed contract|production review|job prep|funding|pace|upcoming install|install|new roof|paid|collection/i;
+    const btpaNowMs = Date.now();
     const isNI = (i) => String(i.jn_status || "").trim().toLowerCase() === "btr - ni";
-    const damageStillOpen = (i) => {
-      const paEngaged = i.pa_signed_at || i.pa_stage === "waiting_docs" || /\b(lor|pac)\b/i.test(i.docs_signed || "") || SIGNED_JN.test(String(i.jn_status || ""));
-      const paOpenedHide = i.pa_opened_at && !i.manager_assigned_to_rep_at;
-      return !(paEngaged || paOpenedHide) && !isNI(i);
-    };
+    // BTPA go-back = the appointment-driven open states (need_appt + missed), from the
+    // shared classifier so the report and the reps' map can't disagree.
+    const dmgState = (i) => damageState(i, latestAppt(i.id), btpaNowMs);
     const needs_goback_status = live
-      .filter((i) => (i.result === "damage" && damageStillOpen(i))                                                // BTPA — PA hasn't engaged, not NI
+      .filter((i) => (i.result === "damage" && damageNeedsGoback(dmgState(i)))                                    // BTPA — needs an appointment (schedule) or missed one (reschedule)
         || (i.result === "retail" && retailStage(i.jn_status, i.retail_outcome) === "not_worked" && !isNI(i) && !scheduledRetail.has(i.id)) // BTR — still "Sit Sold Insp", not NI, no appt booked
         || (i.result === "no_damage" && !i.referral_outcome))                                                    // ND — no referral go-back yet
-      .map((i) => ({ ...card(i), result: i.result, need: i.result === "damage" ? "Needs PA appointment" : i.result === "no_damage" ? "Needs referral go-back" : "Needs rep go-back (BTR)" }))
+      .map((i) => ({ ...card(i), result: i.result, need: i.result === "damage" ? (dmgState(i) === "missed" ? "Needs reschedule (missed appt)" : "Needs PA appointment") : i.result === "no_damage" ? "Needs referral go-back" : "Needs rep go-back (BTR)" }))
       .sort((a, b) => (a.result || "").localeCompare(b.result || ""));
 
     // 3) RETAIL breakdown + percentages. retail_outcome: ni / no_sale / sold / btr_appt / (null = pending)
@@ -182,25 +180,12 @@ export const handler = async (event) => {
         .sort((a, b) => (b.outcome_at || "").localeCompare(a.outcome_at || "")),
     };
 
-    // 4) DAMAGE / BTPA — every damage deal, bucketed by where it is in the PA lifecycle:
-    //    need_appt (no PA appt booked yet) · missed (appt time passed, still "scheduled"
-    //    or cancelled, never signed = a no-show) · signed (PA paperwork signed) · unknown
-    //    (has an appt but we can't tell — upcoming, refused, or ambiguous). Powers the
-    //    BTPA breakdown buttons in the master report.
+    // 4) DAMAGE / BTPA — every damage deal, bucketed by the shared appointment-driven
+    //    classifier (see _btpa.js): need_appt (no appt ever → schedule one) · missed
+    //    (appt came and went, nothing signed → reschedule) · upcoming (appt booked) ·
+    //    signed (PA signed the homeowner) · dead (Not Interested / office-closed DQ).
+    //    Same classifier the reps' go-back map uses, so the two can't disagree.
     const damageDeals = live.filter((i) => i.result === "damage");
-    const btpaNowMs = Date.now();
-    const btpaBucket = (deal, hasAppt) => {
-      if (deal.signed) return "signed";
-      // Note: pa_stage "dead" is NOT its own bucket — it means the PA did nothing with
-      // the deal, so it still needs the rep to go back and set an appointment.
-      if (!hasAppt) return "need_appt";
-      const st = String(deal.appt_status || "").toLowerCase();
-      const t = deal.start_at ? new Date(deal.start_at).getTime() : 0;
-      const past = t && t < btpaNowMs;
-      if (past && (st === "scheduled" || st === "cancelled")) return "missed"; // no-show / didn't happen
-      if (t && !past) return "upcoming"; // appointment is scheduled for later
-      return "unknown"; // refused, or ambiguous
-    };
     const withApptArr = [], needApptArr = [], allDamage = [];
     for (const i of damageDeals) {
       const a = latestAppt(i.id);
@@ -211,16 +196,14 @@ export const handler = async (event) => {
       const coId = i.pa_company_id || (a && a.pa_company_id) || (paId ? paCompany[paId] : null) || null;
       const pn = paId ? paName[paId] : null;
       const co = coId ? coName[coId] : null;
-      // Only surface a PA stage when a PA is actually ASSIGNED — a stale "active" on
-      // an unassigned deal is misleading (nobody's on it). Guard on pa_id/company.
       const assigned = !!(paId || coId);
-      const base = { ...card(i), pa: pn, company: co, stage: assigned ? (i.pa_stage || null) : null, notes: recentNotes(i), signed: paOutcome(i) === "signed" };
+      const bucket = damageState(i, a, btpaNowMs);
+      const base = { ...card(i), pa: pn, company: co, stage: assigned ? (i.pa_stage || null) : null, notes: recentNotes(i), signed: bucket === "signed", bucket };
       const deal = a ? { ...base, start_at: a.start_at, appt_status: a.status } : { ...base, assigned };
-      deal.bucket = btpaBucket(deal, !!a);
       (a ? withApptArr : needApptArr).push(deal);
       allDamage.push(deal);
     }
-    const btpaCounts = { need_appt: 0, upcoming: 0, missed: 0, signed: 0, unknown: 0 };
+    const btpaCounts = { need_appt: 0, missed: 0, upcoming: 0, signed: 0, dead: 0 };
     for (const d of allDamage) btpaCounts[d.bucket] = (btpaCounts[d.bucket] || 0) + 1;
     const damage = {
       total: damageDeals.length,
