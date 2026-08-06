@@ -89,6 +89,15 @@ exports.handler = async (event) => {
   const signupStatus = mode === "retail" ? "Sent to Retail" : "Refused to Sign";
   const mergedFields = { ...(insp.pa_fields || {}), pa_signup: signupStatus };
   if (mode === "retail") mergedFields.pa_revert_reason = reason;
+  // DURABLE history: the homeowner sat/was worked at the BTPA stage and declined to
+  // sign — "Refused to Sign", or DQ "Not interested" (client passes apptDeclined). We
+  // keep this stamp even after the deal reclassifies to retail, so the BTPA funnel can
+  // still report "Not interested (sat & declined)" — the data isn't lost.
+  const apptDeclined = mode === "refused" || body.apptDeclined === true;
+  if (apptDeclined && !mergedFields.declined_at_appt) {
+    mergedFields.declined_at_appt = new Date().toISOString();
+    mergedFields.declined_reason = mode === "refused" ? "refused" : "not_interested";
+  }
   const patch = await fetch(`${SB_URL}/rest/v1/inspections?id=eq.${encodeURIComponent(inspectionId)}`, {
     method: "PATCH",
     headers: { ...sbHeaders, Prefer: "return=minimal" },

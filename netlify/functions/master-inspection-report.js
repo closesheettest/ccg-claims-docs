@@ -210,15 +210,26 @@ export const handler = async (event) => {
     // stage-① outcome), office-closed DQ = excluded from the funnel (like BTR lost/dead).
     let f_declined = 0, f_dq = 0;
     for (const i of damageDeals) if (damageState(i, latestAppt(i.id), btpaNowMs) === "dead") { isNI(i) ? f_declined++ : f_dq++; }
+    // SAT the BTPA appointment then DECLINED to sign ("Refused to Sign" or DQ "Not
+    // interested"). Durably stamped (pa_fields.declined_at_appt) so it counts even after
+    // the deal reclassified to retail; falls back to pa_signup / a DQ note for history.
+    const declinedAtAppt = live.filter((i) => {
+      const f = paFields(i);
+      if (f.declined_at_appt) return true;
+      if (String(f.pa_signup) === "Refused to Sign") return true;
+      const log = Array.isArray(i.pa_notes_log) ? i.pa_notes_log : [];
+      return log.some((n) => /dq lead[\s\S]*not interested/i.test(String((n && n.text) || "")));
+    }).length;
     const funnel = {
       total: damageDeals.length,
       dq: f_dq,                                                    // office-closed dead → out of funnel
       declined: f_declined,                                        // ① homeowner Not Interested
       gap: btpaCounts.need_appt,                                   // ① never got a PA appointment (the gap)
       // ① reached an appointment = every deal past scheduling (signed, waiting on docs,
-      //    no-sit rebook, rebooked, or upcoming).
-      got_appt: btpaCounts.signed + btpaCounts.waiting_docs + btpaCounts.rescheduling + btpaCounts.rescheduled + btpaCounts.upcoming,
+      //    no-sit rebook, rebooked, upcoming, or sat-and-declined).
+      got_appt: btpaCounts.signed + btpaCounts.waiting_docs + btpaCounts.rescheduling + btpaCounts.rescheduled + btpaCounts.upcoming + declinedAtAppt,
       signed: btpaCounts.signed,                                   // ② the PA signed them
+      declined_appt: declinedAtAppt,                               // ② sat the appt but declined to sign (now in retail, still tracked)
       rescheduling: btpaCounts.rescheduling,                       // ② appt scheduled but they DIDN'T sit → rebook
       rescheduled: btpaCounts.rescheduled,                         // ② no-sit that's been rebooked (still live)
       waiting_docs: btpaCounts.waiting_docs,                       // ② signing in progress (PA collecting docs)

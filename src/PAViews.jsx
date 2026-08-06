@@ -3569,7 +3569,7 @@ function PAPipelineDetail({ me, jobId, onBack, wide, adminView }) {
     } catch (e) { setRefusing(false); setFieldErr(e.message || "Network error"); }
   }
 
-  async function doRetail(reason) {
+  async function doRetail(reason, opts = {}) {
     const why = String(reason || "").trim();
     if (!why) { setFieldErr("A reason is required to send a deal back to retail."); return; }
     setRefusing(true);
@@ -3577,7 +3577,7 @@ function PAPipelineDetail({ me, jobId, onBack, wide, adminView }) {
     try {
       const res = await fetch("/.netlify/functions/pa-refused-to-sign", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ inspectionId: jobId, paId: me.id, mode: "retail", reason: why }),
+        body: JSON.stringify({ inspectionId: jobId, paId: me.id, mode: "retail", reason: why, apptDeclined: !!opts.apptDeclined }),
       });
       const body = await res.json().catch(() => ({}));
       if (!body.ok) {
@@ -3747,7 +3747,8 @@ function PAPipelineDetail({ me, jobId, onBack, wide, adminView }) {
             //     trying the PA appointment (not lost, not retail).
             const RETAIL = ["Not interested", "No DOL / No coverage", "Policy restrictions", "Claim not advised"];
             const note = "DQ Lead — " + reasons.join(", ");
-            if (reasons.some((r) => RETAIL.includes(r))) doRetail(note);
+            // "Not interested" = sat & declined to sign → durable BTPA-appointment decline.
+            if (reasons.some((r) => RETAIL.includes(r))) doRetail(note, { apptDeclined: reasons.includes("Not interested") });
             else if (reasons.includes("No answer (2x+)")) dqNoAnswerToRep("🚫 No answer on PA appointments — sent back to the rep. " + note);
             else doRetail(note);
           }}

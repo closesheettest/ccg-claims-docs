@@ -244,9 +244,9 @@ function BTPABars({ funnel }) {
   const f = funnel || {};
   const total = f.total || 0, dq = f.dq || 0;
   const got = f.got_appt || 0, declined = f.declined || 0, gap = f.gap || 0;
-  const signed = f.signed || 0, noSit = f.rescheduling || 0, rebooked = f.rescheduled || 0, waiting = f.waiting_docs || 0, upcoming = f.upcoming || 0;
+  const signed = f.signed || 0, noSit = f.rescheduling || 0, declinedAppt = f.declined_appt || 0, rebooked = f.rescheduled || 0, waiting = f.waiting_docs || 0, upcoming = f.upcoming || 0;
   const worked = got + declined;                 // homeowners the rep actually talked to about the PA (excl. never-scheduled + dead)
-  const resolved = signed + noSit;               // the appointment happened → they sat & signed, or no-sit
+  const resolved = signed + noSit + declinedAppt; // appt happened → signed, no-sit, or sat & declined
   const pct = (n, d) => (d > 0 ? Math.round((n / d) * 1000) / 10 : 0);
   const Bar = ({ label, n, d, color }) => (
     <div style={{ marginBottom: 9 }}>
@@ -272,6 +272,7 @@ function BTPABars({ funnel }) {
         <div style={{ fontSize: 15, fontWeight: 800, fontFamily: OSWALD }}>② PA Appointment → Sit &amp; Sign</div>
         <div style={{ fontSize: 12, color: "#94a3b8", marginBottom: 10 }}>Of <b>{got}</b> that got an appointment — <b>{resolved}</b> resolved (waiting-on-docs &amp; upcoming still live).</div>
         <Bar label="Signed the PA paperwork" n={signed} d={resolved} color="#16a34a" />
+        <Bar label="Not interested (sat &amp; declined)" n={declinedAppt} d={resolved} color="#64748b" />
         <Bar label="No-sit — needs to reschedule" n={noSit} d={resolved} color="#b91c1c" />
         <div style={{ fontSize: 12, color: "#334155", marginTop: 6, lineHeight: 1.7 }}>
           Sign rate (signed ÷ {resolved} resolved): <b style={{ color: "#16a34a" }}>{pct(signed, resolved)}%</b>
