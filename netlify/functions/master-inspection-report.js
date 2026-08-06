@@ -154,14 +154,14 @@ export const handler = async (event) => {
     //   • ND   — a referral go-back was already recorded.
     const btpaNowMs = Date.now();
     const isNI = (i) => String(i.jn_status || "").trim().toLowerCase() === "btr - ni";
-    // BTPA go-back = the appointment-driven open states (need_appt + missed), from the
-    // shared classifier so the report and the reps' map can't disagree.
+    // BTPA go-back = the appointment-driven open states (need_appt + rescheduling), from
+    // the shared classifier so the report and the reps' map can't disagree.
     const dmgState = (i) => damageState(i, latestAppt(i.id), btpaNowMs);
     const needs_goback_status = live
-      .filter((i) => (i.result === "damage" && damageNeedsGoback(dmgState(i)))                                    // BTPA — needs an appointment (schedule) or missed one (reschedule)
+      .filter((i) => (i.result === "damage" && damageNeedsGoback(dmgState(i)))                                    // BTPA — needs an appointment (schedule) or rebooking (reschedule)
         || (i.result === "retail" && retailStage(i.jn_status, i.retail_outcome) === "not_worked" && !isNI(i) && !scheduledRetail.has(i.id)) // BTR — still "Sit Sold Insp", not NI, no appt booked
         || (i.result === "no_damage" && !i.referral_outcome))                                                    // ND — no referral go-back yet
-      .map((i) => ({ ...card(i), result: i.result, need: i.result === "damage" ? (dmgState(i) === "missed" ? "Needs reschedule (missed appt)" : "Needs PA appointment") : i.result === "no_damage" ? "Needs referral go-back" : "Needs rep go-back (BTR)" }))
+      .map((i) => ({ ...card(i), result: i.result, need: i.result === "damage" ? (dmgState(i) === "rescheduling" ? "Needs reschedule (appt fell through)" : "Needs PA appointment") : i.result === "no_damage" ? "Needs referral go-back" : "Needs rep go-back (BTR)" }))
       .sort((a, b) => (a.result || "").localeCompare(b.result || ""));
 
     // 3) RETAIL breakdown + percentages. retail_outcome: ni / no_sale / sold / btr_appt / (null = pending)
@@ -203,7 +203,7 @@ export const handler = async (event) => {
       (a ? withApptArr : needApptArr).push(deal);
       allDamage.push(deal);
     }
-    const btpaCounts = { need_appt: 0, missed: 0, upcoming: 0, signed: 0, dead: 0 };
+    const btpaCounts = { need_appt: 0, rescheduling: 0, waiting_docs: 0, upcoming: 0, signed: 0, dead: 0 };
     for (const d of allDamage) btpaCounts[d.bucket] = (btpaCounts[d.bucket] || 0) + 1;
     // BTPA conversion funnel — same two-stage shape as the BTR funnel, so the % are
     // honest. The "dead" bucket splits: homeowner Not Interested = declined (a real
@@ -215,9 +215,12 @@ export const handler = async (event) => {
       dq: f_dq,                                                    // office-closed dead → out of funnel
       declined: f_declined,                                        // ① homeowner Not Interested
       gap: btpaCounts.need_appt,                                   // ① never got a PA appointment (the gap)
-      got_appt: btpaCounts.missed + btpaCounts.upcoming + btpaCounts.signed, // ① reached an appointment
-      signed: btpaCounts.signed,                                   // ② PA signed
-      missed: btpaCounts.missed,                                   // ② appt missed, never signed
+      // ① reached an appointment = every deal past scheduling (signed, waiting on docs,
+      //    rebooking, or upcoming).
+      got_appt: btpaCounts.signed + btpaCounts.waiting_docs + btpaCounts.rescheduling + btpaCounts.upcoming,
+      signed: btpaCounts.signed,                                   // ② the PA signed them
+      rescheduling: btpaCounts.rescheduling,                       // ② appt scheduled but they DIDN'T sign → rebook
+      waiting_docs: btpaCounts.waiting_docs,                       // ② signing in progress (PA collecting docs)
       upcoming: btpaCounts.upcoming,                               // ② still to sit
     };
     const damage = {

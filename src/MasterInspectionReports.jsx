@@ -51,7 +51,8 @@ const GOBACK_COLOR = { damage: "#b91c1c", retail: "#0891b2", no_damage: "#64748b
 // BTPA lifecycle buckets — the filter buttons on the BTPA tab.
 const BTPA_BUCKETS = [
   { key: "need_appt", label: "Needs appointment", color: "#b45309" },
-  { key: "missed", label: "Needs reschedule", color: "#b91c1c" },
+  { key: "rescheduling", label: "No-sit / reschedule", color: "#b91c1c" },
+  { key: "waiting_docs", label: "Waiting on Docs", color: "#7c3aed" },
   { key: "upcoming", label: "Upcoming", color: "#2563eb" },
   { key: "signed", label: "Signed", color: "#16a34a" },
   { key: "dead", label: "Dead / Not interested", color: "#64748b" },
@@ -242,9 +243,9 @@ function BTPABars({ funnel }) {
   const f = funnel || {};
   const total = f.total || 0, dq = f.dq || 0;
   const got = f.got_appt || 0, declined = f.declined || 0, gap = f.gap || 0;
-  const signed = f.signed || 0, missed = f.missed || 0, upcoming = f.upcoming || 0;
+  const signed = f.signed || 0, noSit = f.rescheduling || 0, waiting = f.waiting_docs || 0, upcoming = f.upcoming || 0;
   const worked = got + declined;                 // homeowners the rep actually talked to about the PA (excl. never-scheduled + dead)
-  const resolved = signed + missed;
+  const resolved = signed + noSit;               // the appointment happened → they sat & signed, or no-sit
   const pct = (n, d) => (d > 0 ? Math.round((n / d) * 1000) / 10 : 0);
   const Bar = ({ label, n, d, color }) => (
     <div style={{ marginBottom: 9 }}>
@@ -267,16 +268,16 @@ function BTPABars({ funnel }) {
         <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 4 }}>Not worked yet — still to schedule: <b>{gap}</b> · Dead / office-closed: <b>{dq}</b> · of {total} total BTPA</div>
       </div>
       <div style={card}>
-        <div style={{ fontSize: 15, fontWeight: 800, fontFamily: OSWALD }}>② PA Appointment → Signed</div>
-        <div style={{ fontSize: 12, color: "#94a3b8", marginBottom: 10 }}>Of <b>{got}</b> that reached an appointment — <b>{resolved}</b> resolved (upcoming is still live).</div>
+        <div style={{ fontSize: 15, fontWeight: 800, fontFamily: OSWALD }}>② PA Appointment → Sit &amp; Sign</div>
+        <div style={{ fontSize: 12, color: "#94a3b8", marginBottom: 10 }}>Of <b>{got}</b> that got an appointment — <b>{resolved}</b> resolved (waiting-on-docs &amp; upcoming still live).</div>
         <Bar label="Signed the PA paperwork" n={signed} d={resolved} color="#16a34a" />
-        <Bar label="Didn't sign (missed / no-show)" n={missed} d={resolved} color="#b91c1c" />
+        <Bar label="No-sit — needs to reschedule" n={noSit} d={resolved} color="#b91c1c" />
         <div style={{ fontSize: 12, color: "#334155", marginTop: 6, lineHeight: 1.7 }}>
           Sign rate (signed ÷ {resolved} resolved): <b style={{ color: "#16a34a" }}>{pct(signed, resolved)}%</b>
         </div>
-        {upcoming > 0 && (
+        {(waiting > 0 || upcoming > 0) && (
           <div style={{ marginTop: 10, padding: "8px 11px", background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 10, fontSize: 12.5, color: "#1e40af" }}>
-            🔵 <b>{upcoming}</b> still to sit — upcoming appointment, not counted yet.
+            📄 <b>{waiting}</b> waiting on docs (signing in progress) · 🔵 <b>{upcoming}</b> still to sit — not counted yet.
           </div>
         )}
       </div>
@@ -430,11 +431,12 @@ function Damage({ damage }) {
       <Section
         title={`${filter === "all" ? "All BTPA" : meta(filter).label} (${deals.length})`}
         sub={filter === "all"
-          ? "Needs appointment (never had one → rep schedules) · Needs reschedule (appt came and went, nothing signed → rep rebooks) · Upcoming (scheduled, hasn't happened) · Signed (PA signed the homeowner) · Dead (Not Interested or office-closed DQ)."
-          : filter === "need_appt" ? "Damage roofs that never had a PA appointment — the rep goes back to schedule the first one. (A PA merely 'opening' the deal doesn't count; only a real booked appointment does.)"
+          ? "Needs appointment (never had one → schedule) · No-sit / reschedule (appt happened, homeowner didn't sit → rep OR PA rebooks) · Waiting on Docs (PA collecting documents) · Upcoming (scheduled, hasn't happened) · Signed (PA signed the homeowner) · Dead (Not Interested or office-closed DQ)."
+          : filter === "need_appt" ? "Damage roofs that never had a PA appointment — go back to schedule the first one. (A PA merely 'opening' the deal doesn't count; only a real booked appointment does.)"
+          : filter === "rescheduling" ? "The appointment happened but the homeowner didn't sit (or the PA marked it rescheduling) — needs rebooking. Either the rep OR the PA can get it rescheduled."
+          : filter === "waiting_docs" ? "The homeowner is in with the PA and the PA is collecting documents — the PA's job, not a rep go-back."
           : filter === "upcoming" ? "A PA appointment is on the books and hasn't happened yet — scheduled for later."
-          : filter === "missed" ? "Had a PA appointment that came and went with nothing signed — the rep goes back to reschedule it."
-          : filter === "signed" ? "The PA signed the homeowner (or is collecting docs) — the claim is moving."
+          : filter === "signed" ? "The PA signed the homeowner for the claim (PA Sign-up = Signed) — the claim is moving."
           : "Homeowner Not Interested, or the office/PA closed the lead as a dead DQ — no go-back needed."}>
         {!deals.length ? <Empty /> : <Grouped groups={filter === "signed" ? twoLevel(deals, (r) => r.company || "No company", (r) => r.pa || "—", "alpha") : twoLevel(deals, (r) => r.zone, (r) => r.rep || "—")} renderRow={row} />}
       </Section>

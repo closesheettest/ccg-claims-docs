@@ -1186,7 +1186,7 @@ export function PAAdminPanel() {
                           <input type="checkbox" checked={needsSel.has(d.id)} onChange={() => toggleNeed(d.id)} />
                           <div style={{ minWidth: 0 }}>
                             <div style={{ fontWeight: 700, fontSize: 13.5 }}>{d.client_name || "(no name)"}{d._dist != null && <span style={{ fontSize: 11, fontWeight: 700, color: "#0369a1", marginLeft: 6 }}>📍 {d._dist.toFixed(1)} mi</span>}{d.pa_company_id && <span style={{ fontSize: 11, fontWeight: 700, color: "#5b21b6", background: "#f5f3ff", border: "1px solid #c4b5fd", borderRadius: 999, padding: "1px 8px", marginLeft: 6 }}>🏢 in {companies.find((c) => c.id === d.pa_company_id)?.name || "company"} pool — never assigned</span>}</div>
-                            <div style={{ fontSize: 11.5, color: "#6b7280" }}>{[d.address, d.city, d.state, d.zip].filter(Boolean).join(", ")}{d.signed_at ? ` · signed ${fmtSigned(d.signed_at, { withYear: false })}` : ""}</div>
+                            <div style={{ fontSize: 11.5, color: "#6b7280" }}>{[d.address, d.city, d.state, d.zip].filter(Boolean).join(", ")}{d.signed_at ? ` · roof inspection signed ${fmtSigned(d.signed_at, { withYear: false })}` : ""}</div>
                           </div>
                           <select disabled={bulkBusy} defaultValue="" onChange={(e) => { const v = e.target.value; if (v) assignOne(d.id, v); e.target.value = ""; }}
                             style={{ fontSize: 12.5, padding: "7px 9px", borderRadius: 8, border: "1px solid #f59e0b", background: "#fffbeb", maxWidth: 180 }}>
@@ -1741,7 +1741,7 @@ function PADecisionRow({ deal, priorPaName, busy, onPool, onBackToRep, onDismiss
               🔍 Inspected: {dateChip(inspectedDate)}
             </span>
             <span style={{ fontSize: 11, fontWeight: 700, color: "#475569", background: "#f1f5f9", border: "1px solid #e2e8f0", borderRadius: 999, padding: "2px 8px" }}>
-              🖊 Signed: {signedDisp || "—"}
+              🖊 Roof inspection signed: {signedDisp || "—"}
             </span>
             <span style={{ fontSize: 11, fontWeight: 700, color: filedDate ? "#065f46" : "#64748b", background: filedDate ? "#ecfdf5" : "#f1f5f9", border: `1px solid ${filedDate ? "#86efac" : "#e2e8f0"}`, borderRadius: 999, padding: "2px 8px" }}>
               📋 PA filed: {dateChip(filedDate)}
@@ -2818,7 +2818,7 @@ function PAJobCard({ job, onOpen, me }) {
             </span>
           )}
         </div>
-        <div style={{ fontSize: 12.5, color: "#6b7280", marginTop: 2 }}>🖊 Signed {signed}{signedTime ? ` at ${signedTime}` : ""}</div>
+        <div style={{ fontSize: 12.5, color: "#6b7280", marginTop: 2 }}>🖊 Roof inspection signed {signed}{signedTime ? ` at ${signedTime}` : ""}</div>
         {lastContact && <div style={{ fontSize: 12, color: "#0e7490", marginTop: 1 }}>🗒 Last contact {lastContact}</div>}
         {job.mobile
           ? <div style={{ fontSize: 13.5, marginTop: 3 }}><a href={`tel:${String(job.mobile).replace(/[^\d+]/g, "")}`} onClick={(e) => e.stopPropagation()} style={{ color: "#0e7490", fontWeight: 700, textDecoration: "none" }}>📞 {job.mobile}</a></div>
