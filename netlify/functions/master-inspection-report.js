@@ -137,12 +137,16 @@ export const handler = async (event) => {
   try {
     const nowMs = Date.now();
     const zoneByRep = await fetchZoneByRep();
-    const [inspections, appts, pas, companies] = await Promise.all([
-      sbGetAll("inspections?select=id,jn_job_id,address,city,county,latitude,longitude,client_name,mobile,email,sales_rep_name,original_sales_rep_name,signed_at,docs_signed,date,inspection_date,result_at,inspector_name,result,inspection_result,jn_status,retail_outcome,retail_outcome_at,result_task_jnid,result_task_at,cancelled_at,cancel_review_pending,lost_reason,pa_id,pa_company_id,pa_status,pa_signed_at,pa_stage,pa_fields,pa_notes_log,pa_status_notes,pa_decision_reason,correction_note,referral_outcome,goback_not_home_count,goback_last_attempt_at"),
+    const [inspections, appts, pas, companies, retailAppts] = await Promise.all([
+      sbGetAll("inspections?select=id,jn_job_id,address,city,county,latitude,longitude,client_name,mobile,email,sales_rep_name,original_sales_rep_name,signed_at,docs_signed,date,inspection_date,result_at,inspector_name,result,inspection_result,jn_status,retail_outcome,retail_outcome_at,result_task_jnid,result_task_at,cancelled_at,cancel_review_pending,lost_reason,pa_id,pa_company_id,pa_status,pa_signed_at,pa_stage,pa_opened_at,manager_assigned_to_rep_at,pa_fields,pa_notes_log,pa_status_notes,pa_decision_reason,correction_note,referral_outcome,goback_not_home_count,goback_last_attempt_at"),
       sbGetAll("pa_appointments?select=id,pa_id,pa_company_id,inspection_id,homeowner_name,homeowner_phone,address,start_at,end_at,status,booked_by,notes,created_at"),
       sbGetAll("pas?select=id,name,phone,email,pa_company_id"),
       sbGetAll("pa_companies?select=id,name"),
+      sbGetAll("retail_appointments?select=inspection_id"),
     ]);
+    // Retail deals already booked for a back-to-retail options appointment — off the
+    // rep's go-back list (mirrors visit-deal-list's retail exclusion).
+    const scheduledRetail = new Set(retailAppts.map((a) => a.inspection_id).filter(Boolean));
 
     const paName = {}; for (const p of pas) paName[p.id] = p.name;
     const paCompany = {}; for (const p of pas) paCompany[p.id] = p.pa_company_id; // adjuster → their company
@@ -169,9 +173,24 @@ export const handler = async (event) => {
     //    action isn't done: a DAMAGE roof with no PA appointment booked (and not yet
     //    signed/refused), or a RETAIL roof the rep hasn't gone back to work yet. This
     //    is the post-inspection to-do backlog.
+    // Use the EXACT "already handled" rules the reps' go-back list uses (visit-deal-list),
+    // so this backlog can't diverge from what reps actually see on the map. A deal is
+    // dropped once it's genuinely resolved or in a PA's hands — NOT still "needs a go-back":
+    //   • BTPA — a PA has ENGAGED (signed / opened it / waiting on docs / LOR-PAC on file
+    //     / a won JN status like "Sitsold PA" or "New Roof"), unless a manager explicitly
+    //     handed it back to the rep. Also drop rep-marked Not Interested (BTR-NI).
+    //   • BTR  — a retail options appt is already booked, or it's marked Not Interested.
+    //   • ND   — a referral go-back was already recorded.
+    const SIGNED_JN = /sitsold pa|signed contract|production review|job prep|funding|pace|upcoming install|install|new roof|paid|collection/i;
+    const isNI = (i) => String(i.jn_status || "").trim().toLowerCase() === "btr - ni";
+    const damageStillOpen = (i) => {
+      const paEngaged = i.pa_signed_at || i.pa_stage === "waiting_docs" || /\b(lor|pac)\b/i.test(i.docs_signed || "") || SIGNED_JN.test(String(i.jn_status || ""));
+      const paOpenedHide = i.pa_opened_at && !i.manager_assigned_to_rep_at;
+      return !(paEngaged || paOpenedHide) && !isNI(i);
+    };
     const needs_goback_status = live
-      .filter((i) => (i.result === "damage" && !(apptByInsp[i.id] || []).length && paOutcome(i) === "pending")   // BTPA — no PA appt yet
-        || (i.result === "retail" && retailStage(i.jn_status, i.retail_outcome) === "not_worked")                 // BTR — still "Sit Sold Insp" (matches the BTR pipeline's "not worked yet")
+      .filter((i) => (i.result === "damage" && damageStillOpen(i))                                                // BTPA — PA hasn't engaged, not NI
+        || (i.result === "retail" && retailStage(i.jn_status, i.retail_outcome) === "not_worked" && !isNI(i) && !scheduledRetail.has(i.id)) // BTR — still "Sit Sold Insp", not NI, no appt booked
         || (i.result === "no_damage" && !i.referral_outcome))                                                    // ND — no referral go-back yet
       .map((i) => ({ ...card(i), result: i.result, need: i.result === "damage" ? "Needs PA appointment" : i.result === "no_damage" ? "Needs referral go-back" : "Needs rep go-back (BTR)" }))
       .sort((a, b) => (a.result || "").localeCompare(b.result || ""));

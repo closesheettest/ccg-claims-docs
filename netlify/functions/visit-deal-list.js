@@ -65,7 +65,11 @@ exports.handler = async (event) => {
         // signed the homeowner, waiting on docs, or LOR/PAC paperwork — still hides
         // it (the claim's already moving, the rep doesn't need to push).
         const managerAssigned = !!r.manager_assigned_to_rep_at;
-        const paEngaged = r.pa_signed_at || r.pa_stage === "waiting_docs" || /\b(lor|pac)\b/i.test(r.docs_signed || "");
+        // A PA who signed the homeowner DIRECTLY in JobNimbus (status "Sitsold PA",
+        // "Signed Contract", … a won status) leaves no pa_signed_at — the claim is
+        // already moving, so the rep shouldn't be pushed back out to it.
+        const jnSigned = /sitsold pa|signed contract|production review|job prep|funding|pace|upcoming install|install|new roof|paid|collection/i.test(String(r.jn_status || ""));
+        const paEngaged = r.pa_signed_at || r.pa_stage === "waiting_docs" || /\b(lor|pac)\b/i.test(r.docs_signed || "") || jnSigned;
         const paOpenedHide = r.pa_opened_at && !managerAssigned;
         return !(paEngaged || paOpenedHide) && String(r.jn_status || "").trim().toLowerCase() !== "btr - ni";
       });
