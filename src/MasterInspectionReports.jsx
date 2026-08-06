@@ -354,8 +354,14 @@ function Damage({ damage }) {
       </div>
       <div style={{ textAlign: "right", fontSize: 12 }}>
         <div><b style={{ color: meta(r.bucket).color }}>{meta(r.bucket).label}</b></div>
-        {r.start_at && <div style={{ color: "#94a3b8" }}>{fmtDateTime(r.start_at)}</div>}
-        {r.appt_status && <div style={{ color: "#94a3b8" }}>{r.appt_status}</div>}
+        {r.bucket === "signed" ? (
+          (r.signed_at || r.start_at) && <div style={{ color: "#16a34a", fontWeight: 700 }}>Signed {fmtDate(r.signed_at || r.start_at)}</div>
+        ) : (
+          <>
+            {r.start_at && <div style={{ color: "#94a3b8" }}>{fmtDateTime(r.start_at)}</div>}
+            {r.appt_status && <div style={{ color: "#94a3b8" }}>{r.appt_status}</div>}
+          </>
+        )}
       </div>
     </div>
   );
@@ -380,7 +386,7 @@ function Damage({ damage }) {
           : filter === "missed" ? "Had a PA appointment that came and went with nothing signed — the rep goes back to reschedule it."
           : filter === "signed" ? "The PA signed the homeowner (or is collecting docs) — the claim is moving."
           : "Homeowner Not Interested, or the office/PA closed the lead as a dead DQ — no go-back needed."}>
-        {!deals.length ? <Empty /> : <Grouped groups={twoLevel(deals, (r) => r.zone, (r) => r.rep || "—")} renderRow={row} />}
+        {!deals.length ? <Empty /> : <Grouped groups={filter === "signed" ? twoLevel(deals, (r) => r.company || "No company", (r) => r.pa || "—", "alpha") : twoLevel(deals, (r) => r.zone, (r) => r.rep || "—")} renderRow={row} />}
       </Section>
     </div>
   );

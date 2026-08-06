@@ -198,7 +198,7 @@ export const handler = async (event) => {
       const co = coId ? coName[coId] : null;
       const assigned = !!(paId || coId);
       const bucket = damageState(i, a, btpaNowMs);
-      const base = { ...card(i), pa: pn, company: co, stage: assigned ? (i.pa_stage || null) : null, notes: recentNotes(i), signed: bucket === "signed", bucket };
+      const base = { ...card(i), pa: pn, company: co, stage: assigned ? (i.pa_stage || null) : null, notes: recentNotes(i), signed: bucket === "signed", bucket, signed_at: toISO(i.pa_signed_at) };
       const deal = a ? { ...base, start_at: a.start_at, appt_status: a.status } : { ...base, assigned };
       (a ? withApptArr : needApptArr).push(deal);
       allDamage.push(deal);
