@@ -51,6 +51,7 @@ const GOBACK_COLOR = { damage: "#b91c1c", retail: "#0891b2", no_damage: "#64748b
 // BTPA lifecycle buckets — the filter buttons on the BTPA tab.
 const BTPA_BUCKETS = [
   { key: "need_appt", label: "Needs appointment", color: "#b45309" },
+  { key: "upcoming", label: "Upcoming", color: "#2563eb" },
   { key: "missed", label: "Missed", color: "#b91c1c" },
   { key: "signed", label: "Signed", color: "#16a34a" },
   { key: "unknown", label: "No idea", color: "#64748b" },
@@ -370,11 +371,12 @@ function Damage({ damage }) {
       <Section
         title={`${filter === "all" ? "All BTPA" : meta(filter).label} (${deals.length})`}
         sub={filter === "all"
-          ? "Needs appointment (no PA appt yet) · Missed (appt came and went, no-show) · Signed (PA paperwork done) · No idea (has an appt but the outcome's unclear)."
+          ? "Needs appointment (no PA appt yet) · Upcoming (scheduled, hasn't happened) · Missed (appt came and went, no-show) · Signed (PA paperwork done) · No idea (has an appt but the outcome's unclear)."
           : filter === "need_appt" ? "Damage roofs with no PA appointment booked yet — the rep still needs to set the first one."
+          : filter === "upcoming" ? "A PA appointment is on the books and hasn't happened yet — scheduled for later."
           : filter === "missed" ? "Had a PA appointment that came and went with no result — a no-show to reschedule."
           : filter === "signed" ? "PA paperwork is signed — these are working the claim."
-          : "Has a PA appointment but we can't tell what happened — upcoming, refused, or unclear. Check the notes."}>
+          : "Has a PA appointment but we can't tell what happened — refused or unclear. Check the notes."}>
         {!deals.length ? <Empty /> : <Grouped groups={twoLevel(deals, (r) => r.zone, (r) => r.rep || "—")} renderRow={row} />}
       </Section>
     </div>

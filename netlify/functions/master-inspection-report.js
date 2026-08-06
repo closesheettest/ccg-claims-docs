@@ -187,9 +187,11 @@ export const handler = async (event) => {
       if (deal.signed) return "signed";
       if (!hasAppt) return "need_appt";
       const st = String(deal.appt_status || "").toLowerCase();
-      const past = deal.start_at && new Date(deal.start_at).getTime() < btpaNowMs;
+      const t = deal.start_at ? new Date(deal.start_at).getTime() : 0;
+      const past = t && t < btpaNowMs;
       if (past && (st === "scheduled" || st === "cancelled")) return "missed"; // no-show / didn't happen
-      return "unknown"; // upcoming, refused, or ambiguous
+      if (t && !past) return "upcoming"; // appointment is scheduled for later
+      return "unknown"; // refused, or ambiguous
     };
     const withApptArr = [], needApptArr = [], allDamage = [];
     for (const i of damageDeals) {
@@ -205,7 +207,7 @@ export const handler = async (event) => {
       (a ? withApptArr : needApptArr).push(deal);
       allDamage.push(deal);
     }
-    const btpaCounts = { need_appt: 0, missed: 0, signed: 0, unknown: 0 };
+    const btpaCounts = { need_appt: 0, upcoming: 0, missed: 0, signed: 0, unknown: 0 };
     for (const d of allDamage) btpaCounts[d.bucket] = (btpaCounts[d.bucket] || 0) + 1;
     const damage = {
       total: damageDeals.length,
