@@ -205,12 +205,28 @@ export const handler = async (event) => {
     }
     const btpaCounts = { need_appt: 0, missed: 0, upcoming: 0, signed: 0, dead: 0 };
     for (const d of allDamage) btpaCounts[d.bucket] = (btpaCounts[d.bucket] || 0) + 1;
+    // BTPA conversion funnel — same two-stage shape as the BTR funnel, so the % are
+    // honest. The "dead" bucket splits: homeowner Not Interested = declined (a real
+    // stage-① outcome), office-closed DQ = excluded from the funnel (like BTR lost/dead).
+    let f_declined = 0, f_dq = 0;
+    for (const i of damageDeals) if (damageState(i, latestAppt(i.id), btpaNowMs) === "dead") { isNI(i) ? f_declined++ : f_dq++; }
+    const funnel = {
+      total: damageDeals.length,
+      dq: f_dq,                                                    // office-closed dead → out of funnel
+      declined: f_declined,                                        // ① homeowner Not Interested
+      gap: btpaCounts.need_appt,                                   // ① never got a PA appointment (the gap)
+      got_appt: btpaCounts.missed + btpaCounts.upcoming + btpaCounts.signed, // ① reached an appointment
+      signed: btpaCounts.signed,                                   // ② PA signed
+      missed: btpaCounts.missed,                                   // ② appt missed, never signed
+      upcoming: btpaCounts.upcoming,                               // ② still to sit
+    };
     const damage = {
       total: damageDeals.length,
       with_appt: withApptArr.sort((a, b) => (a.start_at || "").localeCompare(b.start_at || "")),
       needs_appt: needApptArr,
       all: allDamage,
       buckets: btpaCounts,
+      funnel,
     };
 
     // 5) PA APPOINTMENTS THAT HAVE PASSED — status, outcome, which PA / company, when filed.

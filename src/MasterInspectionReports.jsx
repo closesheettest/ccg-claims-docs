@@ -235,6 +235,56 @@ function RetailBars({ retail }) {
   );
 }
 
+// BTPA funnel — same two-stage shape as the BTR funnel. ① how many damage inspections
+// ever got a PA appointment (the huge unworked gap shows up here); ② of the ones that
+// reached an appointment, how many the PA signed.
+function BTPABars({ funnel }) {
+  const f = funnel || {};
+  const total = f.total || 0, dq = f.dq || 0;
+  const worked = Math.max(0, total - dq);
+  const got = f.got_appt || 0, declined = f.declined || 0, gap = f.gap || 0;
+  const signed = f.signed || 0, missed = f.missed || 0, upcoming = f.upcoming || 0;
+  const resolved = signed + missed;
+  const pct = (n, d) => (d > 0 ? Math.round((n / d) * 1000) / 10 : 0);
+  const Bar = ({ label, n, d, color }) => (
+    <div style={{ marginBottom: 9 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, fontWeight: 700, color: "#334155", marginBottom: 3 }}>
+        <span>{label}</span><span>{n} · {pct(n, d)}%</span>
+      </div>
+      <div style={{ height: 9, background: "#f1f5f9", borderRadius: 999, overflow: "hidden" }}>
+        <div style={{ height: "100%", width: `${d > 0 ? (n / d) * 100 : 0}%`, background: color, borderRadius: 999 }} />
+      </div>
+    </div>
+  );
+  const card = { background: "#fff", border: "1px solid #e5e7eb", borderRadius: 14, padding: "16px 18px" };
+  return (
+    <div style={{ display: "grid", gap: 12, marginBottom: 16 }}>
+      <div style={card}>
+        <div style={{ fontSize: 15, fontWeight: 800, fontFamily: OSWALD }}>① Inspection → PA Appointment</div>
+        <div style={{ fontSize: 12, color: "#94a3b8", marginBottom: 10 }}>Of <b>{worked}</b> damage inspections (excludes {dq} office-closed dead).</div>
+        <Bar label="Got a PA appointment" n={got} d={worked} color="#16a34a" />
+        <Bar label="Declined — Not Interested" n={declined} d={worked} color="#64748b" />
+        <Bar label="Never scheduled (the gap)" n={gap} d={worked} color="#b45309" />
+        <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 4 }}>The gap = damage roofs the rep signed that never got a PA appointment booked · of {total} total BTPA</div>
+      </div>
+      <div style={card}>
+        <div style={{ fontSize: 15, fontWeight: 800, fontFamily: OSWALD }}>② PA Appointment → Signed</div>
+        <div style={{ fontSize: 12, color: "#94a3b8", marginBottom: 10 }}>Of <b>{got}</b> that reached an appointment — <b>{resolved}</b> resolved (upcoming is still live).</div>
+        <Bar label="Signed" n={signed} d={resolved} color="#16a34a" />
+        <Bar label="Missed / no-show (never signed)" n={missed} d={resolved} color="#b91c1c" />
+        <div style={{ fontSize: 12, color: "#334155", marginTop: 6, lineHeight: 1.7 }}>
+          Sign rate (signed ÷ {resolved} resolved): <b style={{ color: "#16a34a" }}>{pct(signed, resolved)}%</b>
+        </div>
+        {upcoming > 0 && (
+          <div style={{ marginTop: 10, padding: "8px 11px", background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 10, fontSize: 12.5, color: "#1e40af" }}>
+            🔵 <b>{upcoming}</b> still to sit — upcoming appointment, not counted yet.
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // Inspected — still needs a go-back, split by result with filter buttons (BTPA / BTR / ND).
 function NeedsGoBack({ rows }) {
   const [filter, setFilter] = useState("all");
@@ -367,6 +417,7 @@ function Damage({ damage }) {
   );
   return (
     <div>
+      <BTPABars funnel={damage.funnel} />
       <div style={{ background: "#f8fafc", border: "1px solid #e5e7eb", borderRadius: 10, padding: "9px 12px", fontSize: 12.5, color: "#475569", marginBottom: 12 }}>
         Every BTPA (damage) deal, sorted by where it is with the Public Adjuster. Tap a button to see just that group — grouped by zone → rep.
       </div>
