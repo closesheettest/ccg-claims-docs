@@ -247,6 +247,7 @@ function BTPABars({ funnel }) {
   const signed = f.signed || 0, noSit = f.rescheduling || 0, declinedAppt = f.declined_appt || 0, rebooked = f.rescheduled || 0, waiting = f.waiting_docs || 0, upcoming = f.upcoming || 0;
   const worked = got + declined;                 // homeowners the rep actually talked to about the PA (excl. never-scheduled + dead)
   const resolved = signed + noSit + declinedAppt; // appt happened → signed, no-sit, or sat & declined
+  const sat = signed + declinedAppt;              // actually SAT & made a sign/no-sign call — a no-sit can't be held against the sign rate
   const pct = (n, d) => (d > 0 ? Math.round((n / d) * 1000) / 10 : 0);
   const Bar = ({ label, n, d, color }) => (
     <div style={{ marginBottom: 9 }}>
@@ -275,7 +276,7 @@ function BTPABars({ funnel }) {
         <Bar label="Not interested (sat &amp; declined)" n={declinedAppt} d={resolved} color="#64748b" />
         <Bar label="No-sit — needs to reschedule" n={noSit} d={resolved} color="#b91c1c" />
         <div style={{ fontSize: 12, color: "#334155", marginTop: 6, lineHeight: 1.7 }}>
-          Sign rate (signed ÷ {resolved} resolved): <b style={{ color: "#16a34a" }}>{pct(signed, resolved)}%</b>
+          Sign rate (signed ÷ {sat} who sat — no-sits not counted against it): <b style={{ color: "#16a34a" }}>{pct(signed, sat)}%</b>
         </div>
         {(waiting > 0 || upcoming > 0 || rebooked > 0) && (
           <div style={{ marginTop: 10, padding: "8px 11px", background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 10, fontSize: 12.5, color: "#1e40af" }}>
