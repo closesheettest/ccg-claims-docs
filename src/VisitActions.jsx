@@ -27,7 +27,42 @@ export default function VisitActions({ type, deal, rep, api }) {
     : type === "retail" ? <RetailPanel deal={deal} rep={rep} api={api} />
     : null;
   if (!panel) return null;
-  return <><NotHomeButton deal={deal} api={api} />{panel}</>;
+  return <><ViewCertButton deal={deal} /><NotHomeButton deal={deal} api={api} />{panel}</>;
+}
+
+// "View certificate" — every go-back (damage / no-damage / retail) gets this so the
+// rep can show the homeowner the inspection report WITH PHOTOS on the spot. Builds
+// the report PDF (cache-first, so it's near-instant once rendered) and opens it.
+function ViewCertButton({ deal }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const view = async () => {
+    if (busy) return;
+    const jnid = deal?.jn_job_id;
+    if (!jnid) { setErr("No JobNimbus job on this deal yet — can't build the report."); return; }
+    setBusy(true); setErr("");
+    // Open the tab synchronously (before the await) so mobile Safari doesn't block it.
+    const w = window.open("", "_blank");
+    try {
+      const r = await fetch("/.netlify/functions/generate-and-upload-insp-report", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jnid, skip_jn_upload: true }),
+      });
+      const o = await r.json().catch(() => ({}));
+      if (!o.ok || !o.pdf_signed_url) throw new Error(o.error || "Couldn't build the report");
+      if (w) w.location = o.pdf_signed_url; else window.open(o.pdf_signed_url, "_blank");
+    } catch (e) { if (w) { try { w.close(); } catch { /* ignore */ } } setErr(e.message || "Couldn't load the certificate"); }
+    setBusy(false);
+  };
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <button type="button" onClick={view} disabled={busy}
+        style={{ width: "100%", border: "1px solid #0e7490", color: "#0e7490", background: "#ecfeff", borderRadius: 12, padding: "11px 0", fontSize: 14, fontWeight: 800, cursor: "pointer", opacity: busy ? 0.6 : 1 }}>
+        {busy ? "Building the report…" : "📸 View certificate — show the inspection photos"}
+      </button>
+      {err && <div style={{ fontSize: 12.5, color: "#b91c1c", marginTop: 6, textAlign: "center" }}>{err}</div>}
+    </div>
+  );
 }
 
 function NotHomeButton({ deal, api }) {
