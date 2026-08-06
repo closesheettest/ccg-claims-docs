@@ -3796,7 +3796,7 @@ function PAPipelineDetail({ me, jobId, onBack, wide, adminView }) {
         const PIPE = [
           { key: "rescheduling", label: "No-sit — reschedule", color: "#fff", bg: "#ea8a00", onClick: fsReschedule },
           { key: "rescheduled", label: "Rescheduled — pick a time", color: "#fff", bg: "#0e7490", onClick: () => setOpenSchedSignal((n) => n + 1) },
-          { key: "waiting_docs", label: "Waiting Docs", color: "#7a5c00", bg: "#fde047", onClick: fsWaitingDocs },
+          { key: "waiting_docs", label: "Waiting on Docs", color: "#7a5c00", bg: "#fde047", onClick: fsWaitingDocs },
           { key: "signed", label: "Signed", color: "#fff", bg: "#16a34a", onClick: () => saveField("pa_signup", "Signed"), active: signed },
         ];
         const PIPE2 = [
