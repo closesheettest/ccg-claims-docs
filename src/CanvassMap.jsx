@@ -4946,7 +4946,7 @@ export default function CanvassMap() {
             <div style={{ marginTop: 12, background: due === "overdue" ? "#fef2f2" : "#f8fafc", border: `1px solid ${due === "overdue" ? "#fca5a5" : "#e2e8f0"}`, borderRadius: 10, padding: "10px 12px" }}>
               <div style={{ fontSize: 13.5, fontWeight: 800, color: m.color }}>{m.label} visit — {m.sub.toLowerCase()}</div>
               <div style={{ fontSize: 12.5, color: due === "overdue" ? "#b91c1c" : "#475569", fontWeight: 700, marginTop: 3 }}>
-                {visitWhenLabel(v) ? `${v.result_task_at ? "🗓️ Scheduled: " : "🏠 Best time: "}${visitWhenLabel(v)}` : (visitAgeDays(v) != null ? `⏳ waiting ${visitAgeDays(v)} days` : "🏠 anytime")}
+                {visitWhenLabel(v) ? `🏠 Best time to go back: ${visitWhenLabel(v)}` : (visitAgeDays(v) != null ? `⏳ waiting ${visitAgeDays(v)} days` : "🏠 anytime")}
                 {due === "overdue" ? " · ⚠️ overdue" : due === "today" ? " · today" : ""}
                 {v.distance_mi != null ? ` · ${v.distance_mi} mi away` : ""}
               </div>
