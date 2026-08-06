@@ -54,7 +54,12 @@ export const handler = async (event) => {
   // visit — the SAME visit-deal-list query the reps use, just WITHOUT a rep filter
   // (so it spans all reps). Same "needs a visit" logic (damage claim not moving,
   // retail no outcome + not scheduled, no-damage no referral outcome).
-  if (admin) {
+  //
+  // ONLY when there's no specific rep token. In SPOT-CHECK mode an admin views a
+  // single rep's map and the client sends BOTH rt + admin — there we must fall
+  // through to that rep's own go-backs (below), not the office all-reps branch,
+  // or the spot-checked map shows zero go-backs.
+  if (admin && !rt) {
     const ok = (await sbGet(`app_settings?key=eq.harvest_admin_token&select=value&limit=1`))[0]?.value === admin;
     if (ok) {
       const visitToken = (await sbGet(`app_settings?key=eq.visit_token&select=value&limit=1`))[0]?.value;
