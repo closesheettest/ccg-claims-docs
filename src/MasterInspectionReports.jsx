@@ -51,7 +51,7 @@ const GOBACK_COLOR = { damage: "#b91c1c", retail: "#0891b2", no_damage: "#64748b
 // BTPA lifecycle buckets — the filter buttons on the BTPA tab.
 const BTPA_BUCKETS = [
   { key: "need_appt", label: "Needs appointment", color: "#b45309" },
-  { key: "rescheduling", label: "No-sit / reschedule", color: "#b91c1c" },
+  { key: "rescheduling", label: "No sit needs to reschedule", color: "#b91c1c" },
   { key: "rescheduled", label: "No sit rescheduled", color: "#0e7490" },
   { key: "waiting_docs", label: "Sit Pending", color: "#7c3aed" },
   { key: "upcoming", label: "Upcoming", color: "#2563eb" },
