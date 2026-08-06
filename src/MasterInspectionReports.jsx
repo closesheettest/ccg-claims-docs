@@ -52,7 +52,7 @@ const GOBACK_COLOR = { damage: "#b91c1c", retail: "#0891b2", no_damage: "#64748b
 const BTPA_BUCKETS = [
   { key: "need_appt", label: "Needs appointment", color: "#b45309" },
   { key: "rescheduling", label: "No-sit / reschedule", color: "#b91c1c" },
-  { key: "waiting_docs", label: "Waiting on Docs", color: "#7c3aed" },
+  { key: "waiting_docs", label: "Sit Pending", color: "#7c3aed" },
   { key: "upcoming", label: "Upcoming", color: "#2563eb" },
   { key: "signed", label: "Signed", color: "#16a34a" },
   { key: "dead", label: "Dead / Not interested", color: "#64748b" },
@@ -277,7 +277,7 @@ function BTPABars({ funnel }) {
         </div>
         {(waiting > 0 || upcoming > 0) && (
           <div style={{ marginTop: 10, padding: "8px 11px", background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 10, fontSize: 12.5, color: "#1e40af" }}>
-            📄 <b>{waiting}</b> waiting on docs (signing in progress) · 🔵 <b>{upcoming}</b> still to sit — not counted yet.
+            📄 <b>{waiting}</b> sit pending (PA finishing docs) · 🔵 <b>{upcoming}</b> still to sit — not counted yet.
           </div>
         )}
       </div>
@@ -431,10 +431,10 @@ function Damage({ damage }) {
       <Section
         title={`${filter === "all" ? "All BTPA" : meta(filter).label} (${deals.length})`}
         sub={filter === "all"
-          ? "Needs appointment (never had one → schedule) · No-sit / reschedule (appt happened, homeowner didn't sit → rep OR PA rebooks) · Waiting on Docs (PA collecting documents) · Upcoming (scheduled, hasn't happened) · Signed (PA signed the homeowner) · Dead (Not Interested or office-closed DQ)."
+          ? "Needs appointment (never had one → schedule) · No-sit / reschedule (appt happened, homeowner didn't sit → rep OR PA rebooks) · Sit Pending (sat, PA finishing documents) · Upcoming (scheduled, hasn't happened) · Signed (PA signed the homeowner) · Dead (Not Interested or office-closed DQ)."
           : filter === "need_appt" ? "Damage roofs that never had a PA appointment — go back to schedule the first one. (A PA merely 'opening' the deal doesn't count; only a real booked appointment does.)"
           : filter === "rescheduling" ? "The appointment happened but the homeowner didn't sit (or the PA marked it rescheduling) — needs rebooking. Either the rep OR the PA can get it rescheduled."
-          : filter === "waiting_docs" ? "The homeowner is in with the PA and the PA is collecting documents — the PA's job, not a rep go-back."
+          : filter === "waiting_docs" ? "Sit Pending — the homeowner sat with the PA and the PA is collecting documents to finish. The PA's job, not a rep go-back."
           : filter === "upcoming" ? "A PA appointment is on the books and hasn't happened yet — scheduled for later."
           : filter === "signed" ? "The PA signed the homeowner for the claim (PA Sign-up = Signed) — the claim is moving."
           : "Homeowner Not Interested, or the office/PA closed the lead as a dead DQ — no go-back needed."}>

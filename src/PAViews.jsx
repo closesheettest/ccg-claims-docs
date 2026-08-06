@@ -20,7 +20,7 @@
 //   inspections gets: pa_id uuid (null = in the pool), pa_claimed_at,
 //                     pa_fields jsonb (local cache of pushed values).
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "./lib/supabase";
 import { fmtSigned } from "./lib/dates";
 import { FL_VB, FL_PROJ, FL_LABELXY, FL_COUNTIES } from "./flCounties";
@@ -3078,12 +3078,13 @@ function SettlementUpload({ inspectionId, paId, onUploaded }) {
   );
 }
 
-function PASelfSchedule({ me, job }) {
+function PASelfSchedule({ me, job, openSignal = 0 }) {
   const [open, setOpen] = useState(false);
   const [slots, setSlots] = useState(null);
   const [err, setErr] = useState("");
   const [booking, setBooking] = useState("");
   const [done, setDone] = useState(null);
+  const rootRef = useRef(null);
 
   const load = async () => {
     setSlots(null); setErr("");
@@ -3099,6 +3100,16 @@ function PASelfSchedule({ me, job }) {
     } catch (e) { setErr(e.message); setSlots([]); }
   };
   const toggle = () => { const n = !open; setOpen(n); if (n && slots === null) load(); };
+  // A "Rescheduled — pick a time" tap from the pipeline buttons bumps openSignal:
+  // open this picker, load availability, and scroll it into view so the PA can rebook
+  // on the spot while standing at the door.
+  useEffect(() => {
+    if (openSignal > 0) {
+      setOpen(true);
+      if (slots === null) load();
+      try { if (rootRef.current) rootRef.current.scrollIntoView({ behavior: "smooth", block: "center" }); } catch { /* ignore */ }
+    }
+  }, [openSignal]); // eslint-disable-line react-hooks/exhaustive-deps
   const book = async (s, opts = {}) => {
     const { force = false, reschedule = false } = opts;
     setBooking(s.start_at); setErr("");
@@ -3150,7 +3161,7 @@ function PASelfSchedule({ me, job }) {
   const dayKeys = Object.keys(byDay).sort();
 
   return (
-    <div style={{ padding: 14, background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, marginBottom: 12 }}>
+    <div ref={rootRef} style={{ padding: 14, background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, marginBottom: 12 }}>
       <button type="button" onClick={toggle}
         style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", background: "none", border: "none", cursor: "pointer", padding: 0 }}>
         <span style={{ fontSize: 15, fontWeight: 800, color: "#0e7490", fontFamily: "'Oswald', sans-serif" }}>📅 Schedule / reschedule appointment</span>
@@ -3326,6 +3337,7 @@ function PAPipelineDetail({ me, jobId, onBack, wide, adminView }) {
   // and immediately knows there's more to scroll to.
   const [photosShown, setPhotosShown] = useState(false);
   const [repPhone, setRepPhone] = useState(null); // sales rep's cell, looked up by name
+  const [openSchedSignal, setOpenSchedSignal] = useState(0); // bump → opens PASelfSchedule ("Rescheduled — pick a time")
 
   // Copy this deal's JN-only photos into our own storage so it looks like
   // a modern app-captured inspection. Only offered when the photos we're
@@ -3598,10 +3610,13 @@ function PAPipelineDetail({ me, jobId, onBack, wide, adminView }) {
     postNote({ text: "❌ Appointment cancelled — needs to reschedule", stage: "rescheduling" });
   }
   // Five Star pipeline outcomes ------------------------------------------------
+  // No-sit: REQUIRE a "what happened" note so the office/rep knows why it fell through.
   function fsReschedule() {
     if (noteBusy || refusing || savingKey) return;
-    setLastOutcome("Rescheduling — office will rebook");
-    postNote({ text: "🔄 Rescheduling — homeowner needs to reschedule", stage: "rescheduling" });
+    const why = (window.prompt("No-sit — what happened? (required)\n\nWhy couldn't the appointment be sat? e.g. homeowner not home, cancelled, wouldn't come to the door…") || "").trim();
+    if (!why) return; // a reason note is required — nothing is saved without it
+    setLastOutcome("No-sit — needs to reschedule");
+    postNote({ text: `🚫 No-sit — needs to reschedule: ${why}`, stage: "rescheduling" });
   }
   function fsWaitingDocs() {
     if (noteBusy || refusing || savingKey) return;
@@ -3758,7 +3773,7 @@ function PAPipelineDetail({ me, jobId, onBack, wide, adminView }) {
       </div>
 
       {/* PA self-scheduling — book an appointment from the PA's OWN availability */}
-      <PASelfSchedule me={me} job={job} />
+      <PASelfSchedule me={me} job={job} openSignal={openSchedSignal} />
 
       {/* Context (auto-set by inspector) */}
       <div style={{ padding: 14, background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 12, marginBottom: 12 }}>
@@ -3779,7 +3794,8 @@ function PAPipelineDetail({ me, jobId, onBack, wide, adminView }) {
         const isSaving = savingKey === "pa_signup" || refusing || noteBusy;
         // Five Star pipeline — exact statuses/colors from their portal design.
         const PIPE = [
-          { key: "rescheduling", label: "Rescheduling", color: "#fff", bg: "#ea8a00", onClick: fsReschedule },
+          { key: "rescheduling", label: "No-sit — reschedule", color: "#fff", bg: "#ea8a00", onClick: fsReschedule },
+          { key: "rescheduled", label: "Rescheduled — pick a time", color: "#fff", bg: "#0e7490", onClick: () => setOpenSchedSignal((n) => n + 1) },
           { key: "waiting_docs", label: "Waiting Docs", color: "#7a5c00", bg: "#fde047", onClick: fsWaitingDocs },
           { key: "signed", label: "Signed", color: "#fff", bg: "#16a34a", onClick: () => saveField("pa_signup", "Signed"), active: signed },
         ];
@@ -3824,7 +3840,7 @@ function PAPipelineDetail({ me, jobId, onBack, wide, adminView }) {
             <div style={{ fontSize: 13, color: "#64748b", marginBottom: 16 }}>
               Tap what happened — this updates the office.
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 8 }}>{PIPE.map(btn)}</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>{PIPE.map(btn)}</div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>{PIPE2.map(btn)}</div>
             <div style={{ fontSize: 13, marginTop: 12, fontWeight: 700, color: savedKey === "pa_signup" ? "#047857" : (isPending && !lastOutcome) ? "#b45309" : "#64748b" }}>
               {refusing ? "Sending back to retail & texting the team…"
