@@ -11,12 +11,14 @@
 //
 // Env: VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY.
 
+import { retailStage } from "./_retail.js";
+
 const SB_URL = process.env.VITE_SUPABASE_URL;
 const SB_KEY = process.env.VITE_SUPABASE_ANON_KEY;
 const sb = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, "Content-Type": "application/json" };
 const RESULTS = new Set(["damage", "no_damage", "retail"]);
 
-exports.handler = async (event) => {
+export const handler = async (event) => {
   if (event.httpMethod === "OPTIONS") return cors(200, "");
   if (event.httpMethod !== "POST") return cors(405, JSON.stringify({ ok: false, error: "POST only" }));
   if (!SB_URL || !SB_KEY) return cors(500, JSON.stringify({ ok: false, error: "env missing" }));
@@ -79,10 +81,13 @@ exports.handler = async (event) => {
     if (result === "no_damage") {
       rows = rows.filter((r) => !r.referral_outcome);
     }
-    // Retail list: once it's been sat (rep recorded an outcome, or the JN-status
-    // sync stamped sold/no_sale/ni), it drops off — the row is kept for reports.
+    // Retail list: only a deal the rep STILL needs to go back and work — retailStage
+    // "not_worked" (the "Sit Sold Insp" pool, no outcome recorded). Everything else is
+    // handled (sold / no-sale / declined), scheduled, in another workflow (no-sit,
+    // sit-pending), or DEAD (LOST / DQ) — none of which belong on a go-back list. This
+    // is the SAME classifier the master report uses, so the two can't disagree.
     if (result === "retail") {
-      rows = rows.filter((r) => !r.retail_outcome && String(r.jn_status || "").trim().toLowerCase() !== "btr - ni");
+      rows = rows.filter((r) => retailStage(r.jn_status, r.retail_outcome) === "not_worked");
     }
     // Retail list: a deal leaves the rep's list once it's HANDLED — marked Not
     // Interested ("BTR - NI") or already scheduled (a retail_appointments row).
