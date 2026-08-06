@@ -3873,7 +3873,7 @@ export default function CanvassMap() {
         )}
         {/* Test harness: drop fake appts to see Smart Scheduling work; clear to reset. */}
         {dayMode === null && !selecting && testMode && (
-          <div style={{ position: "absolute", left: 12, bottom: 156, zIndex: 600, display: "flex", gap: 6, alignItems: "center" }}>
+          <div style={{ position: "absolute", left: 12, bottom: (requiredCount > 0 && isRouteManager) ? 216 : 156, zIndex: 600, display: "flex", gap: 6, alignItems: "center" }}>
             <button type="button" onClick={() => setAddingTestAppt(true)}
               style={{ background: "#f59e0b", color: "#111827", border: "none", borderRadius: 999, padding: "9px 15px", fontSize: 12.5, fontWeight: 800, fontFamily: "'Oswald', sans-serif", boxShadow: "0 3px 12px rgba(0,0,0,.25)", cursor: "pointer" }}>
               🧪 Add test appt{testAppts.length ? ` (${testAppts.length})` : ""}
@@ -3888,7 +3888,7 @@ export default function CanvassMap() {
         )}
         {/* Sim an Enhanced Planned Day (manager-assigned section) so the purple banner can be filmed. */}
         {dayMode === null && !selecting && testMode && (
-          <div style={{ position: "absolute", left: 12, bottom: 196, zIndex: 600, display: "flex", gap: 6, alignItems: "center" }}>
+          <div style={{ position: "absolute", left: 12, bottom: (requiredCount > 0 && isRouteManager) ? 256 : 196, zIndex: 600, display: "flex", gap: 6, alignItems: "center" }}>
             <button type="button" onClick={simPlannedDay}
               style={{ background: "#7c3aed", color: "#fff", border: "none", borderRadius: 999, padding: "9px 15px", fontSize: 12.5, fontWeight: 800, fontFamily: "'Oswald', sans-serif", boxShadow: "0 3px 12px rgba(0,0,0,.25)", cursor: "pointer" }}>
               🧭 Sim planned day{assignedIds ? ` (${assignedIds.size})` : ""}
@@ -3903,7 +3903,7 @@ export default function CanvassMap() {
         )}
         {/* Sim go-backs (retail/damage/no-damage) so the "Today's go-backs" card can be filmed. */}
         {dayMode === null && !selecting && testMode && (
-          <div style={{ position: "absolute", left: 12, bottom: 236, zIndex: 600, display: "flex", gap: 6, alignItems: "center" }}>
+          <div style={{ position: "absolute", left: 12, bottom: (requiredCount > 0 && isRouteManager) ? 296 : 236, zIndex: 600, display: "flex", gap: 6, alignItems: "center" }}>
             <button type="button" onClick={simGobacks}
               style={{ background: "#0f172a", color: "#fff", border: "none", borderRadius: 999, padding: "9px 15px", fontSize: 12.5, fontWeight: 800, fontFamily: "'Oswald', sans-serif", boxShadow: "0 3px 12px rgba(0,0,0,.25)", cursor: "pointer" }}>
               🧪 Sim go-backs{visits.length ? ` (${visits.length})` : ""}
