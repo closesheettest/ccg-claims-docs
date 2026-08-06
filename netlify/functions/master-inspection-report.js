@@ -156,7 +156,7 @@ export const handler = async (event) => {
     //    is the post-inspection to-do backlog.
     const needs_goback_status = live
       .filter((i) => (i.result === "damage" && !(apptByInsp[i.id] || []).length && paOutcome(i) === "pending")   // BTPA — no PA appt yet
-        || (i.result === "retail" && !i.retail_outcome)                                                          // BTR — rep hasn't worked it
+        || (i.result === "retail" && retailStage(i.jn_status, i.retail_outcome) === "not_worked")                 // BTR — still "Sit Sold Insp" (matches the BTR pipeline's "not worked yet")
         || (i.result === "no_damage" && !i.referral_outcome))                                                    // ND — no referral go-back yet
       .map((i) => ({ ...card(i), result: i.result, need: i.result === "damage" ? "Needs PA appointment" : i.result === "no_damage" ? "Needs referral go-back" : "Needs rep go-back (BTR)" }))
       .sort((a, b) => (a.result || "").localeCompare(b.result || ""));
