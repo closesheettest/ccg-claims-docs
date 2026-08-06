@@ -3612,7 +3612,7 @@ export default function CanvassMap() {
                   </LegendGroup>
                   {visits.length > 0 && showGobacks && (
                     <LegendGroup title="Go-backs" open={legendOpen.goback} onToggle={() => setLegendOpen((o) => ({ ...o, goback: !o.goback }))}>
-                      {[["damage", "Damage go back"], ["retail", "Retail go back"], ["no_damage", "No damage go back"]].map(([b, label]) => (
+                      {[["damage", "BTPA go back"], ["retail", "BTR go back"], ["no_damage", "ND go back"]].map(([b, label]) => (
                         <StatusCard key={"gb-" + b} color={GOBACK_META[b].color} label={`${GOBACK_META[b].emoji} ${label}`} count={visits.filter((v) => v.bucket === b).length}
                           active={gobackShow[b] !== false} onClick={() => setGobackShow((s) => ({ ...s, [b]: s[b] === false }))} />
                       ))}
