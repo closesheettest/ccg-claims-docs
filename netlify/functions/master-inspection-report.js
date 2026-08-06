@@ -130,6 +130,7 @@ export const handler = async (event) => {
     ]);
 
     const paName = {}; for (const p of pas) paName[p.id] = p.name;
+    const paCompany = {}; for (const p of pas) paCompany[p.id] = p.pa_company_id; // adjuster → their company
     const coName = {}; for (const c of companies) coName[c.id] = c.name;
     const inspById = {}; for (const i of inspections) inspById[i.id] = i;
 
@@ -196,11 +197,16 @@ export const handler = async (event) => {
     const withApptArr = [], needApptArr = [], allDamage = [];
     for (const i of damageDeals) {
       const a = latestAppt(i.id);
-      const co = i.pa_company_id ? coName[i.pa_company_id] : null;
-      const pn = i.pa_id ? paName[i.pa_id] : null;
+      // Resolve the PA adjuster + company robustly: the deal's own fields first, then
+      // the appointment's, then the adjuster's own company — so a company shows on the
+      // card whenever we can determine one (the deal doesn't always stamp pa_company_id).
+      const paId = i.pa_id || (a && a.pa_id) || null;
+      const coId = i.pa_company_id || (a && a.pa_company_id) || (paId ? paCompany[paId] : null) || null;
+      const pn = paId ? paName[paId] : null;
+      const co = coId ? coName[coId] : null;
       // Only surface a PA stage when a PA is actually ASSIGNED — a stale "active" on
       // an unassigned deal is misleading (nobody's on it). Guard on pa_id/company.
-      const assigned = !!(i.pa_id || i.pa_company_id);
+      const assigned = !!(paId || coId);
       const base = { ...card(i), pa: pn, company: co, stage: assigned ? (i.pa_stage || null) : null, notes: recentNotes(i), signed: paOutcome(i) === "signed" };
       const deal = a ? { ...base, start_at: a.start_at, appt_status: a.status } : { ...base, assigned };
       deal.bucket = btpaBucket(deal, !!a);

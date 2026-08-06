@@ -338,9 +338,13 @@ function Damage({ damage }) {
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontWeight: 800 }}>{r.name}</div>
         <div style={{ fontSize: 12.5, color: "#64748b" }}>{[r.address, r.city].filter(Boolean).join(", ")}</div>
-        <div style={{ fontSize: 12, color: "#94a3b8" }}>
-          {r.pa || r.company || (r.bucket === "need_appt" ? (r.assigned ? "Assigned — no appt yet" : "Unassigned") : "PA")}
-        </div>
+        {(r.company || r.pa) ? (
+          <div style={{ fontSize: 12, color: "#0e7490", fontWeight: 700 }}>
+            {r.company ? `🏢 ${r.company}` : "🧑‍💼 PA"}{r.pa ? ` · ${r.pa}` : ""}
+          </div>
+        ) : r.bucket === "need_appt" ? (
+          <div style={{ fontSize: 12, color: "#94a3b8" }}>{r.assigned ? "Assigned — no appt yet" : "Unassigned"}</div>
+        ) : null}
         <NotesBlock r={r} needsAppt={r.bucket === "need_appt"} />
       </div>
       <div style={{ textAlign: "right", fontSize: 12 }}>
