@@ -186,7 +186,8 @@ export const handler = async (event) => {
     const btpaNowMs = Date.now();
     const btpaBucket = (deal, hasAppt) => {
       if (deal.signed) return "signed";
-      if (String(deal.stage || "").toLowerCase() === "dead") return "dead"; // PA marked it dead / DQ'd
+      // Note: pa_stage "dead" is NOT its own bucket — it means the PA did nothing with
+      // the deal, so it still needs the rep to go back and set an appointment.
       if (!hasAppt) return "need_appt";
       const st = String(deal.appt_status || "").toLowerCase();
       const t = deal.start_at ? new Date(deal.start_at).getTime() : 0;
@@ -214,7 +215,7 @@ export const handler = async (event) => {
       (a ? withApptArr : needApptArr).push(deal);
       allDamage.push(deal);
     }
-    const btpaCounts = { need_appt: 0, upcoming: 0, missed: 0, signed: 0, dead: 0, unknown: 0 };
+    const btpaCounts = { need_appt: 0, upcoming: 0, missed: 0, signed: 0, unknown: 0 };
     for (const d of allDamage) btpaCounts[d.bucket] = (btpaCounts[d.bucket] || 0) + 1;
     const damage = {
       total: damageDeals.length,
