@@ -237,6 +237,15 @@
 [functions."cron-harvest-leadsync"]
   schedule = "*/30 11-23,0-1 * * *"
 
+# Fast, standalone appointment reverse-sync — flips a Harvesting Map pin to "appt"
+# within minutes of the office booking it in JobNimbus, so a company-booked door
+# drops off the workable pins before a rep can mark it Not Interested (the 1092
+# Fernlea case: appt on a different JN contact, so only the address net catches it,
+# and buried at the tail of the geocoding-heavy 30-min sync it ran too late). Every
+# 10 min, 7 AM–9 PM ET. exports.config in the file mirrors this.
+[functions."cron-appt-reverse-sync"]
+  schedule = "*/10 11-23,0-1 * * *"
+
 # Venice roof-age scrub via Shovels.ai — PAUSED 2026-08-05. Shovels returns
 # "NOT FOUND" for every Venice address (Sarasota County permit coverage gap), so it
 # validated nothing and burned ~1 credit/pin. Logic lives in the callable worker
