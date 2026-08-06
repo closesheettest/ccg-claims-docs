@@ -455,10 +455,13 @@ function NotesBlock({ r, needsAppt }) {
   return (
     <>
       {typeof r.signed === "boolean" && (
-        <div style={{ fontSize: 12, fontWeight: 800, marginTop: 3, color: r.signed ? "#16a34a" : needsAppt ? "#b45309" : "#9a3412" }}>
+        <div style={{ fontSize: 12, fontWeight: 800, marginTop: 3, color: r.signed ? "#16a34a" : r.bucket === "waiting_docs" ? "#7c3aed" : (r.bucket === "rescheduled" || r.bucket === "upcoming") ? "#0e7490" : needsAppt ? "#b45309" : "#9a3412" }}>
           {r.signed ? "✅ Signed PA paperwork"
+            : r.bucket === "waiting_docs" ? "🟣 Sit Pending — with the PA, collecting documents"
+            : r.bucket === "rescheduled" ? "🔁 No-sit rescheduled — new appointment booked"
+            : r.bucket === "upcoming" ? "🔵 Upcoming PA appointment"
             : needsAppt ? "◻︎ No PA appointment yet — rep still needs to set the first one"
-            : "❌ No PA paperwork signed — reschedule candidate"}
+            : "❌ No-sit — needs to reschedule"}
         </div>
       )}
       {r.stage && <div style={{ fontSize: 11.5, fontWeight: 800, color: "#7c3aed", marginTop: 3, textTransform: "capitalize" }}>PA stage: {cap(r.stage)}</div>}
