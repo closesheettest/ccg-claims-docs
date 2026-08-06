@@ -54,6 +54,7 @@ const BTPA_BUCKETS = [
   { key: "upcoming", label: "Upcoming", color: "#2563eb" },
   { key: "missed", label: "Missed", color: "#b91c1c" },
   { key: "signed", label: "Signed", color: "#16a34a" },
+  { key: "dead", label: "Dead", color: "#7c3aed" },
   { key: "unknown", label: "No idea", color: "#64748b" },
 ];
 const BTPA_META = Object.fromEntries(BTPA_BUCKETS.map((b) => [b.key, b]));
@@ -369,11 +370,12 @@ function Damage({ damage }) {
       <Section
         title={`${filter === "all" ? "All BTPA" : meta(filter).label} (${deals.length})`}
         sub={filter === "all"
-          ? "Needs appointment (no PA appt yet) · Upcoming (scheduled, hasn't happened) · Missed (appt came and went, no-show) · Signed (PA paperwork done) · No idea (has an appt but the outcome's unclear)."
+          ? "Needs appointment (no PA appt yet) · Upcoming (scheduled, hasn't happened) · Missed (appt came and went, no-show) · Signed (PA paperwork done) · Dead (PA marked it dead / DQ'd) · No idea (unclear)."
           : filter === "need_appt" ? "Damage roofs with no PA appointment booked yet — the rep still needs to set the first one."
           : filter === "upcoming" ? "A PA appointment is on the books and hasn't happened yet — scheduled for later."
           : filter === "missed" ? "Had a PA appointment that came and went with no result — a no-show to reschedule."
           : filter === "signed" ? "PA paperwork is signed — these are working the claim."
+          : filter === "dead" ? "The PA marked these dead / disqualified — the claim isn't moving forward with them."
           : "Has a PA appointment but we can't tell what happened — refused or unclear. Check the notes."}>
         {!deals.length ? <Empty /> : <Grouped groups={twoLevel(deals, (r) => r.zone, (r) => r.rep || "—")} renderRow={row} />}
       </Section>
