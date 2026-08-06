@@ -85,8 +85,6 @@ export default function MasterInspectionReports() {
     ["needs_goback", `Needs Go-Back Status (${c.needs_goback_status})`],
     ["retail", `BTR (${c.retail})`],
     ["damage", `BTPA (${c.damage})`],
-    ["pa_passed", `PA Appts Passed (${c.pa_passed})`],
-    ["missed", `⚠️ Missed PA (${c.missed_pa})`],
     ["inspectors", `👷 Inspectors (${c.inspectors})`],
   ];
 
@@ -106,7 +104,7 @@ export default function MasterInspectionReports() {
           <button key={k} onClick={() => setTab(k)}
             style={{ fontSize: 13, fontWeight: 800, padding: "8px 13px", borderRadius: 999, cursor: "pointer", fontFamily: OSWALD,
               border: tab === k ? "2px solid #0a0a0a" : "1px solid #cbd5e1", background: tab === k ? "#0a0a0a" : "#fff",
-              color: k === "missed" && c.missed_pa > 0 && tab !== k ? "#b91c1c" : tab === k ? "#fff" : "#475569" }}>{l}</button>
+              color: tab === k ? "#fff" : "#475569" }}>{l}</button>
         ))}
       </div>
 
@@ -115,8 +113,6 @@ export default function MasterInspectionReports() {
       {tab === "needs_goback" && <NeedsGoBack rows={data.needs_goback_status} />}
       {tab === "retail" && <Retail retail={data.retail} />}
       {tab === "damage" && <Damage damage={data.damage} />}
-      {tab === "pa_passed" && <PaPassed rows={data.pa_passed} />}
-      {tab === "missed" && <Missed rows={data.missed_pa} />}
       {tab === "inspectors" && <InspectorActivity rows={data.inspector_activity} />}
     </div>
   );
@@ -124,15 +120,13 @@ export default function MasterInspectionReports() {
 
 function Overview({ data, onJump }) {
   const c = data.counts;
+  const ndCount = (data.needs_goback_status || []).filter((r) => r.result === "no_damage").length;
   const tiles = [
     ["needs_inspection", "🔍", "Need inspecting", c.needs_inspection, "#2563eb"],
     ["needs_goback", "🔁", "Need go-back status", c.needs_goback_status, "#7c3aed"],
-    ["retail", "🏠", "BTR deals", c.retail, "#0891b2"],
-    ["damage", "⚡", "Damage deals", c.damage, "#ca8a04"],
-    ["damage", "📅", "Damage w/ PA appt", c.damage_with_appt, "#16a34a"],
-    ["damage", "📌", "Damage need PA appt", c.damage_needs_appt, "#b45309"],
-    ["pa_passed", "🕓", "PA appts passed", c.pa_passed, "#334155"],
-    ["missed", "⚠️", "MISSED PA appts", c.missed_pa, "#b91c1c"],
+    ["retail", "🏠", "BTR", c.retail, GOBACK_COLOR.retail],
+    ["damage", "🏚️", "BTPA", c.damage, GOBACK_COLOR.damage],
+    ["needs_goback", "✅", "ND", ndCount, GOBACK_COLOR.no_damage],
   ];
   return (
     <div>
