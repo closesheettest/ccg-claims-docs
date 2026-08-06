@@ -53,10 +53,15 @@ exports.handler = async (event) => {
   if (!JN_KEY)       return { statusCode: 500, body: JSON.stringify({ ok: false, error: "JOBNIMBUS_API_KEY not set" }) };
   if (!PDFSHIFT_KEY) return { statusCode: 500, body: JSON.stringify({ ok: false, error: "PDFSHIFT_API_KEY not set" }) };
 
-  let jnid, skipJnUpload, force;
+  let jnid, skipJnUpload, force, viewOnly;
   try {
     const body = JSON.parse(event.body || "{}");
     jnid = (body.jnid || "").trim();
+    // view:true — the rep just wants to SEE the report (e.g. show the homeowner the
+    // photos). Never uploads to JN, always returns a viewable pdf_signed_url, and
+    // bypasses the "already in JN" guards (which exist to avoid duplicate UPLOADS,
+    // not to block viewing). Cache-first, so a re-view of a rendered cert is free.
+    viewOnly = !!body.view;
     // When set, skip the JN upload step and return PDF base64 in
     // the response so the client can fire upload-pdf-to-jn as a
     // separate Lambda call. This splits the work across two 10s
@@ -67,6 +72,7 @@ exports.handler = async (event) => {
     // the result and needs a fresh cert). Default false so the
     // already-certified guard below protects PDFShift credits.
     force = !!body.force;
+    if (viewOnly) skipJnUpload = true; // view → return the URL, never upload
   } catch {
     return { statusCode: 400, body: JSON.stringify({ ok: false, error: "Invalid JSON body" }) };
   }
@@ -160,7 +166,7 @@ exports.handler = async (event) => {
   // skipJnUpload) so it also saves a PDFShift render. `force:true`
   // bypasses it for genuine re-issues. Fail-open on lookup error so a
   // transient JN hiccup never blocks a legitimate first cert.
-  if (!force) {
+  if (!force && !viewOnly) {
     const exists = await jobAlreadyHasReport(jnid);
     if (exists) {
       console.log("JN already has an Inspection Report for", jnid, "— skipping (pass force:true to re-issue)");

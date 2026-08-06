@@ -46,7 +46,7 @@ function ViewCertButton({ deal }) {
     try {
       const r = await fetch("/.netlify/functions/generate-and-upload-insp-report", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jnid, skip_jn_upload: true }),
+        body: JSON.stringify({ jnid, view: true }),
       });
       const o = await r.json().catch(() => ({}));
       if (!o.ok || !o.pdf_signed_url) throw new Error(o.error || "Couldn't build the report");
