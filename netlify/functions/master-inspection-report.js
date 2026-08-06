@@ -63,7 +63,11 @@ function paFields(row) { const f = row.pa_fields; if (!f) return {}; if (typeof 
 function paOutcome(insp) {
   const f = paFields(insp);
   const signup = String(f.pa_signup || "").toLowerCase();
-  if (insp.pa_signed_at || insp.pa_status === "signed" || signup.startsWith("signed")) return "signed";
+  // A PA who signs the homeowner DIRECTLY in JobNimbus (never touching our app)
+  // leaves no pa_signed_at/pa_status — only a won JN status. Treat that as signed too,
+  // so a signed claim can never leak into the "needs appointment" bucket.
+  const jnSigned = /sitsold pa|signed contract|production review|job prep|funding|pace|upcoming install|install|new roof|paid|collection/i.test(String(insp.jn_status || ""));
+  if (insp.pa_signed_at || insp.pa_status === "signed" || signup.startsWith("signed") || jnSigned) return "signed";
   if (insp.pa_status === "refused" || signup.includes("refus") || signup.includes("retail")) return "refused";
   return "pending"; // no outcome recorded yet
 }
