@@ -1,19 +1,15 @@
-// Roof Measurement — map editor (the human-verification layer).
+// Roof Measurement — CORRECT THE READ (don't redraw it).
 //
-// Three tools, chosen with the mode toggle:
-//   • Add missing area — trace a section the automated read clipped; it ADDS.
-//   • Redraw whole roof — trace the whole roof; your trace REPLACES the number.
-//   • Buildings — tap each building on the property to measure it precisely
-//       (its own squares + pitch); tap-remove any you don't want. This is how a
-//       multi-structure lot gets the right total when Google locked onto the
-//       wrong/partial building, and mirrors Roofr's "all buildings" ordering.
+// The Team Measurement (Google Solar + LiDAR + records) hands the rep a roof read
+// as the STARTING number, shown as the green overlay on the satellite. The rep does
+// only two things to it — the exact two ways a read is ever wrong:
+//   ➕ ADD a section it MISSED      (grows the number)
+//   ✂️ CUT a section it OVER-GRABBED (the cage, a neighbor's edge — shrinks it)
+// Corrected total = auto-read + added − cut, live. No full re-trace — that's a
+// hidden escape hatch for the rare read the team flags as way-off.
 //
-// While tracing, every placed point is a DRAGGABLE handle — drop the corners
-// roughly, then nudge any of them to line up with the roof edge.
-//
-// Traced/added area is classed by its pitch (≤2.5/12 → membrane 10%, steeper →
-// shingle). Building measurements come from harvest-roof-report per tap. The
-// corrected total flows up to the report card. Nothing is saved.
+// Added/cut area is classed by its pitch (≤2.5/12 → membrane, steeper → shingle).
+// The corrected total flows up to the report card. Nothing is saved.
 
 import React, { useEffect, useRef, useState } from "react";
 import L from "leaflet";
@@ -35,10 +31,7 @@ const slopeFactor = (x12) => Math.sqrt(1 + Math.pow((+x12 || 0) / 12, 2));
 const sq = (m2) => m2 / SQ_M_PER_SQUARE;
 const r2 = (n) => Math.round(n * 100) / 100;
 
-// Orthogonalize a traced polygon — nudge every corner toward a right angle so a
-// roughly-drawn outline snaps square (roofs are rectilinear). Iterative method
-// (à la iD editor): each vertex moves along the bisector of its two edges,
-// scaled by how far off 90° it is; converges for near-rectangular shapes.
+// Orthogonalize a traced polygon toward right angles (roofs are rectilinear).
 function squareUp(latlngs) {
   const n = latlngs.length;
   if (n < 4) return latlngs;
@@ -68,34 +61,30 @@ function squareUp(latlngs) {
   }
   return P.map(([x, y]) => ({ lng: x / mLng, lat: y / mLat }));
 }
-const vertexIcon = () => L.divIcon({ className: "", html: '<div style="width:13px;height:13px;border-radius:50%;background:#f59e0b;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.6)"></div>', iconSize: [13, 13], iconAnchor: [7, 7] });
+const vertexIcon = (cut) => L.divIcon({ className: "", html: `<div style="width:13px;height:13px;border-radius:50%;background:${cut ? "#dc2626" : "#16a34a"};border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.6)"></div>`, iconSize: [13, 13], iconAnchor: [7, 7] });
 
 export default function RoofMeasureEditor({ result, onClose, onAdjust }) {
   const mapEl = useRef(null);
   const mapRef = useRef(null);
-  const drawLayerRef = useRef(null);      // committed section polygons
+  const drawLayerRef = useRef(null);      // committed correction polygons
   const activeLayerRef = useRef(null);    // in-progress vertex handles
   const activePolyRef = useRef(null);     // in-progress polyline
-  const bLayerRef = useRef(null);         // building markers
-  const bMarkersRef = useRef({});         // id -> marker
-  const maskOverlayRef = useRef(null);
+  const maskOverlayRef = useRef(null);    // the team's green auto-read (the base you correct)
   const drawingRef = useRef(false);
   const modeRef = useRef("add");
   const ptsRef = useRef([]);
 
-  const [mode, setMode] = useState("add");            // add | redraw | buildings
+  const [mode, setMode] = useState("add");            // add | cut
   const [drawing, setDrawing] = useState(false);
-  const [sections, setSections] = useState([]);       // [{ pts, area_m2 }]
-  const [pitch, setPitch] = useState(result?.roof?.avg_pitch_x12 ?? 6);
   const [ptCount, setPtCount] = useState(0);
+  const [pitch, setPitch] = useState(result?.roof?.avg_pitch_x12 ?? 6);
+  const [corrections, setCorrections] = useState([]); // [{ kind:'add'|'cut', pts, area_m2, pitch }]
   const [maskState, setMaskState] = useState("loading");
-  const [showMask, setShowMask] = useState(false); // off by default — the read is just a reference; the salesman draws the roof
-  const [buildings, setBuildings] = useState([]);     // measured buildings
-  const [bLoading, setBLoading] = useState(false);
+  const [showMask, setShowMask] = useState(true);     // ON by default — it IS the base you're correcting
+  const [redraw, setRedraw] = useState(false);        // hidden escape hatch for a way-off read
 
-  const buildMode = mode === "buildings";
   modeRef.current = mode;
-
+  const cutMode = mode === "cut";
   const lat = result?.location?.lat;
   const lng = result?.location?.lng;
 
@@ -114,13 +103,12 @@ export default function RoofMeasureEditor({ result, onClose, onAdjust }) {
       .then((d) => {
         if (!d || !d.ok || !d.png || !d.bounds || !mapRef.current) { setMaskState("none"); return; }
         maskOverlayRef.current = L.imageOverlay(d.png, d.bounds, { opacity: 1, interactive: false });
-        maskOverlayRef.current.addTo(mapRef.current);
+        maskOverlayRef.current.addTo(mapRef.current);   // shown by default — it's the base
         setMaskState("ready");
       })
       .catch(() => setMaskState("none"));
     drawLayerRef.current = L.layerGroup().addTo(m);
     activeLayerRef.current = L.layerGroup().addTo(m);
-    bLayerRef.current = L.layerGroup().addTo(m);
     m.on("click", onMapClick);
     setTimeout(() => m.invalidateSize(), 60);
     setTimeout(() => m.invalidateSize(), 300);
@@ -129,11 +117,10 @@ export default function RoofMeasureEditor({ result, onClose, onAdjust }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lat, lng]);
 
-  // cursor: pointer to tap-select buildings, arrow while tracing, else default
   useEffect(() => {
     const m = mapRef.current;
-    if (m) m.getContainer().style.cursor = buildMode ? "pointer" : (drawing ? "pointer" : "");
-  }, [drawing, buildMode]);
+    if (m) m.getContainer().style.cursor = drawing ? "crosshair" : "";
+  }, [drawing]);
 
   useEffect(() => {
     const ov = maskOverlayRef.current, m = mapRef.current;
@@ -147,24 +134,22 @@ export default function RoofMeasureEditor({ result, onClose, onAdjust }) {
     g.clearLayers();
     if (activePolyRef.current) { activePolyRef.current.remove(); activePolyRef.current = null; }
     const pts = ptsRef.current;
-    if (pts.length >= 2) activePolyRef.current = L.polyline(pts.map((p) => [p.lat, p.lng]), { color: "#f59e0b", weight: 2, dashArray: "5,5" }).addTo(m);
+    const col = cutMode ? "#dc2626" : "#16a34a";
+    if (pts.length >= 2) activePolyRef.current = L.polyline(pts.map((p) => [p.lat, p.lng]), { color: col, weight: 2, dashArray: "5,5" }).addTo(m);
     pts.forEach((p, i) => {
-      const mk = L.marker([p.lat, p.lng], { draggable: true, icon: vertexIcon() }).addTo(g);
+      const mk = L.marker([p.lat, p.lng], { draggable: true, icon: vertexIcon(cutMode) }).addTo(g);
       mk.on("drag", (ev) => {
         ptsRef.current[i] = { lat: ev.latlng.lat, lng: ev.latlng.lng };
         if (activePolyRef.current) activePolyRef.current.setLatLngs(ptsRef.current.map((q) => [q.lat, q.lng]));
       });
     });
   }
-
   function onMapClick(e) {
-    if (modeRef.current === "buildings") { measureBuilding(e.latlng); return; }
     if (!drawingRef.current) return;
     ptsRef.current = [...ptsRef.current, { lat: e.latlng.lat, lng: e.latlng.lng }];
     setPtCount(ptsRef.current.length);
     redrawActive();
   }
-
   function startDraw() { drawingRef.current = true; setDrawing(true); ptsRef.current = []; setPtCount(0); redrawActive(); }
   function undoPoint() { ptsRef.current = ptsRef.current.slice(0, -1); setPtCount(ptsRef.current.length); redrawActive(); }
   function squareTrace() { if (ptsRef.current.length < 4) return; ptsRef.current = squareUp(ptsRef.current); redrawActive(); }
@@ -173,219 +158,190 @@ export default function RoofMeasureEditor({ result, onClose, onAdjust }) {
     if (activePolyRef.current) { activePolyRef.current.remove(); activePolyRef.current = null; }
     if (activeLayerRef.current) activeLayerRef.current.clearLayers();
   }
+  function drawCorrection(c) {
+    const flat = (+c.pitch) < 2.5;
+    const style = c.kind === "cut"
+      ? { color: "#dc2626", weight: 2, fillColor: "#ef4444", fillOpacity: 0.35, dashArray: "6,4" }
+      : { color: flat ? "#0284c7" : "#16a34a", weight: 2, fillColor: flat ? "#38bdf8" : "#22c55e", fillOpacity: 0.35 };
+    L.polygon(c.pts.map((p) => [p.lat, p.lng]), style).addTo(drawLayerRef.current);
+  }
   function finishSection() {
     const pts = ptsRef.current.slice();
     if (pts.length < 3) return;
-    const flat = (+pitch) < 2.5;
-    // flat sections drawn in a blue tint so pitched vs flat reads at a glance
-    L.polygon(pts.map((p) => [p.lat, p.lng]), { color: flat ? "#0284c7" : "#16a34a", weight: 2, fillColor: flat ? "#38bdf8" : "#22c55e", fillOpacity: 0.35 }).addTo(drawLayerRef.current);
-    setSections((prev) => [...prev, { pts, area_m2: polygonAreaM2(pts), pitch: +pitch }]);
+    const c = { kind: modeRef.current, pts, area_m2: polygonAreaM2(pts), pitch: +pitch };
+    drawCorrection(c);
+    setCorrections((prev) => [...prev, c]);
     cancelDraw();
   }
-  function removeSection(idx) {
-    const next = sections.filter((_, i) => i !== idx);
-    setSections(next);
+  function removeCorrection(idx) {
+    const next = corrections.filter((_, i) => i !== idx);
+    setCorrections(next);
     const g = drawLayerRef.current; if (!g) return;
     g.clearLayers();
-    next.forEach((s) => { const flat = (+s.pitch) < 2.5; L.polygon(s.pts.map((p) => [p.lat, p.lng]), { color: flat ? "#0284c7" : "#16a34a", weight: 2, fillColor: flat ? "#38bdf8" : "#22c55e", fillOpacity: 0.35 }).addTo(g); });
+    next.forEach(drawCorrection);
   }
 
-  // ── buildings: tap to measure one precisely
-  async function measureBuilding(latlng) {
-    if (bLoading) return;
-    setBLoading(true);
-    try {
-      const d = await fetch("/.netlify/functions/harvest-roof-report", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ lat: latlng.lat, lng: latlng.lng }),
-      }).then((r) => r.json());
-      if (d && d.ok && d.roof) {
-        const s = d.materials?.sloped || {}, f = d.materials?.flat || {};
-        const id = `${Date.now()}_${Math.round(latlng.lat * 1e5)}`;
-        const total = d.roof.surface_squares || 0;
-        const b = { id, lat: latlng.lat, lng: latlng.lng, total, pitch: d.roof.avg_pitch_x12,
-          sloped_m: s.measured_squares || 0, sloped_o: s.order_squares || 0, flat_m: f.measured_squares || 0, flat_o: f.order_squares || 0 };
-        const mk = L.marker([latlng.lat, latlng.lng], {
-          icon: L.divIcon({ className: "", html: `<div style="background:#16a34a;color:#fff;font:700 12px/1 ${FONT};padding:5px 8px;border-radius:9px;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.5);white-space:nowrap">${total} sq ✕</div>`, iconSize: [0, 0], iconAnchor: [0, 12] }),
-        }).addTo(bLayerRef.current);
-        mk.on("click", (ev) => { L.DomEvent.stop(ev); removeBuilding(id); });
-        bMarkersRef.current[id] = mk;
-        setBuildings((prev) => [...prev, b]);
-      }
-    } catch { /* ignore */ }
-    setBLoading(false);
-  }
-  function removeBuilding(id) {
-    const mk = bMarkersRef.current[id];
-    if (mk) { mk.remove(); delete bMarkersRef.current[id]; }
-    setBuildings((prev) => prev.filter((b) => b.id !== id));
-  }
+  // ── live math: corrected total = auto-read + added − cut (each classed by pitch)
+  const isFlat = (c) => (+c.pitch) < 2.5;
+  const secSurfaceSq = (c) => sq(c.area_m2 * slopeFactor(+c.pitch));
+  const adds = corrections.filter((c) => c.kind === "add");
+  const cuts = corrections.filter((c) => c.kind === "cut");
+  const addSloped = adds.filter((c) => !isFlat(c)).reduce((a, c) => a + secSurfaceSq(c), 0);
+  const addFlat = adds.filter(isFlat).reduce((a, c) => a + secSurfaceSq(c), 0);
+  const cutSloped = cuts.filter((c) => !isFlat(c)).reduce((a, c) => a + secSurfaceSq(c), 0);
+  const cutFlat = cuts.filter(isFlat).reduce((a, c) => a + secSurfaceSq(c), 0);
 
-  // ── live math — each traced section is bucketed by ITS OWN pitch, so a roof
-  // with a pitched group AND a flat section is captured by drawing each part.
-  const curIsFlat = (+pitch) < 2.5; // classification the NEXT trace will get (for the UI hint)
-  const isFlatSec = (s) => (+s.pitch) < 2.5;
-  const secSurfaceSq = (s) => sq(s.area_m2 * slopeFactor(+s.pitch)); // flat sf ≈ 1
-  const addedSlopedSurfaceSq = sections.filter((s) => !isFlatSec(s)).reduce((a, s) => a + secSurfaceSq(s), 0);
-  const addedFlatSurfaceSq = sections.filter(isFlatSec).reduce((a, s) => a + secSurfaceSq(s), 0);
   const baseSloped = result?.materials?.sloped || {};
   const baseFlat = result?.materials?.flat || {};
+  const bSlopedM = baseSloped.measured_squares || 0;
+  const bFlatM = baseFlat.measured_squares || 0;
+  const baseTotal = result?.roof?.surface_squares ?? r2(bSlopedM + bFlatM);
   const slopedWaste = baseSloped.waste_pct ?? 12;
   const flatWaste = baseFlat.waste_pct ?? 10;
 
-  const hasBuildings = buildings.length > 0;
-  const bTotal = buildings.reduce((a, b) => a + b.total, 0);
-  const bSlopedM = buildings.reduce((a, b) => a + b.sloped_m, 0);
-  const bSlopedO = buildings.reduce((a, b) => a + b.sloped_o, 0);
-  const bFlatM = buildings.reduce((a, b) => a + b.flat_m, 0);
-  const bFlatO = buildings.reduce((a, b) => a + b.flat_o, 0);
+  // In redraw (escape hatch), the trace REPLACES the read; otherwise it corrects it.
+  const adjSloped = redraw ? addSloped : Math.max(0, bSlopedM + addSloped - cutSloped);
+  const adjFlat = redraw ? addFlat : Math.max(0, bFlatM + addFlat - cutFlat);
+  const total = r2(adjSloped + adjFlat);
+  const touched = corrections.length > 0 || redraw;
 
-  // What the salesman TRACES is the measurement — we never add the automated read on
-  // top of it. Adding double-counted: tracing the whole roof read ~2× the real squares
-  // (drew 20 sq, matched Roofr's 19.8, but the card showed 40). Draw = the number.
-  const adjSlopedMeasured = addedSlopedSurfaceSq;
-  const adjFlatMeasured = addedFlatSurfaceSq;
-  const adjSlopedOrder = adjSlopedMeasured * (1 + slopedWaste / 100);
-  const adjFlatOrder = adjFlatMeasured * (1 + flatWaste / 100);
-  const adjustedTotal = adjSlopedMeasured + adjFlatMeasured;
-
-  // Push corrected numbers to the report card. Buildings mode wins when used.
+  // push corrected numbers up to the report card
   const everRef = useRef(false);
   useEffect(() => {
     if (!onAdjust) return;
-    if (hasBuildings) {
+    if (touched) {
       everRef.current = true;
       onAdjust({
-        total: r2(bTotal),
-        sloped: { measured_squares: r2(bSlopedM), waste_pct: bSlopedM > 0 ? Math.round((bSlopedO / bSlopedM - 1) * 100) : slopedWaste, order_squares: r2(bSlopedO) },
-        flat: { measured_squares: r2(bFlatM), waste_pct: flatWaste, order_squares: r2(bFlatO) },
-      });
-    } else if (sections.length > 0) {
-      everRef.current = true;
-      onAdjust({
-        total: r2(adjustedTotal),
-        sloped: { measured_squares: r2(adjSlopedMeasured), waste_pct: slopedWaste, order_squares: r2(adjSlopedOrder) },
-        flat: { measured_squares: r2(adjFlatMeasured), waste_pct: flatWaste, order_squares: r2(adjFlatOrder) },
+        total,
+        sloped: { measured_squares: r2(adjSloped), waste_pct: slopedWaste, order_squares: r2(adjSloped * (1 + slopedWaste / 100)) },
+        flat: { measured_squares: r2(adjFlat), waste_pct: flatWaste, order_squares: r2(adjFlat * (1 + flatWaste / 100)) },
       });
     } else if (everRef.current) {
       onAdjust(null);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sections, pitch, buildings]);
+  }, [corrections, pitch, redraw]);
+
+  const curFlat = (+pitch) < 2.5;
+  const delta = r2(total - baseTotal);
 
   return (
     <div style={{ marginTop: 16, border: "1px solid #e5e7eb", borderRadius: 14, overflow: "hidden", fontFamily: FONT }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", background: "#f8fafc", borderBottom: "1px solid #e5e7eb" }}>
-        <b style={{ fontSize: 14 }}>🗺️ Verify / adjust outline</b>
+        <b style={{ fontSize: 14 }}>🗺️ Correct the read</b>
         <button onClick={onClose} style={btn("#64748b", true)}>Close</button>
       </div>
 
       <div ref={mapEl} style={{ height: 380, width: "100%", background: "#e2e8f0" }} />
 
       <div style={{ padding: 14 }}>
-        {/* mode toggle */}
-        <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
-          <button onClick={() => { cancelDraw(); setMode("add"); }} style={seg(mode === "add")}>➕ Add area</button>
-          <button onClick={() => { cancelDraw(); setMode("buildings"); }} style={seg(mode === "buildings")}>🏠 Buildings</button>
+        {/* what you're looking at */}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: "#475569", marginBottom: 12 }}>
+          <span style={{ display: "inline-block", width: 11, height: 11, borderRadius: 3, background: "#22c55e", opacity: 0.7 }} />
+          The <b>green overlay</b> is what the read captured — {maskState === "loading" ? "loading…" : maskState === "none" ? "(not available here — use the satellite)" : "grow it where it missed, trim it where it grabbed too much."}
+          {maskState === "ready" && (
+            <label style={{ marginLeft: "auto", display: "inline-flex", gap: 5, alignItems: "center" }}>
+              <input type="checkbox" checked={showMask} onChange={(e) => setShowMask(e.target.checked)} /> show
+            </label>
+          )}
         </div>
 
-        {/* Show the Solar-API "captured" read (green) as a reference — handy for showing
-            someone what was auto-detected so they can trace the missing areas. */}
-        {!buildMode && (
-          <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "#475569", marginBottom: 12 }}>
-            <input type="checkbox" checked={showMask} onChange={(e) => setShowMask(e.target.checked)} disabled={maskState !== "ready"} />
-            <span>Show what the read captured (<span style={{ color: "#16a34a", fontWeight: 700 }}>green</span>) — {maskState === "loading" ? "loading…" : maskState === "none" ? "not available" : "reference only; trace the whole roof yourself"}</span>
-          </label>
-        )}
-
-        {/* BUILDINGS MODE */}
-        {buildMode ? (
-          <div>
-            <div style={{ fontSize: 13.5, color: "#b45309", fontWeight: 700, marginBottom: 8 }}>
-              🏠 Tap each building you want to include{bLoading ? " — measuring…" : ""}. Tap a green tag to remove it.
+        {!redraw ? (
+          <>
+            {/* the two tools */}
+            <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+              <button onClick={() => { cancelDraw(); setMode("add"); }} style={seg(mode === "add", "#16a34a")}>➕ Add missed</button>
+              <button onClick={() => { cancelDraw(); setMode("cut"); }} style={seg(mode === "cut", "#dc2626")}>✂️ Cut extra</button>
             </div>
-            {buildings.length === 0 && <div style={{ fontSize: 13, color: "#94a3b8", marginBottom: 6 }}>No buildings selected yet — tap the roofs on the map.</div>}
-            {buildings.map((b, i) => (
-              <div key={b.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13.5, padding: "6px 0", borderBottom: "1px solid #f1f5f9" }}>
-                <span>Building {i + 1}: <b>{r2(b.total)} sq</b> <span style={{ color: "#94a3b8" }}>{b.pitch != null ? `· ${b.pitch}/12` : ""}</span></span>
-                <button onClick={() => removeBuilding(b.id)} style={btn("#dc2626", true)}>Remove</button>
+
+            {!drawing ? (
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                <button onClick={startDraw} style={btn(cutMode ? "#dc2626" : "#16a34a")}>
+                  {cutMode ? "✂️ Draw the area to CUT" : "➕ Draw the area it MISSED"}
+                </button>
+                <label style={{ fontSize: 13, color: "#475569" }}>
+                  pitch&nbsp;
+                  <input type="number" value={pitch} min={0} max={24} step={0.5} onChange={(e) => setPitch(e.target.value)}
+                    style={{ width: 54, fontFamily: FONT, fontSize: 14, padding: "4px 6px", border: "1px solid #cbd5e1", borderRadius: 6 }} />
+                  &nbsp;/12
+                </label>
+                <span style={{ fontSize: 12, color: "#94a3b8" }}>{curFlat ? "flat → membrane" : "sloped → shingle"}</span>
               </div>
-            ))}
-          </div>
-        ) : !drawing ? (
-          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-            <button onClick={startDraw} style={btn(curIsFlat ? "#0284c7" : "#2563eb")}>✏️ Draw a {curIsFlat ? "FLAT" : "PITCHED"} section</button>
-            {/* pitched vs flat — pick before drawing; a flat section counts as membrane/metal, not shingle */}
-            <button onClick={() => setPitch(result?.roof?.avg_pitch_x12 || 6)} style={seg(!curIsFlat)}>⌂ Pitched</button>
-            <button onClick={() => setPitch(0)} style={seg(curIsFlat)}>▭ Flat</button>
-            {!curIsFlat && (
-              <label style={{ fontSize: 13, color: "#475569" }}>
-                pitch&nbsp;
-                <input type="number" value={pitch} min={0} max={24} step={0.5} onChange={(e) => setPitch(e.target.value)}
-                  style={{ width: 54, fontFamily: FONT, fontSize: 14, padding: "4px 6px", border: "1px solid #cbd5e1", borderRadius: 6 }} />
-                &nbsp;/12
-              </label>
+            ) : (
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                <span style={{ fontSize: 13, color: cutMode ? "#b91c1c" : "#15803d", fontWeight: 700 }}>
+                  Tap the corners of the section to {cutMode ? "CUT" : "ADD"}, drag to adjust ({ptCount})
+                </span>
+                <button onClick={squareTrace} disabled={ptCount < 4} style={btn(ptCount < 4 ? "#94a3b8" : "#7c3aed")}>◻ Square up</button>
+                <button onClick={finishSection} disabled={ptCount < 3} style={btn(ptCount < 3 ? "#94a3b8" : (cutMode ? "#dc2626" : "#16a34a"))}>Done</button>
+                <button onClick={undoPoint} disabled={!ptCount} style={btn("#64748b", true)}>Undo point</button>
+                <button onClick={cancelDraw} style={btn("#64748b", true)}>Cancel</button>
+              </div>
             )}
-            <span style={{ fontSize: 12.5, fontWeight: 700, color: curIsFlat ? "#0284c7" : "#16a34a" }}>
-              → counts as {curIsFlat ? "FLAT (membrane/metal)" : "SHINGLE"}
-            </span>
-          </div>
+          </>
         ) : (
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-            <span style={{ fontSize: 13, color: "#b45309", fontWeight: 700 }}>Tap corners, drag to adjust, then square up ({ptCount})</span>
-            <button onClick={squareTrace} disabled={ptCount < 4} style={btn(ptCount < 4 ? "#94a3b8" : "#7c3aed")}>◻ Square up</button>
-            <button onClick={finishSection} disabled={ptCount < 3} style={btn(ptCount < 3 ? "#94a3b8" : "#16a34a")}>Finish section</button>
-            <button onClick={undoPoint} disabled={!ptCount} style={btn("#64748b", true)}>Undo point</button>
-            <button onClick={cancelDraw} style={btn("#64748b", true)}>Cancel</button>
-          </div>
+          // ── escape hatch: redraw the whole roof (rare — the read was way off)
+          !drawing ? (
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+              <span style={{ fontSize: 13, color: "#b45309", fontWeight: 700 }}>Redraw mode — your trace replaces the read.</span>
+              <button onClick={startDraw} style={btn("#2563eb")}>✏️ Draw a roof section</button>
+              <label style={{ fontSize: 13, color: "#475569" }}>pitch&nbsp;
+                <input type="number" value={pitch} min={0} max={24} step={0.5} onChange={(e) => setPitch(e.target.value)} style={{ width: 54, fontFamily: FONT, fontSize: 14, padding: "4px 6px", border: "1px solid #cbd5e1", borderRadius: 6 }} />&nbsp;/12
+              </label>
+              <button onClick={() => { cancelDraw(); setCorrections([]); setRedraw(false); }} style={btn("#64748b", true)}>↩ Back to correcting</button>
+            </div>
+          ) : (
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+              <span style={{ fontSize: 13, color: "#2563eb", fontWeight: 700 }}>Trace this section ({ptCount})</span>
+              <button onClick={squareTrace} disabled={ptCount < 4} style={btn(ptCount < 4 ? "#94a3b8" : "#7c3aed")}>◻ Square up</button>
+              <button onClick={finishSection} disabled={ptCount < 3} style={btn(ptCount < 3 ? "#94a3b8" : "#2563eb")}>Done</button>
+              <button onClick={undoPoint} disabled={!ptCount} style={btn("#64748b", true)}>Undo point</button>
+              <button onClick={cancelDraw} style={btn("#64748b", true)}>Cancel</button>
+            </div>
+          )
         )}
 
-        {/* sections list (trace modes) */}
-        {!buildMode && sections.length > 0 && (
+        {/* corrections list */}
+        {corrections.length > 0 && (
           <div style={{ marginTop: 12 }}>
-            {sections.map((s, i) => {
-              const flat = isFlatSec(s);
+            {corrections.map((c, i) => {
+              const cut = c.kind === "cut";
               return (
-              <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13.5, padding: "6px 0", borderBottom: "1px solid #f1f5f9" }}>
-                <span>
-                  <span style={{ display: "inline-block", width: 9, height: 9, borderRadius: 2, background: flat ? "#38bdf8" : "#22c55e", marginRight: 6 }} />
-                  Section {i + 1}: <b>{r2(secSurfaceSq(s))} sq</b>{" "}
-                  <span style={{ color: flat ? "#0284c7" : "#16a34a", fontWeight: 700 }}>{flat ? "flat" : `${s.pitch}/12`}</span>
-                  <span style={{ color: "#94a3b8" }}> · {Math.round(s.area_m2 * 10.7639)} sqft footprint</span>
-                </span>
-                <button onClick={() => removeSection(i)} style={btn("#dc2626", true)}>Remove</button>
-              </div>
+                <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13.5, padding: "6px 0", borderBottom: "1px solid #f1f5f9" }}>
+                  <span>
+                    <span style={{ fontWeight: 700, color: cut ? "#dc2626" : "#16a34a" }}>{cut ? "✂️ Cut" : "➕ Add"}</span>{" "}
+                    <b>{cut ? "−" : "+"}{r2(secSurfaceSq(c))} sq</b>{" "}
+                    <span style={{ color: "#94a3b8" }}>· {isFlat(c) ? "flat" : `${c.pitch}/12`} · {Math.round(c.area_m2 * 10.7639)} sqft</span>
+                  </span>
+                  <button onClick={() => removeCorrection(i)} style={btn("#64748b", true)}>Remove</button>
+                </div>
               );
             })}
           </div>
         )}
 
-        {/* live totals */}
+        {/* live total */}
         <div style={{ marginTop: 14, background: "#f0f9ff", border: "1px solid #bae6fd", borderRadius: 10, padding: 14 }}>
-          {buildMode ? (
-            <>
-              <Row label={`Buildings selected`} value={`${buildings.length}`} />
-              <Row label="Total (selected buildings)" value={`${r2(bTotal)} sq`} big />
-              {bSlopedM > 0 && <Row label={`Shingle order`} value={`${r2(bSlopedO)} sq`} accent="#2563eb" />}
-              {bFlatM > 0 && <Row label={`Membrane order`} value={`${r2(bFlatO)} sq`} accent="#0891b2" />}
-            </>
-          ) : (
-            <>
-              {addedSlopedSurfaceSq > 0 && <Row label="Traced · pitched → shingle" value={`${r2(addedSlopedSurfaceSq)} sq`} accent="#16a34a" />}
-              {addedFlatSurfaceSq > 0 && <Row label="Traced · flat → membrane" value={`${r2(addedFlatSurfaceSq)} sq`} accent="#0284c7" />}
-              {sections.length === 0 && <Row label="Draw the roof to measure" value="—" muted />}
-              <Row label="Total" value={`${r2(adjustedTotal)} sq`} big />
-              <div style={{ borderTop: "1px dashed #bae6fd", marginTop: 8, paddingTop: 8 }}>
-                {adjSlopedMeasured > 0 && <Row label={`Shingle order (w/ ${slopedWaste}% waste)`} value={`${r2(adjSlopedOrder)} sq`} accent="#2563eb" />}
-                {adjFlatMeasured > 0 && <Row label={`Membrane order (w/ ${flatWaste}% waste)`} value={`${r2(adjFlatOrder)} sq`} accent="#0891b2" />}
-              </div>
-            </>
+          {!redraw && <Row label="Auto-read (the team)" value={`${r2(baseTotal)} sq`} muted={touched} />}
+          {adds.length > 0 && <Row label="＋ Added (missed)" value={`+${r2(addSloped + addFlat)} sq`} accent="#16a34a" />}
+          {cuts.length > 0 && <Row label="− Cut (over-grabbed)" value={`−${r2(cutSloped + cutFlat)} sq`} accent="#dc2626" />}
+          <Row label={touched ? "Corrected total" : "Total"} value={`${total} sq`} big />
+          {touched && !redraw && (
+            <div style={{ fontSize: 12, color: delta >= 0 ? "#16a34a" : "#dc2626", marginTop: 2 }}>
+              {delta >= 0 ? "▲" : "▼"} {delta >= 0 ? "+" : ""}{delta} sq vs the auto-read
+            </div>
           )}
+          <div style={{ borderTop: "1px dashed #bae6fd", marginTop: 8, paddingTop: 8 }}>
+            {adjSloped > 0 && <Row label={`Shingle order (w/ ${slopedWaste}% waste)`} value={`${r2(adjSloped * (1 + slopedWaste / 100))} sq`} accent="#2563eb" />}
+            {adjFlat > 0 && <Row label={`Membrane order (w/ ${flatWaste}% waste)`} value={`${r2(adjFlat * (1 + flatWaste / 100))} sq`} accent="#0891b2" />}
+          </div>
         </div>
-        <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 8 }}>
-          {buildMode
-            ? "Each building is measured on its own (squares + pitch). Sum only the ones you want. Nothing is saved."
-            : `Draw pitched and flat sections separately — each counts by its own pitch (flat → membrane/metal, sloped → shingle). What you trace is the measurement. Nothing is saved.`}
+
+        <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 8, display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+          <span>Grow the green where it missed, trim it where it grabbed too much. Nothing is saved.</span>
+          {!redraw && !drawing && (
+            <button onClick={() => { cancelDraw(); setCorrections([]); setRedraw(true); }} style={{ ...btn("#94a3b8", true), fontSize: 12, padding: "4px 10px" }}>Read way off? ↻ Redraw</button>
+          )}
         </div>
       </div>
     </div>
@@ -394,15 +350,15 @@ export default function RoofMeasureEditor({ result, onClose, onAdjust }) {
 
 function Row({ label, value, big, accent, muted }) {
   return (
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: "3px 0", opacity: muted ? 0.45 : 1 }}>
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: "3px 0", opacity: muted ? 0.5 : 1 }}>
       <span style={{ fontSize: big ? 14 : 13, color: "#475569", fontWeight: big ? 700 : 400, textDecoration: muted ? "line-through" : "none" }}>{label}</span>
       <b style={{ fontSize: big ? 20 : 15, color: accent || "#0f172a", textDecoration: muted ? "line-through" : "none" }}>{value}</b>
     </div>
   );
 }
-function seg(active) {
-  return { flex: 1, fontFamily: FONT, fontSize: 12.5, fontWeight: 700, color: active ? "#fff" : "#475569",
-    background: active ? "#2563eb" : "#fff", border: `1px solid ${active ? "#2563eb" : "#cbd5e1"}`, borderRadius: 8, padding: "8px 6px", cursor: "pointer" };
+function seg(active, color) {
+  return { flex: 1, fontFamily: FONT, fontSize: 13, fontWeight: 700, color: active ? "#fff" : color,
+    background: active ? color : "#fff", border: `1px solid ${color}`, borderRadius: 8, padding: "9px 6px", cursor: "pointer" };
 }
 function btn(color, outline) {
   return { fontFamily: FONT, fontSize: 13.5, fontWeight: 700, color: outline ? color : "#fff",
