@@ -69,7 +69,7 @@ export const handler = async (event) => {
         try {
           const r = await fetch(`${base}/.netlify/functions/visit-deal-list`, {
             method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ token: visitToken, result }), // no rep → every rep
+            body: JSON.stringify({ token: visitToken, result, all: true }), // no rep → EVERY rep's go-backs
           });
           const d = await r.json().catch(() => ({}));
           return (d.deals || []).map((x) => ({ ...x, bucket: result }));

@@ -36,16 +36,18 @@ exports.handler = async (event) => {
   // to another rep shows on THEIR go-back list, not the original signer's — so the
   // signer (e.g. William, who signs a lot in training) doesn't keep seeing deals
   // that were handed off. Unassigned deals still surface for whoever holds them now.
+  const all = body.all === true; // office/admin GLOBAL view: every rep's go-backs (no rep filter)
   const conds = [];
   if (repId) conds.push(`sales_rep_id.eq.${q(repId)}`);
   if (repName) conds.push(`sales_rep_name.eq.${q(repName)}`);
-  if (!conds.length) return cors(400, JSON.stringify({ ok: false, error: "rep required" }));
+  if (!all && !conds.length) return cors(400, JSON.stringify({ ok: false, error: "rep required" }));
 
   try {
     // review_availability is a newer column; if it hasn't been added yet the
     // SELECT 400s and we'd get zero deals. Try with it, fall back without it.
     const SEL_BASE = "id,client_name,address,city,state,zip,mobile,email,jn_job_id,latitude,longitude,result,result_at,pa_id,pa_signed_at,pa_opened_at,pa_stage,docs_signed,jn_status,pa_notes_log";
-    const tail = `&result=eq.${result}&cancelled_at=is.null&or=(${conds.join(",")})&order=result_at.desc&limit=500`;
+    const repClause = all ? "" : `&or=(${conds.join(",")})`;
+    const tail = `&result=eq.${result}&cancelled_at=is.null${repClause}&order=result_at.desc&limit=${all ? 2000 : 500}`;
     // manager_assigned_to_rep_at is a newer column (added by manager_assign_rep_marker.sql);
     // keep it in the optional select so a pre-migration DB just falls back without it.
     let rows = await sbGet(`inspections?select=${SEL_BASE},review_availability,referral_outcome,retail_outcome,result_task_at,manager_assigned_to_rep_at${tail}`);
