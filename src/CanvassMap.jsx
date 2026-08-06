@@ -2551,8 +2551,11 @@ export default function CanvassMap() {
     // Also route any GO-BACKS inside the box — so a box drawn over a go-back cluster
     // (e.g. the office/admin with no regular pins loaded) actually routes them, worked
     // inline via VisitActions like the "Add go-backs" fold.
+    // Only route the go-back buckets currently SHOWN (the legend toggle) — so a box
+    // with just "Damage" on doesn't pull in retail/no-damage go-backs and open the
+    // wrong action panel for them.
     const gobackStops = (visits || [])
-      .filter((v) => typeof v.latitude === "number" && typeof v.longitude === "number" && b.contains([v.latitude, v.longitude]) && visitNeedsWork(v))
+      .filter((v) => typeof v.latitude === "number" && typeof v.longitude === "number" && b.contains([v.latitude, v.longitude]) && visitNeedsWork(v) && gobackShow[v.bucket] !== false)
       .map((v) => ({ id: `v_${v.inspection_id}`, latitude: Number(v.latitude), longitude: Number(v.longitude), name: v.client_name || v.address, address: v.address, city: v.city, state: v.state, zip: v.zip, status: "goback", _visit: v }));
     const pool = [...inBox, ...gobackStops];
     if (!pool.length) { alert("No doors or go-backs in that box — draw around some pins."); return; }
