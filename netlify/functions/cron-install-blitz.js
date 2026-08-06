@@ -77,7 +77,7 @@ const CADASTRAL =
 const sbHeaders = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, "Content-Type": "application/json" };
 const jnHeaders = { Authorization: `bearer ${JN_KEY}`, "Content-Type": "application/json" };
 
-exports.handler = async (event) => {
+export const handler = async (event) => {
   const scheduled = !event.httpMethod;
   const qp = (event.queryStringParameters) || {};
   const commit = scheduled || /^(1|true|yes)$/i.test(String(qp.commit || ""));
@@ -501,4 +501,4 @@ async function readSetting(key) {
 function json(statusCode, obj) { return { statusCode, headers: { "Content-Type": "application/json" }, body: JSON.stringify(obj) }; }
 
 // Every 2 hours during knocking hours (7 AM–9 PM ET).
-exports.config = { schedule: "45 11,13,15,17,19,21,23,1 * * *" };
+export const config = { schedule: "45 11,13,15,17,19,21,23,1 * * *" };
