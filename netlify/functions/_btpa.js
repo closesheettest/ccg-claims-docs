@@ -49,13 +49,16 @@ export function damageState(insp, appt, nowMs) {
   if (norm(insp.jn_status) === "btr ni" || insp.pa_stage === "dead") return "dead";
   // The PA is collecting documents — their job, off the rep's list.
   if (insp.pa_stage === "waiting_docs") return "waiting_docs";
-  // A booked FUTURE appointment wins over a stale "rescheduling" stage — if it was
-  // already rebooked, it's upcoming, not still-needs-rescheduling.
   const t = appt && appt.start_at ? new Date(appt.start_at).getTime() : 0;
-  if (t && t > nowMs) return "upcoming";
-  // No future appointment: an explicit "rescheduling" stage, or a past appt that fell
-  // through, both mean "no-sit → needs rebooking" (rep or PA).
-  if (insp.pa_stage === "rescheduling") return "rescheduling";
+  const future = t && t > nowMs;
+  // A no-sit that was REBOOKED ("Reschedule — pick a time") and its new appointment is
+  // still ahead → "rescheduled" (No sit rescheduled), distinct from a fresh first appt.
+  if (insp.pa_stage === "rescheduled" && future) return "rescheduled";
+  // A booked future appointment (no reschedule history) → upcoming.
+  if (future) return "upcoming";
+  // No upcoming appointment: an explicit no-sit stage (needs (re)booking), or a past
+  // appt that fell through — both mean "no-sit → needs rebooking" (rep or PA).
+  if (insp.pa_stage === "rescheduling" || insp.pa_stage === "rescheduled") return "rescheduling";
   if (!appt) return "need_appt";
   return "rescheduling"; // a past (or date-less) appointment that never resulted in a signing
 }

@@ -203,7 +203,7 @@ export const handler = async (event) => {
       (a ? withApptArr : needApptArr).push(deal);
       allDamage.push(deal);
     }
-    const btpaCounts = { need_appt: 0, rescheduling: 0, waiting_docs: 0, upcoming: 0, signed: 0, dead: 0 };
+    const btpaCounts = { need_appt: 0, rescheduling: 0, rescheduled: 0, waiting_docs: 0, upcoming: 0, signed: 0, dead: 0 };
     for (const d of allDamage) btpaCounts[d.bucket] = (btpaCounts[d.bucket] || 0) + 1;
     // BTPA conversion funnel — same two-stage shape as the BTR funnel, so the % are
     // honest. The "dead" bucket splits: homeowner Not Interested = declined (a real
@@ -216,10 +216,11 @@ export const handler = async (event) => {
       declined: f_declined,                                        // ① homeowner Not Interested
       gap: btpaCounts.need_appt,                                   // ① never got a PA appointment (the gap)
       // ① reached an appointment = every deal past scheduling (signed, waiting on docs,
-      //    rebooking, or upcoming).
-      got_appt: btpaCounts.signed + btpaCounts.waiting_docs + btpaCounts.rescheduling + btpaCounts.upcoming,
+      //    no-sit rebook, rebooked, or upcoming).
+      got_appt: btpaCounts.signed + btpaCounts.waiting_docs + btpaCounts.rescheduling + btpaCounts.rescheduled + btpaCounts.upcoming,
       signed: btpaCounts.signed,                                   // ② the PA signed them
-      rescheduling: btpaCounts.rescheduling,                       // ② appt scheduled but they DIDN'T sign → rebook
+      rescheduling: btpaCounts.rescheduling,                       // ② appt scheduled but they DIDN'T sit → rebook
+      rescheduled: btpaCounts.rescheduled,                         // ② no-sit that's been rebooked (still live)
       waiting_docs: btpaCounts.waiting_docs,                       // ② signing in progress (PA collecting docs)
       upcoming: btpaCounts.upcoming,                               // ② still to sit
     };

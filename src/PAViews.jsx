@@ -3085,6 +3085,7 @@ function PASelfSchedule({ me, job, openSignal = 0 }) {
   const [booking, setBooking] = useState("");
   const [done, setDone] = useState(null);
   const rootRef = useRef(null);
+  const rescheduledIntent = useRef(false); // true once opened via the "Reschedule — pick a time" button
 
   const load = async () => {
     setSlots(null); setErr("");
@@ -3105,6 +3106,7 @@ function PASelfSchedule({ me, job, openSignal = 0 }) {
   // on the spot while standing at the door.
   useEffect(() => {
     if (openSignal > 0) {
+      rescheduledIntent.current = true; // this booking is a NO-SIT reschedule → stamp "rescheduled"
       setOpen(true);
       if (slots === null) load();
       try { if (rootRef.current) rootRef.current.scrollIntoView({ behavior: "smooth", block: "center" }); } catch { /* ignore */ }
@@ -3135,9 +3137,11 @@ function PASelfSchedule({ me, job, openSignal = 0 }) {
         return;
       }
       if (!res.ok || !o.ok) throw new Error(o.error || "Couldn't book that slot");
-      // A deal parked in "Rescheduling" now has a fresh appointment → back to active.
-      if (job.pa_stage === "rescheduling") {
-        try { await supabase.from("inspections").update({ pa_stage: "active", pa_stage_at: new Date().toISOString() }).eq("id", job.id); } catch { /* non-blocking */ }
+      // A NO-SIT that just got rebooked (was "Rescheduling", or booked via the
+      // "Reschedule — pick a time" button) → mark "rescheduled" so the report reads
+      // "No sit rescheduled" (distinct from a fresh first appointment = Upcoming).
+      if (job.pa_stage === "rescheduling" || rescheduledIntent.current) {
+        try { await supabase.from("inspections").update({ pa_stage: "rescheduled", pa_stage_at: new Date().toISOString() }).eq("id", job.id); } catch { /* non-blocking */ }
       }
       setDone((s.label || "your appointment") + (reschedule ? " (rescheduled)" : ""));
     } catch (e) { setErr(e.message); }
@@ -3820,7 +3824,7 @@ function PAPipelineDetail({ me, jobId, onBack, wide, adminView }) {
         // Five Star pipeline — exact statuses/colors from their portal design.
         const PIPE = [
           { key: "rescheduling", label: "No sit needs to reschedule", color: "#fff", bg: "#ea8a00", onClick: fsReschedule },
-          { key: "rescheduled", label: "Rescheduled — pick a time", color: "#fff", bg: "#0e7490", onClick: () => setOpenSchedSignal((n) => n + 1) },
+          { key: "rescheduled", label: "Reschedule — pick a time", color: "#fff", bg: "#0e7490", onClick: () => setOpenSchedSignal((n) => n + 1) },
           { key: "waiting_docs", label: "Waiting on Docs", color: "#7a5c00", bg: "#fde047", onClick: fsWaitingDocs },
           { key: "signed", label: "Signed", color: "#fff", bg: "#16a34a", onClick: () => saveField("pa_signup", "Signed"), active: signed },
         ];
