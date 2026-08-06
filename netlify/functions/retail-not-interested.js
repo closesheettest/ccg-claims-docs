@@ -49,7 +49,12 @@ export const handler = async (event) => {
       // "Install Complete - Collect Payment" job got wrongly wiped to BTR-NI.
       const cur = await jnFetch(JN_KEY, `jobs/${encodeURIComponent(insp.jn_job_id)}`);
       const curStatus = String((cur.ok ? await cur.json().catch(() => ({})) : {}).status_name || "");
-      if (PROTECTED_STATUS.test(curStatus)) {
+      // "Sit Sold Insp" = sold the free INSPECTION = the back-to-retail POOL status, NOT
+      // a won roof. It matches PROTECTED_STATUS via "sold"/"sitsold" but must stay
+      // flippable to BTR-NI (a rep marking a pool deal Not Interested). Genuinely won
+      // statuses (Install / Paid / Signed Contract / Sitsold PA / …) stay protected.
+      const isPool = curStatus.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim() === "sit sold insp";
+      if (!isPool && PROTECTED_STATUS.test(curStatus)) {
         return cors(409, JSON.stringify({ ok: false, protected: true, current_status: curStatus, error: `This deal is "${curStatus}" — a won/installed deal can't be marked Not Interested. Left unchanged.` }));
       }
       const r = await jnFetch(JN_KEY, `jobs/${encodeURIComponent(insp.jn_job_id)}`, {

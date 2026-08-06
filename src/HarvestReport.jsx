@@ -473,18 +473,13 @@ export default function HarvestReport() {
         </div>
       )}
       {byZone.length > 0 && (
-        <div style={{ overflowX: "auto" }}>
+        <div style={{ overflow: "auto", maxHeight: "78vh" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13.5 }}>
             <thead>
               <tr style={{ textAlign: "left", color: "#64748b", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.04em" }}>
-                <th style={{ padding: "8px 10px" }}>Rep</th>
-                <th style={{ padding: "8px 10px" }}>Visits</th>
-                <th style={{ padding: "8px 10px" }}>Avg at spot</th>
-                <th style={{ padding: "8px 10px" }}>Rounds</th>
-                {OUTCOMES.map((o) => <th key={o} style={{ padding: "8px 10px" }}>{OUTCOME_LABELS[o]}</th>)}
-                <th style={{ padding: "8px 10px" }}>Not home</th>
-                {!auditOff && <th style={{ padding: "8px 10px" }}>Off-spot</th>}
-                <th style={{ padding: "8px 10px" }}>Last active</th>
+                {["Rep", "Visits", "Avg at spot", "Rounds", ...OUTCOMES.map((o) => OUTCOME_LABELS[o]), "Not home", ...(auditOff ? [] : ["Off-spot"]), "Last active"].map((label, i) => (
+                  <th key={i} style={{ padding: "8px 10px", position: "sticky", top: 0, background: "#fff", zIndex: 2, borderBottom: "1px solid #e5e7eb" }}>{label}</th>
+                ))}
               </tr>
             </thead>
             <tbody>
