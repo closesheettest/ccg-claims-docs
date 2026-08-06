@@ -251,6 +251,11 @@ function NeedsGoBack({ rows }) {
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontWeight: 800 }}>{r.name}</div>
         <div style={{ fontSize: 12.5, color: "#64748b" }}>{[r.address, r.city].filter(Boolean).join(", ")}</div>
+        {r.visits > 0 && (
+          <div style={{ fontSize: 11.5, fontWeight: 800, color: "#0891b2", marginTop: 3 }}>
+            🚪 Rep went {r.visits}× — nobody home{r.last_visit ? ` · last ${fmtDate(r.last_visit)}` : ""}
+          </div>
+        )}
       </div>
       <div style={{ textAlign: "right", fontSize: 12 }}>
         <div><span style={{ color: "#94a3b8" }}>Result: </span><b style={{ color: GOBACK_COLOR[r.result] || "#0f172a" }}>{GOBACK_LABEL[r.result] || r.result}</b></div>
@@ -397,6 +402,11 @@ function NotesBlock({ r, needsAppt }) {
         </div>
       )}
       {r.stage && <div style={{ fontSize: 11.5, fontWeight: 800, color: "#7c3aed", marginTop: 3, textTransform: "capitalize" }}>PA stage: {cap(r.stage)}</div>}
+      {r.visits > 0 && (
+        <div style={{ fontSize: 11.5, fontWeight: 800, color: "#0891b2", marginTop: 3 }}>
+          🚪 Rep went {r.visits}× — nobody home{r.last_visit ? ` · last ${fmtDate(r.last_visit)}` : ""}
+        </div>
+      )}
       {notes.length > 0 ? (
         <div style={{ marginTop: 5, borderLeft: "3px solid #e2e8f0", paddingLeft: 8, display: "grid", gap: 3 }}>
           {notes.map((n, i) => (

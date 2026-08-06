@@ -123,7 +123,7 @@ export const handler = async (event) => {
     const nowMs = Date.now();
     const zoneByRep = await fetchZoneByRep();
     const [inspections, appts, pas, companies] = await Promise.all([
-      sbGetAll("inspections?select=id,jn_job_id,address,city,county,latitude,longitude,client_name,mobile,email,sales_rep_name,original_sales_rep_name,signed_at,docs_signed,date,inspection_date,result_at,inspector_name,result,inspection_result,jn_status,retail_outcome,retail_outcome_at,result_task_jnid,result_task_at,cancelled_at,cancel_review_pending,lost_reason,pa_id,pa_company_id,pa_status,pa_signed_at,pa_stage,pa_fields,pa_notes_log,pa_status_notes,pa_decision_reason,correction_note,referral_outcome"),
+      sbGetAll("inspections?select=id,jn_job_id,address,city,county,latitude,longitude,client_name,mobile,email,sales_rep_name,original_sales_rep_name,signed_at,docs_signed,date,inspection_date,result_at,inspector_name,result,inspection_result,jn_status,retail_outcome,retail_outcome_at,result_task_jnid,result_task_at,cancelled_at,cancel_review_pending,lost_reason,pa_id,pa_company_id,pa_status,pa_signed_at,pa_stage,pa_fields,pa_notes_log,pa_status_notes,pa_decision_reason,correction_note,referral_outcome,goback_not_home_count,goback_last_attempt_at"),
       sbGetAll("pa_appointments?select=id,pa_id,pa_company_id,inspection_id,homeowner_name,homeowner_phone,address,start_at,end_at,status,booked_by,notes,created_at"),
       sbGetAll("pas?select=id,name,phone,email,pa_company_id"),
       sbGetAll("pa_companies?select=id,name"),
@@ -142,7 +142,7 @@ export const handler = async (event) => {
     // Live records only (drop cancelled/lost inspections from the pipeline views).
     const live = inspections.filter((i) => !i.cancelled_at && i.result !== "lost" && String(i.jn_status || "").toLowerCase() !== "lost");
     const zoneOf = (r) => (r && zoneByRep[normalizeName(r)]) || "Unassigned";
-    const card = (i) => ({ id: i.id, jn_job_id: i.jn_job_id, address: i.address, city: i.city, county: i.county, name: person(i), rep: rep(i), zone: zoneOf(rep(i)), phone: i.mobile, email: i.email, status: i.jn_status || i.inspection_result || null });
+    const card = (i) => ({ id: i.id, jn_job_id: i.jn_job_id, address: i.address, city: i.city, county: i.county, name: person(i), rep: rep(i), zone: zoneOf(rep(i)), phone: i.mobile, email: i.email, status: i.jn_status || i.inspection_result || null, visits: i.goback_not_home_count || 0, last_visit: toISO(i.goback_last_attempt_at) });
 
     // 1) STILL NEED TO BE INSPECTED — signed, not cancelled, no inspection done yet.
     const needs_inspection = live
