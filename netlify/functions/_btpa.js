@@ -37,19 +37,34 @@ function wasReleased(insp) {
   return Array.isArray(log) && log.some((e) => e && e.stage === "released");
 }
 
-// A won/signed Public-Adjuster JN status (normalized so "Sit Sold PA", "Sitsold PA",
-// "New Roof", "Install …" all match — the earlier "sitsold pa" typo missed the spaced
-// form the office actually uses).
+// A won/signed Public-Adjuster JN status (normalized). KEPT for other callers, but no
+// longer used to decide "signed" — the office sets "Sit Sold PA" optimistically (the PA
+// may still be chasing the homeowner), so the status ALONE is not proof of a signing.
 export function jnPaSigned(status) {
   return /sit sold pa|sitsold pa|signed contract|production review|job prep|funding|pace|install|new roof|roof started|paid|commission|collect/.test(norm(status));
+}
+
+function paFields(insp) {
+  let f = insp && insp.pa_fields;
+  if (typeof f === "string") { try { f = JSON.parse(f); } catch { f = {}; } }
+  return f && typeof f === "object" ? f : {};
 }
 
 // insp: the inspection row. appt: its latest NON-CANCELLED pa_appointment (or null).
 // nowMs: Date.now(). Returns one of signed|dead|upcoming|missed|need_appt.
 export function damageState(insp, appt, nowMs) {
-  // A won JN status only counts as signed if the deal WASN'T released (else it's stale).
-  // pa_signed_at / Waiting Docs / LOR-PAC are real signatures and stand on their own.
-  const signed = insp.pa_signed_at || insp.pa_stage === "waiting_docs" || /\b(lor|pac)\b/i.test(insp.docs_signed || "") || (jnPaSigned(insp.jn_status) && !wasReleased(insp));
+  // "Signed" requires REAL evidence, not the optimistic "Sit Sold PA" status (proven
+  // meaningless — a PA can still be chasing a homeowner while the status reads that):
+  //   • pa_signed_at   — homeowner signed in our app (a hard signature), OR
+  //   • a PA-Filed / INS-approved / ISS milestone date — the PA actually filed the claim, OR
+  //   • a signed LOR/PAC document on file / Five Star "Waiting Docs" — real paperwork.
+  // The soft signals (milestone/LOR/Waiting Docs) don't count on a RELEASED deal (stale
+  // from before it was handed back); a fresh app signature always does.
+  const f = paFields(insp);
+  const filed = !!(f.pa_filed || f.ins_approved || f.iss_uploaded);
+  const released = wasReleased(insp);
+  const signed = insp.pa_signed_at
+    || (!released && (filed || insp.pa_stage === "waiting_docs" || /\b(lor|pac)\b/i.test(insp.docs_signed || "")));
   if (signed) return "signed";
   // Explicitly closed: homeowner Not Interested (BTR-NI) or office-marked dead (DQ).
   if (norm(insp.jn_status) === "btr ni" || insp.pa_stage === "dead") return "dead";

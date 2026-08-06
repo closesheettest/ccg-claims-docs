@@ -48,7 +48,7 @@ export const handler = async (event) => {
   try {
     // review_availability is a newer column; if it hasn't been added yet the
     // SELECT 400s and we'd get zero deals. Try with it, fall back without it.
-    const SEL_BASE = "id,client_name,address,city,state,zip,mobile,email,jn_job_id,latitude,longitude,result,result_at,pa_id,pa_signed_at,pa_opened_at,pa_stage,docs_signed,jn_status,pa_notes_log";
+    const SEL_BASE = "id,client_name,address,city,state,zip,mobile,email,jn_job_id,latitude,longitude,result,result_at,pa_id,pa_signed_at,pa_opened_at,pa_stage,pa_fields,docs_signed,jn_status,pa_notes_log";
     const repClause = all ? "" : `&or=(${conds.join(",")})`;
     const tail = `&result=eq.${result}&cancelled_at=is.null${repClause}&order=result_at.desc&limit=${all ? 2000 : 500}`;
     // manager_assigned_to_rep_at is a newer column (added by manager_assign_rep_marker.sql);
