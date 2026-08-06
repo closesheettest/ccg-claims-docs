@@ -5036,7 +5036,13 @@ function StatusCard({ color, label, count, active, onClick, locked }) {
 
 // Fixed appointment windows: Mon–Thu 11/2/5/7, Fri 9/12/3, Sat 9/12 (day-of-week
 // 1–4 / 5 / 6). Built in the rep's local time (reps are in ET).
-const APPT_HOURS = { 1: [11, 14, 17, 19], 2: [11, 14, 17, 19], 3: [11, 14, 17, 19], 4: [11, 14, 17, 19], 5: [9, 12, 15], 6: [9, 12] };
+// COMPANY appointment hours — what the appointment centers / setters see & book.
+const COMPANY_HOURS = { 1: [11, 14, 17, 19], 2: [11, 14, 17, 19], 3: [11, 14, 17, 19], 4: [11, 14, 17, 19], 5: [9, 12, 15], 6: [9, 12] };
+// Hours a REP can self-book from the map — the company hours PLUS after-hours weekend
+// slots (Sat adds 3/5/7 PM, Sun all-day). Non-company slots render in a DIFFERENT COLOR
+// and are NEVER offered to the appointment centers (they only see/book COMPANY_HOURS).
+const APPT_HOURS = { 0: [9, 12, 15, 17, 19], 1: [11, 14, 17, 19], 2: [11, 14, 17, 19], 3: [11, 14, 17, 19], 4: [11, 14, 17, 19], 5: [9, 12, 15], 6: [9, 12, 15, 17, 19] };
+const isCompanyHour = (wd, h) => (COMPANY_HOURS[wd] || []).includes(h);
 function cbHourLabel(h) { const ap = h < 12 ? "AM" : "PM"; const hr = h % 12 === 0 ? 12 : h % 12; return `${hr} ${ap}`; }
 // Come-back time picker — the hours DoorDispatcher canvasses that weekday, minus the
 // rep's already-booked hours (JN appts + app-held be-backs, passed in `busy`). Picking
@@ -5054,10 +5060,12 @@ function CbTimes({ date, busy, value, onPick }) {
       <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
         {open.map((h) => {
           const on = value === h;
+          const comp = isCompanyHour(wd, h);
           return (
             <button key={h} type="button" onClick={() => onPick(h)}
+              title={comp ? "" : "Outside company hours"}
               style={{ padding: "8px 12px", borderRadius: 9, fontSize: 13, fontWeight: 800, cursor: "pointer",
-                border: on ? "2px solid #ca8a04" : "1px solid #d1d5db", background: on ? "#fef9c3" : "#fff", color: "#0f172a" }}>
+                border: on ? "2px solid #ca8a04" : `1px solid ${comp ? "#d1d5db" : "#f59e0b"}`, background: on ? "#fef9c3" : (comp ? "#fff" : "#fffbeb"), color: comp ? "#0f172a" : "#b45309" }}>
               {cbHourLabel(h)}
             </button>
           );
@@ -5076,7 +5084,7 @@ function genSlots(days = 14, includeToday = false) {
     for (const h of (APPT_HOURS[day.getDay()] || [])) {
       const dt = new Date(day.getFullYear(), day.getMonth(), day.getDate(), h, 0, 0);
       if (d === 0 && dt.getTime() <= nowMs) continue; // today: skip hours already past
-      out.push({ iso: dt.toISOString(), dt });
+      out.push({ iso: dt.toISOString(), dt, company: isCompanyHour(day.getDay(), h) });
     }
   }
   return out;
@@ -5206,13 +5214,19 @@ function AppointmentModal({ pin, rt, onClose, onBooked, variant, demo }) {
           : !slots.length ? <div style={{ fontSize: 13, color: "#6b7280", padding: "8px 0" }}>No open times in the next 2 weeks.</div>
           : (
         <div style={{ maxHeight: "48vh", overflowY: "auto" }}>
+          {slots.some((s) => !s.company) && (
+            <div style={{ fontSize: 11.5, color: "#b45309", background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 8, padding: "6px 9px", marginBottom: 8 }}>
+              🟠 Orange times are <b>outside company hours</b> — you can book them, but they're on <b>you</b> (the appointment center doesn't see or set these).
+            </div>
+          )}
           {Object.keys(byDay).map((k) => (
             <div key={k} style={{ marginBottom: 12 }}>
               <div style={{ fontSize: 12.5, fontWeight: 800, color: "#374151", marginBottom: 6 }}>{k}</div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
                 {byDay[k].map((s) => (
                   <button key={s.iso} type="button" disabled={!!busy} onClick={() => book(s)}
-                    style={{ border: "1px solid #16a34a", color: "#16a34a", background: "#fff", borderRadius: 12, padding: "9px 16px", fontSize: 14, fontWeight: 700, cursor: "pointer", opacity: busy ? 0.5 : 1 }}>
+                    title={s.company ? "" : "Outside company hours — this books under YOU, the appointment center won't see it"}
+                    style={{ border: `1px solid ${s.company ? "#16a34a" : "#d97706"}`, color: s.company ? "#16a34a" : "#b45309", background: s.company ? "#fff" : "#fffbeb", borderRadius: 12, padding: "9px 16px", fontSize: 14, fontWeight: 700, cursor: "pointer", opacity: busy ? 0.5 : 1 }}>
                     {busy === s.iso ? "…" : hourLabel(s.dt)}
                   </button>
                 ))}
