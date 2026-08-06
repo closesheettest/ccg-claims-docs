@@ -3204,7 +3204,7 @@ function PASelfSchedule({ me, job, openSignal = 0 }) {
 // DQ Lead — disqualified-lead reason checklist (Five Star design). Check the
 // reason(s), Submit → the deal goes back to retail (reuses doRetail).
 function DqLeadModal({ who, busy, onClose, onSubmit }) {
-  const REASONS = ["No answer (2x+)", "No interested", "No DOL / No coverage", "Policy restrictions", "Claim not advised"];
+  const REASONS = ["No answer (2x+)", "Not interested", "No DOL / No coverage", "Policy restrictions", "Claim not advised"];
   const [sel, setSel] = useState([]);
   const toggle = (r) => setSel((s) => (s.includes(r) ? s.filter((x) => x !== r) : [...s, r]));
   return (
@@ -3221,7 +3221,7 @@ function DqLeadModal({ who, busy, onClose, onSubmit }) {
               </label>
             ))}
           </div>
-          <div style={{ fontSize: 12.5, color: "#6b7280", margin: "12px 0" }}><b>Not interested</b> (only) marks the deal <b>Lost</b>. Any other reason sends it <b>back to retail</b> and notifies the sales rep + their manager.</div>
+          <div style={{ fontSize: 12.5, color: "#6b7280", margin: "12px 0" }}><b>No answer (2x+)</b> sends it <b>back to the rep</b> to keep trying the PA appointment. <b>Not interested</b>, <b>No coverage</b>, <b>Policy restrictions</b>, or <b>Claim not advised</b> send it <b>back to a retail appointment</b> and notify the sales rep + their manager.</div>
           <div style={{ display: "flex", gap: 8 }}>
             <button type="button" onClick={onClose} disabled={busy} style={{ flex: "0 0 auto", padding: "12px 16px", borderRadius: 10, border: "1px solid #cbd5e1", background: "#fff", color: "#475569", fontWeight: 700, cursor: "pointer" }}>Cancel</button>
             <button type="button" onClick={() => onSubmit(sel)} disabled={busy || !sel.length} style={{ flex: 1, padding: "12px 16px", borderRadius: 10, border: "none", background: (busy || !sel.length) ? "#9ca3af" : "#16a34a", color: "#fff", fontWeight: 800, fontFamily: "'Oswald', sans-serif", fontSize: 15, cursor: (busy || !sel.length) ? "default" : "pointer" }}>{busy ? "Submitting…" : "Submit"}</button>
@@ -3543,6 +3543,28 @@ function PAPipelineDetail({ me, jobId, onBack, wide, adminView }) {
   // doRetail() runs the actual revert once the PA taps a reason.
   function sendToRetail() { setRetailOpen(true); }
 
+  // DQ "No answer (2x+)" → back to the SALES REP (not lost, not retail): the PA
+  // couldn't reach them, so the rep keeps trying to set the PA appointment. Logs the
+  // no-answer note, then release_to_rep (clears PA, un-cancels, manager override → the
+  // deal lands on the rep's Damage go-back list).
+  async function dqNoAnswerToRep(note) {
+    setRefusing(true); setFieldErr(null);
+    try {
+      const tok = (await supabase.from("app_settings").select("value").eq("key", "visit_token").maybeSingle()).data?.value;
+      await fetch("/.netlify/functions/pa-add-note", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ inspectionId: jobId, paId: me.id, text: note }),
+      }).catch(() => {});
+      const res = await fetch("/.netlify/functions/pa-dead-triage", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: tok, inspection_id: jobId, action: "release_to_rep" }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || !body.ok) { setRefusing(false); setFieldErr(body.error || `status ${res.status}`); return; }
+      onBack();
+    } catch (e) { setRefusing(false); setFieldErr(e.message || "Network error"); }
+  }
+
   async function doRetail(reason) {
     const why = String(reason || "").trim();
     if (!why) { setFieldErr("A reason is required to send a deal back to retail."); return; }
@@ -3714,13 +3736,16 @@ function PAPipelineDetail({ me, jobId, onBack, wide, adminView }) {
           onClose={() => setDqOpen(false)}
           onSubmit={(reasons) => {
             setDqOpen(false);
-            // Routing by reason: "No interested" (and nothing else) → Lost/dead.
-            // ANY other reason present (no coverage, policy, no answer, claim not
-            // advised) → back to retail so a rep can still work it.
-            const LOST_ONLY = ["No interested"];
+            // Routing by reason:
+            //   • Any of Not interested / No coverage / Policy restrictions / Claim not
+            //     advised → back to a RETAIL appointment (rep sells a roof; rep+manager notified).
+            //   • "No answer (2x+)" (and no retail reason) → back to the REP to keep
+            //     trying the PA appointment (not lost, not retail).
+            const RETAIL = ["Not interested", "No DOL / No coverage", "Policy restrictions", "Claim not advised"];
             const note = "DQ Lead — " + reasons.join(", ");
-            if (reasons.some((r) => !LOST_ONLY.includes(r))) doRetail(note);
-            else postNote({ text: note, stage: "dead" });
+            if (reasons.some((r) => RETAIL.includes(r))) doRetail(note);
+            else if (reasons.includes("No answer (2x+)")) dqNoAnswerToRep("🚫 No answer on PA appointments — sent back to the rep. " + note);
+            else doRetail(note);
           }}
         />
       )}
