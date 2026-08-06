@@ -48,7 +48,7 @@ export const handler = async (event) => {
 <div id="c"></div>
 <div id="hud" class="panel"><b>${addr}</b><br>
   Trace <b>one roof plane at a time</b>: click its corners, then <b>✓ Add facet</b>. Do each slope/level separately — they add up.<br>
-  <span style="color:#94a3b8">Drag empty space to orbit · scroll to zoom.</span>
+  <span style="color:#94a3b8">Drag to orbit the roof — even mid-trace — scroll to zoom. Turn to reach the far corners.</span>
 </div>
 <div class="btns">
   <button class="btn go" onclick="addFacet()">✓ Add facet</button>
@@ -76,10 +76,10 @@ export const handler = async (event) => {
     viewer.scene.skyAtmosphere.show=false;
     var tileset = await Cesium.Cesium3DTileset.fromUrl("https://tile.googleapis.com/v1/3dtiles/root.json?key=${KEY}", {showCreditsOnScreen:false});
     viewer.scene.primitives.add(tileset);
-    viewer.camera.flyTo({
-      destination: Cesium.Cartesian3.fromDegrees(LNG, LAT-0.00125, 95),
-      orientation:{ heading:0, pitch:Cesium.Math.toRadians(-38), roll:0 }, duration:0
-    });
+    // Orbit AROUND the house so you can turn the view mid-trace to reach corners on
+    // the far side — lookAt makes drag circle the roof instead of spinning in place.
+    var CENTER = Cesium.Cartesian3.fromDegrees(LNG, LAT, 12);
+    viewer.camera.lookAt(CENTER, new Cesium.HeadingPitchRange(0, Cesium.Math.toRadians(-38), 95));
 
     var facets=[];      // {pts:[Cartesian3], areaM2}
     var facetEnt=[];    // committed facet polygon entities
