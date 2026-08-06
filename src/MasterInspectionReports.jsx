@@ -48,6 +48,14 @@ const RETAIL_COLOR = { ni: "#64748b", btr_appt: "#2563eb", sold: "#16a34a", cred
 // Inspection-result display labels (per bossman): Damage → BTPA, Retail → BTR, No Damage → ND.
 const GOBACK_LABEL = { damage: "BTPA", retail: "BTR", no_damage: "ND" };
 const GOBACK_COLOR = { damage: "#b91c1c", retail: "#0891b2", no_damage: "#64748b" };
+// BTPA lifecycle buckets — the filter buttons on the BTPA tab.
+const BTPA_BUCKETS = [
+  { key: "need_appt", label: "Needs appointment", color: "#b45309" },
+  { key: "missed", label: "Missed", color: "#b91c1c" },
+  { key: "signed", label: "Signed", color: "#16a34a" },
+  { key: "unknown", label: "No idea", color: "#64748b" },
+];
+const BTPA_META = Object.fromEntries(BTPA_BUCKETS.map((b) => [b.key, b]));
 // The real BTR pipeline stages, from live JobNimbus status.
 const STAGE_LABEL = { not_worked: "Not worked yet", declined: "Declined", no_sit: "No-sit / no-show", appt_scheduled: "Appointment set", sit_pending: "Sit-Pending (working)", no_sale: "No sale", credit_denial: "Credit denial", sold: "Sold", lost: "Lost / dead" };
 const STAGE_COLOR = { not_worked: "#94a3b8", declined: "#64748b", no_sit: "#a16207", appt_scheduled: "#2563eb", sit_pending: "#7c3aed", no_sale: "#b45309", credit_denial: "#0891b2", sold: "#16a34a", lost: "#9ca3af" };
@@ -75,7 +83,7 @@ export default function MasterInspectionReports() {
     ["needs_inspection", `Needs Inspecting (${c.needs_inspection})`],
     ["needs_goback", `Needs Go-Back Status (${c.needs_goback_status})`],
     ["retail", `BTR (${c.retail})`],
-    ["damage", `BTPA (${c.damage_with_appt})`],
+    ["damage", `BTPA (${c.damage})`],
     ["pa_passed", `PA Appts Passed (${c.pa_passed})`],
     ["missed", `⚠️ Missed PA (${c.missed_pa})`],
     ["inspectors", `👷 Inspectors (${c.inspectors})`],
@@ -321,39 +329,53 @@ function Retail({ retail }) {
 }
 
 function Damage({ damage }) {
-  const needRow = (r) => (
+  const [filter, setFilter] = useState("all");
+  const all = damage.all || [];
+  const counts = damage.buckets || {};
+  const deals = filter === "all" ? all : all.filter((d) => d.bucket === filter);
+  const pill = (active, color) => ({
+    fontFamily: OSWALD, fontSize: 12.5, fontWeight: 800, padding: "7px 13px", borderRadius: 999, cursor: "pointer",
+    border: `2px solid ${color}`, background: active ? color : "#fff", color: active ? "#fff" : color, whiteSpace: "nowrap",
+  });
+  const meta = (k) => BTPA_META[k] || { label: k, color: "#64748b" };
+  const row = (r) => (
     <div key={r.id} style={rowCard}>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontWeight: 800 }}>{r.name}</div>
         <div style={{ fontSize: 12.5, color: "#64748b" }}>{[r.address, r.city].filter(Boolean).join(", ")}</div>
-        <NotesBlock r={r} needsAppt />
+        <div style={{ fontSize: 12, color: "#94a3b8" }}>
+          {r.pa || r.company || (r.bucket === "need_appt" ? (r.assigned ? "Assigned — no appt yet" : "Unassigned") : "PA")}
+        </div>
+        <NotesBlock r={r} needsAppt={r.bucket === "need_appt"} />
       </div>
-      <div style={{ textAlign: "right", fontSize: 12.5 }}>
-        <div>{r.company || r.pa || (r.assigned ? "Assigned" : <span style={{ color: "#b45309", fontWeight: 800 }}>Unassigned</span>)}</div>
-      </div>
-    </div>
-  );
-  const haveRow = (r) => (
-    <div key={r.id} style={rowCard}>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontWeight: 800 }}>{r.name}</div>
-        <div style={{ fontSize: 12.5, color: "#64748b" }}>{[r.address, r.city].filter(Boolean).join(", ")}</div>
-        <div style={{ fontSize: 12, color: "#94a3b8" }}>{r.pa || r.company || "PA"}</div>
-        <NotesBlock r={r} />
-      </div>
-      <div style={{ textAlign: "right", fontSize: 12.5 }}>
-        <div><b>{fmtDateTime(r.start_at)}</b></div>
-        <div style={{ color: "#94a3b8" }}>{r.appt_status}</div>
+      <div style={{ textAlign: "right", fontSize: 12 }}>
+        <div><b style={{ color: meta(r.bucket).color }}>{meta(r.bucket).label}</b></div>
+        {r.start_at && <div style={{ color: "#94a3b8" }}>{fmtDateTime(r.start_at)}</div>}
+        {r.appt_status && <div style={{ color: "#94a3b8" }}>{r.appt_status}</div>}
       </div>
     </div>
   );
   return (
     <div>
       <div style={{ background: "#f8fafc", border: "1px solid #e5e7eb", borderRadius: 10, padding: "9px 12px", fontSize: 12.5, color: "#475569", marginBottom: 12 }}>
-        Damage deals with a PA appointment (the PA is working these). Damage deals still needing their first PA appointment live under <b>Needs Go-Back Status → BTPA</b> (that's the rep's go-back).
+        Every BTPA (damage) deal, sorted by where it is with the Public Adjuster. Tap a button to see just that group — grouped by zone → rep.
       </div>
-      <Section title={`Damage — has a PA appointment (${damage.with_appt.length})`} sub="Damage deals with a PA appointment on the books — the PA pipeline. By zone → rep.">
-        {!damage.with_appt.length ? <Empty /> : <Grouped groups={twoLevel(damage.with_appt, (r) => r.zone, (r) => r.rep || "—")} renderRow={haveRow} />}
+      {/* BTPA lifecycle filter — need appt / missed / signed / no idea. */}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 14 }}>
+        <button onClick={() => setFilter("all")} style={pill(filter === "all", "#334155")}>All BTPA · {all.length}</button>
+        {BTPA_BUCKETS.map((b) => (
+          <button key={b.key} onClick={() => setFilter(b.key)} style={pill(filter === b.key, b.color)}>{b.label} · {counts[b.key] || 0}</button>
+        ))}
+      </div>
+      <Section
+        title={`${filter === "all" ? "All BTPA" : meta(filter).label} (${deals.length})`}
+        sub={filter === "all"
+          ? "Needs appointment (no PA appt yet) · Missed (appt came and went, no-show) · Signed (PA paperwork done) · No idea (has an appt but the outcome's unclear)."
+          : filter === "need_appt" ? "Damage roofs with no PA appointment booked yet — the rep still needs to set the first one."
+          : filter === "missed" ? "Had a PA appointment that came and went with no result — a no-show to reschedule."
+          : filter === "signed" ? "PA paperwork is signed — these are working the claim."
+          : "Has a PA appointment but we can't tell what happened — upcoming, refused, or unclear. Check the notes."}>
+        {!deals.length ? <Empty /> : <Grouped groups={twoLevel(deals, (r) => r.zone, (r) => r.rep || "—")} renderRow={row} />}
       </Section>
     </div>
   );

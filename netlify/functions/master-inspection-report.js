@@ -176,9 +176,22 @@ export const handler = async (event) => {
         .sort((a, b) => (b.outcome_at || "").localeCompare(a.outcome_at || "")),
     };
 
-    // 4) DAMAGE — with a PA appointment vs. still needs one.
+    // 4) DAMAGE / BTPA — every damage deal, bucketed by where it is in the PA lifecycle:
+    //    need_appt (no PA appt booked yet) · missed (appt time passed, still "scheduled"
+    //    or cancelled, never signed = a no-show) · signed (PA paperwork signed) · unknown
+    //    (has an appt but we can't tell — upcoming, refused, or ambiguous). Powers the
+    //    BTPA breakdown buttons in the master report.
     const damageDeals = live.filter((i) => i.result === "damage");
-    const withApptArr = [], needApptArr = [];
+    const btpaNowMs = Date.now();
+    const btpaBucket = (deal, hasAppt) => {
+      if (deal.signed) return "signed";
+      if (!hasAppt) return "need_appt";
+      const st = String(deal.appt_status || "").toLowerCase();
+      const past = deal.start_at && new Date(deal.start_at).getTime() < btpaNowMs;
+      if (past && (st === "scheduled" || st === "cancelled")) return "missed"; // no-show / didn't happen
+      return "unknown"; // upcoming, refused, or ambiguous
+    };
+    const withApptArr = [], needApptArr = [], allDamage = [];
     for (const i of damageDeals) {
       const a = latestAppt(i.id);
       const co = i.pa_company_id ? coName[i.pa_company_id] : null;
@@ -186,13 +199,20 @@ export const handler = async (event) => {
       // Only surface a PA stage when a PA is actually ASSIGNED — a stale "active" on
       // an unassigned deal is misleading (nobody's on it). Guard on pa_id/company.
       const assigned = !!(i.pa_id || i.pa_company_id);
-      if (a) withApptArr.push({ ...card(i), pa: pn, company: co, start_at: a.start_at, appt_status: a.status, stage: assigned ? (i.pa_stage || null) : null, notes: recentNotes(i), signed: paOutcome(i) === "signed" });
-      else needApptArr.push({ ...card(i), pa: pn, company: co, assigned, stage: assigned ? (i.pa_stage || null) : null, notes: recentNotes(i), signed: paOutcome(i) === "signed" });
+      const base = { ...card(i), pa: pn, company: co, stage: assigned ? (i.pa_stage || null) : null, notes: recentNotes(i), signed: paOutcome(i) === "signed" };
+      const deal = a ? { ...base, start_at: a.start_at, appt_status: a.status } : { ...base, assigned };
+      deal.bucket = btpaBucket(deal, !!a);
+      (a ? withApptArr : needApptArr).push(deal);
+      allDamage.push(deal);
     }
+    const btpaCounts = { need_appt: 0, missed: 0, signed: 0, unknown: 0 };
+    for (const d of allDamage) btpaCounts[d.bucket] = (btpaCounts[d.bucket] || 0) + 1;
     const damage = {
       total: damageDeals.length,
       with_appt: withApptArr.sort((a, b) => (a.start_at || "").localeCompare(b.start_at || "")),
       needs_appt: needApptArr,
+      all: allDamage,
+      buckets: btpaCounts,
     };
 
     // 5) PA APPOINTMENTS THAT HAVE PASSED — status, outcome, which PA / company, when filed.
