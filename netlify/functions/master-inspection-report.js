@@ -94,7 +94,18 @@ function retailNorm(s) { return String(s || "").toLowerCase().replace(/[^a-z0-9]
 function retailStage(status, outcome) {
   const s = retailNorm(status);
   if (s) {
-    if (s.includes("sit sold insp")) return "not_worked";               // signed inspection, retail go-back not started
+    if (s.includes("sit sold insp")) {
+      // "Sit Sold Insp" is the STARTING pool status — the office often never moves the
+      // JN status off it even after the rep records a retail outcome. So when a local
+      // outcome IS recorded, trust that over the stale pool status (else a deal the rep
+      // marked Not Interested / Sold reads as "not worked yet").
+      if (outcome === "sold") return "sold";
+      if (outcome === "credit_denial") return "credit_denial";
+      if (outcome === "no_sale") return "no_sale";
+      if (outcome === "ni") return "declined";
+      if (outcome === "btr_appt") return "appt_scheduled";
+      return "not_worked";                                              // signed inspection, retail go-back not started
+    }
     if (/sit sold|signed contract|production review|job prep|funding|pace|upcoming install|install set|roof started|new roof|paid|commission|collection|sitsold pa/.test(s)) return "sold";
     if (s.includes("credit") && (s.includes("deni") || s.includes("declin"))) return "credit_denial";
     if (s.includes("no sale")) return "no_sale";
