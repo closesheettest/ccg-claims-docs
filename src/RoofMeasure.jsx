@@ -7,7 +7,7 @@
 // spot-check a batch of addresses and eyeball how it'll look before we build it
 // into the rep flow. Nothing here is saved or synced — it's a proving ground.
 
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useMemo } from "react";
 import RoofMeasureEditor from "./RoofMeasureEditor";
 import { AddressAutocomplete } from "./lib/AddressAutocomplete";
 
@@ -151,6 +151,40 @@ function ResultCard({ d: d0 }) {
     } catch { /* ignore */ }
     return false;
   }
+
+  // 🛰️ LiDAR — the 3rd teammate. Fetched async (a cold EPT read is slow) so the fast
+  // Solar+Records read never waits on it; when it lands we re-fuse the council with its
+  // vote. Safe before the cloud service exists: {ok:false} → the duo simply stays.
+  const [lidar, setLidar] = useState(null);
+  const [lidarState, setLidarState] = useState("idle");
+  useEffect(() => {
+    if (d.location?.lat == null) return;
+    let alive = true;
+    setLidar(null); setLidarState("checking");
+    fetch("/.netlify/functions/harvest-roof-lidar", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ lat: d.location.lat, lng: d.location.lng, pitch: d.roof?.avg_pitch_x12 }),
+    })
+      .then((res) => res.json())
+      .then((j) => { if (!alive) return; setLidar(j && j.ok ? j : null); setLidarState(j && j.ok ? "done" : "miss"); })
+      .catch(() => { if (alive) setLidarState("miss"); });
+    return () => { alive = false; };
+  }, [d.location?.lat, d.location?.lng]);
+
+  // Re-fuse the council client-side once LiDAR's vote lands (median + agreement).
+  const team = useMemo(() => {
+    const base = d.team;
+    if (!base) return null;
+    if (!lidar || !lidar.squares) return base;
+    const votes = [...base.votes, { source: "lidar", label: "LiDAR", squares: +lidar.squares.toFixed(1) }];
+    const vals = votes.map((v) => v.squares).slice().sort((a, b) => a - b);
+    const mid = Math.floor(vals.length / 2);
+    const median = vals.length % 2 ? vals[mid] : (vals[mid - 1] + vals[mid]) / 2;
+    const spread = vals.length >= 2 ? Math.round(((vals[vals.length - 1] - vals[0]) / median) * 100) : null;
+    const agreement = spread == null ? "single" : spread > 35 ? "flag" : spread > 15 ? "loose" : "tight";
+    return { squares: +median.toFixed(1), votes, n: votes.length, spread_pct: spread, agreement };
+  }, [d.team, lidar]);
+
   const r = d.roof || {};
   const m = d.materials || {};
   const sloped = m.sloped || {};
@@ -224,14 +258,15 @@ function ResultCard({ d: d0 }) {
       {/* 🤝 TEAM READ — the fusion council. Every independent source votes on the
           squares; the team takes the median and shows how tightly they agree, so the
           rep sees the blended number (and its confidence) before touching anything. */}
-      {d.team && d.team.n >= 1 && (() => {
-        const t = d.team;
+      {team && team.n >= 1 && (() => {
+        const t = team;
         const AG = {
           tight:  { c: "#16a34a", bg: "#f0fdf4", bd: "#bbf7d0", txt: "sources agree — trust it" },
           loose:  { c: "#b45309", bg: "#fffbeb", bd: "#fde68a", txt: "sources a bit apart — glance at the map" },
           flag:   { c: "#dc2626", bg: "#fef2f2", bd: "#fecaca", txt: "sources disagree — likely wrong building, confirm the pin" },
           single: { c: "#64748b", bg: "#f8fafc", bd: "#e5e7eb", txt: "one source so far — LiDAR + records add votes" },
         }[t.agreement] || {};
+        const hasLidar = t.votes.some((v) => v.source === "lidar");
         return (
           <div style={{ background: AG.bg, border: `1px solid ${AG.bd}`, borderRadius: 12, padding: "13px 15px", marginBottom: 16 }}>
             <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
@@ -243,12 +278,15 @@ function ResultCard({ d: d0 }) {
                 {t.agreement === "single" ? "1 SOURCE" : `${t.spread_pct}% SPREAD · ${t.agreement.toUpperCase()}`}
               </span>
             </div>
-            <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginTop: 9 }}>
+            <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginTop: 9, alignItems: "center" }}>
               {t.votes.map((v) => (
                 <span key={v.source} style={{ fontSize: 13, color: "#475569" }}>
-                  <b style={{ color: "#0f172a" }}>{v.label}</b> {v.squares} sq
+                  <b style={{ color: v.source === "lidar" ? "#7c3aed" : "#0f172a" }}>{v.label}</b> {v.squares} sq
                 </span>
               ))}
+              {!hasLidar && lidarState === "checking" && (
+                <span style={{ fontSize: 12, color: "#7c3aed", fontWeight: 700 }}>🛰️ LiDAR checking…</span>
+              )}
             </div>
             <div style={{ fontSize: 12, color: AG.c, marginTop: 7, fontWeight: 600 }}>{AG.txt}</div>
           </div>
