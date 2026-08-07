@@ -91,7 +91,7 @@ export default function RoofMeasure() {
       )}
 
       {/* Latest result — detailed card */}
-      {latest && <ResultCard d={latest} />}
+      {latest && <ResultCard key={latest._id} d={latest} />}
 
       {/* History table */}
       {rows.length > 1 && (
@@ -132,7 +132,19 @@ export default function RoofMeasure() {
   );
 }
 
-function ResultCard({ d }) {
+function ResultCard({ d: d0 }) {
+  const [d, setD] = useState(d0);   // the read; drag-the-pin re-measures and replaces it
+  // Re-run the read at a new spot (rep dragged the pin onto the correct house).
+  async function remeasure(lat, lng) {
+    try {
+      const res = await fetch("/.netlify/functions/harvest-roof-report", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ lat, lng }),
+      });
+      const nd = await res.json();
+      if (nd.ok) { setD({ ...nd, _addr: d._addr, _id: d._id }); setAdj(null); return true; }
+    } catch { /* ignore */ }
+    return false;
+  }
   const r = d.roof || {};
   const m = d.materials || {};
   const sloped = m.sloped || {};
@@ -178,9 +190,12 @@ function ResultCard({ d }) {
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           {isAdj && <span style={{ fontSize: 11, fontWeight: 800, color: "#16a34a", background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 999, padding: "3px 9px" }}>✏️ ADJUSTED</span>}
           {d.confidence?.level === "low" && (
-            <span style={{ fontSize: 11, fontWeight: 800, padding: "3px 9px", borderRadius: 999, whiteSpace: "nowrap", color: "#b45309", background: "#fffbeb", border: "1px solid #fde68a" }}>
-              ⚠️ CHECK
-            </span>
+            <>
+              <style>{`@keyframes roofCheckPulse{0%,100%{transform:scale(1);box-shadow:0 0 0 0 rgba(220,38,38,.55)}50%{transform:scale(1.09);box-shadow:0 0 0 9px rgba(220,38,38,0)}}`}</style>
+              <span style={{ fontSize: 15, fontWeight: 900, padding: "8px 18px", borderRadius: 999, whiteSpace: "nowrap", color: "#fff", background: "#dc2626", border: "2px solid #b91c1c", letterSpacing: ".04em", boxShadow: "0 1px 4px rgba(0,0,0,.2)", animation: "roofCheckPulse 1.1s ease-in-out infinite" }}>
+                ⚠️ CHECK
+              </span>
+            </>
           )}
           <div style={{ fontSize: 12.5, color: "#64748b" }}>
             Imagery: <b style={{ color: qColor(d.imagery?.quality) }}>{d.imagery?.quality || "—"}</b> · {fmtDate(d.imagery?.date)}
@@ -257,7 +272,7 @@ function ResultCard({ d }) {
           automated read clipped, and watch the total correct live. */}
       {d.location?.lat != null && (
         showEditor
-          ? <RoofMeasureEditor result={d} onAdjust={setAdj} onClose={() => setShowEditor(false)} />
+          ? <RoofMeasureEditor result={d} onAdjust={setAdj} onRemeasure={remeasure} onClose={() => setShowEditor(false)} />
           : (
             <button
               onClick={() => setShowEditor(true)}

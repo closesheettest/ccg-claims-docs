@@ -63,7 +63,7 @@ function squareUp(latlngs) {
 }
 const vertexIcon = (cut) => L.divIcon({ className: "", html: `<div style="width:13px;height:13px;border-radius:50%;background:${cut ? "#dc2626" : "#16a34a"};border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.6)"></div>`, iconSize: [13, 13], iconAnchor: [7, 7] });
 
-export default function RoofMeasureEditor({ result, onClose, onAdjust }) {
+export default function RoofMeasureEditor({ result, onClose, onAdjust, onRemeasure }) {
   const mapEl = useRef(null);
   const mapRef = useRef(null);
   const drawLayerRef = useRef(null);      // committed correction polygons
@@ -82,6 +82,20 @@ export default function RoofMeasureEditor({ result, onClose, onAdjust }) {
   const [maskState, setMaskState] = useState("loading");
   const [showMask, setShowMask] = useState(true);     // ON by default — it IS the base you're correcting
   const [redraw, setRedraw] = useState(false);        // hidden escape hatch for a way-off read
+  const [remeasuring, setRemeasuring] = useState(false); // re-running the read after a pin drag
+  const markerRef = useRef(null);
+  const doRemeasureRef = useRef(null);
+
+  // Pin dragged onto the correct house → re-run the read there. Kept in a ref so the
+  // (mount-time) drag handler always calls the latest closure. onRemeasure updates the
+  // parent read → result.location changes → the map re-inits at the new spot.
+  doRemeasureRef.current = async (nlat, nlng) => {
+    if (!onRemeasure) return;
+    setRemeasuring(true);
+    setCorrections([]);
+    if (drawLayerRef.current) drawLayerRef.current.clearLayers();
+    try { await onRemeasure(nlat, nlng); } finally { setRemeasuring(false); }
+  };
 
   modeRef.current = mode;
   const cutMode = mode === "cut";
@@ -94,10 +108,12 @@ export default function RoofMeasureEditor({ result, onClose, onAdjust }) {
     const m = L.map(mapEl.current, { zoomControl: true }).setView([lat, lng], 20);
     L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
       { maxZoom: 21, maxNativeZoom: 19, attribution: "Imagery &copy; Esri" }).addTo(m);
-    L.marker([lat, lng], {
-      interactive: false, keyboard: false,
+    markerRef.current = L.marker([lat, lng], {
+      draggable: !!onRemeasure, keyboard: false, autoPan: true,
+      title: onRemeasure ? "Wrong house? Drag me onto the correct roof to re-measure." : undefined,
       icon: L.divIcon({ className: "", html: '<div style="font-size:34px;line-height:1;filter:drop-shadow(0 2px 3px rgba(0,0,0,.6))">📍</div>', iconSize: [34, 34], iconAnchor: [17, 31] }),
     }).addTo(m);
+    if (onRemeasure) markerRef.current.on("dragend", (ev) => { const p = ev.target.getLatLng(); doRemeasureRef.current && doRemeasureRef.current(p.lat, p.lng); });
     fetch("/.netlify/functions/harvest-roof-mask", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ lat, lng }) })
       .then((r) => r.json())
       .then((d) => {
@@ -232,7 +248,19 @@ export default function RoofMeasureEditor({ result, onClose, onAdjust }) {
         <button onClick={onClose} style={btn("#64748b", true)}>Close</button>
       </div>
 
-      <div ref={mapEl} style={{ height: 380, width: "100%", background: "#e2e8f0" }} />
+      <div style={{ position: "relative" }}>
+        <div ref={mapEl} style={{ height: 380, width: "100%", background: "#e2e8f0" }} />
+        {onRemeasure && (
+          <div style={{ position: "absolute", top: 8, left: 8, zIndex: 500, background: "rgba(15,23,42,.85)", color: "#fff", fontSize: 12, fontWeight: 700, padding: "5px 10px", borderRadius: 8, pointerEvents: "none" }}>
+            🏠 Wrong house? Drag the 📍 pin onto the correct roof — it re-measures.
+          </div>
+        )}
+        {remeasuring && (
+          <div style={{ position: "absolute", inset: 0, zIndex: 600, background: "rgba(255,255,255,.7)", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, color: "#0f172a", fontSize: 16 }}>
+            📐 Re-measuring the new spot…
+          </div>
+        )}
+      </div>
 
       <div style={{ padding: 14 }}>
         {/* what you're looking at */}
