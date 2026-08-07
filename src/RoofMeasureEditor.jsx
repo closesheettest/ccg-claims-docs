@@ -98,6 +98,7 @@ export default function RoofMeasureEditor({ result, onClose, onAdjust, onRemeasu
   const baseLayerRef = useRef(null);
   const imagerySourceRef = useRef("esri");
   const firstImgRef = useRef(true);
+  const guideLayerRef = useRef(null);   // alignment guide lines + ghost dot while tracing
   const doRemeasureRef = useRef(null);
 
   // Pin dragged onto the correct house → re-run the read there. Kept in a ref so the
@@ -140,7 +141,9 @@ export default function RoofMeasureEditor({ result, onClose, onAdjust, onRemeasu
       .catch(() => setMaskState("none"));
     drawLayerRef.current = L.layerGroup().addTo(m);
     activeLayerRef.current = L.layerGroup().addTo(m);
+    guideLayerRef.current = L.layerGroup().addTo(m);
     m.on("click", onMapClick);
+    m.on("mousemove", onMapMove);
     setTimeout(() => m.invalidateSize(), 60);
     setTimeout(() => m.invalidateSize(), 300);
     mapRef.current = m;
@@ -215,9 +218,42 @@ export default function RoofMeasureEditor({ result, onClose, onAdjust, onRemeasu
       });
     });
   }
+  // Snap a point to line up (same horizontal / vertical, in screen pixels) with a
+  // corner you've already placed — so a tree-hidden corner squares off the visible
+  // edges instead of a guess. Works on tap (touch) and click.
+  function snapTo(latlng) {
+    const m = mapRef.current; if (!m) return { lat: latlng.lat, lng: latlng.lng };
+    const cur = m.latLngToContainerPoint(latlng);
+    let sx = cur.x, sy = cur.y; const T = 9;
+    for (const p of ptsRef.current) {
+      const pp = m.latLngToContainerPoint(L.latLng(p.lat, p.lng));
+      if (Math.abs(cur.x - pp.x) < T) sx = pp.x;
+      if (Math.abs(cur.y - pp.y) < T) sy = pp.y;
+    }
+    const s = m.containerPointToLatLng([sx, sy]);
+    return { lat: s.lat, lng: s.lng };
+  }
+  // Live guide lines + ghost dot as the cursor moves (desktop feedback for the snap).
+  function onMapMove(e) {
+    const g = guideLayerRef.current, m = mapRef.current;
+    if (!g || !m) return;
+    g.clearLayers();
+    if (!drawingRef.current) return;
+    const cur = m.latLngToContainerPoint(e.latlng);
+    let sx = cur.x, sy = cur.y, vx = null, hy = null; const T = 9;
+    for (const p of ptsRef.current) {
+      const pp = m.latLngToContainerPoint(L.latLng(p.lat, p.lng));
+      if (Math.abs(cur.x - pp.x) < T) { sx = pp.x; vx = pp.x; }
+      if (Math.abs(cur.y - pp.y) < T) { sy = pp.y; hy = pp.y; }
+    }
+    const sz = m.getSize(), col = "#f59e0b";
+    if (vx != null) g.addLayer(L.polyline([m.containerPointToLatLng([vx, 0]), m.containerPointToLatLng([vx, sz.y])], { color: col, weight: 1, dashArray: "4,5", interactive: false }));
+    if (hy != null) g.addLayer(L.polyline([m.containerPointToLatLng([0, hy]), m.containerPointToLatLng([sz.x, hy])], { color: col, weight: 1, dashArray: "4,5", interactive: false }));
+    g.addLayer(L.circleMarker(m.containerPointToLatLng([sx, sy]), { radius: 4, color: (vx != null || hy != null) ? col : "#22c55e", weight: 2, fillColor: "#fff", fillOpacity: 1, interactive: false }));
+  }
   function onMapClick(e) {
     if (!drawingRef.current) return;
-    ptsRef.current = [...ptsRef.current, { lat: e.latlng.lat, lng: e.latlng.lng }];
+    ptsRef.current = [...ptsRef.current, snapTo(e.latlng)];
     setPtCount(ptsRef.current.length);
     redrawActive();
   }
@@ -228,6 +264,7 @@ export default function RoofMeasureEditor({ result, onClose, onAdjust, onRemeasu
     drawingRef.current = false; setDrawing(false); ptsRef.current = []; setPtCount(0);
     if (activePolyRef.current) { activePolyRef.current.remove(); activePolyRef.current = null; }
     if (activeLayerRef.current) activeLayerRef.current.clearLayers();
+    if (guideLayerRef.current) guideLayerRef.current.clearLayers();
   }
   function drawCorrection(c) {
     const flat = (+c.pitch) < 2.5;
