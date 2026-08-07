@@ -119,7 +119,7 @@ export default function HarvestReport() {
         // list_name + extra let us classify each door's LEAD SOURCE for the
         // Retail vs Inspection split (self-gen carries status "insp" but
         // list_name "Self-Generated", so status alone can't tell them apart).
-        const { data: pins } = await supabase.from("canvass_prospects").select("id, name, address, list_name, status, extra").in("id", ids);
+        const { data: pins } = await supabase.from("canvass_prospects").select("id, name, address, city, list_name, status, extra").in("id", ids);
         setPinMap(Object.fromEntries((pins || []).map((p) => [p.id, {
           ...p,
           self_generated: !!(p.list_name === "Self-Generated" || (p.extra && typeof p.extra === "object" && p.extra.self_generated === true)),
@@ -563,7 +563,7 @@ export default function HarvestReport() {
                                 style={{ display: "flex", gap: 10, alignItems: "baseline", fontSize: 12.5, color: "#334155", padding: "4px 8px", background: open ? "#f1f5f9" : "#fff", borderRadius: 6, border: "1px solid #eef2f7", cursor: "pointer" }}>
                                 <span style={{ color: "#94a3b8", minWidth: 82, flexShrink: 0 }}>{fmtT(a.created_at)}</span>
                                 <span style={{ fontWeight: 700, minWidth: 96, flexShrink: 0 }}>{ACT_LABEL(a)}</span>
-                                <span style={{ color: "#475569", flex: 1, minWidth: 0 }}>{pin.name || pin.address || (a.pin_id ? "(pin)" : "")}{pin.name && pin.address ? ` · ${pin.address}` : ""}{a.round > 1 ? ` · round ${a.round}` : ""}</span>
+                                <span style={{ color: "#475569", flex: 1, minWidth: 0 }}>{pin.name || (pin.address ? `${pin.address}${pin.city ? `, ${pin.city}` : ""}` : (a.pin_id ? "(pin)" : ""))}{pin.name && pin.address ? ` · ${pin.address}${pin.city ? `, ${pin.city}` : ""}` : ""}{a.round > 1 ? ` · round ${a.round}` : ""}</span>
                                 <span style={{ color: "#94a3b8", fontSize: 11, flexShrink: 0 }}>{open ? "▾" : "▸"}</span>
                                 {tag && <span style={{ color: tag.color, fontWeight: 700, fontSize: 11.5, whiteSpace: "nowrap", flexShrink: 0 }}>{tag.txt}</span>}
                               </div>
