@@ -63,6 +63,14 @@ function squareUp(latlngs) {
 }
 const vertexIcon = (cut) => L.divIcon({ className: "", html: `<div style="width:13px;height:13px;border-radius:50%;background:${cut ? "#dc2626" : "#16a34a"};border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.6)"></div>`, iconSize: [13, 13], iconAnchor: [7, 7] });
 
+// Trace-layer basemaps. Esri is the default; Mapbox (Maxar) is often sharper/newer —
+// the rep flips between them to trace on whichever is clearest for THIS address.
+const MAPBOX_TOKEN = (typeof import.meta !== "undefined" && import.meta.env && import.meta.env.VITE_MAPBOX_TOKEN) || "";
+const BASEMAPS = {
+  esri: { label: "Esri", url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", opts: { maxZoom: 21, maxNativeZoom: 19, attribution: "Imagery &copy; Esri" } },
+  mapbox: { label: "Mapbox ✨", url: `https://api.mapbox.com/styles/v1/mapbox/satellite-v9/tiles/512/{z}/{x}/{y}@2x?access_token=${MAPBOX_TOKEN}`, opts: { maxZoom: 22, tileSize: 512, zoomOffset: -1, attribution: "Imagery &copy; Mapbox / Maxar" } },
+};
+
 export default function RoofMeasureEditor({ result, onClose, onAdjust, onRemeasure }) {
   const mapEl = useRef(null);
   const mapRef = useRef(null);
@@ -84,8 +92,12 @@ export default function RoofMeasureEditor({ result, onClose, onAdjust, onRemeasu
   const [redraw, setRedraw] = useState(false);        // hidden escape hatch for a way-off read
   const [flatAll, setFlatAll] = useState(false);      // rep marks a mis-pitched flat commercial roof as all-membrane
   const [moveMode, setMoveMode] = useState(false);    // slide the whole green mask to line it up (registration shift)
+  const [imagerySource, setImagerySource] = useState("esri"); // esri | mapbox — trace-layer picker
   const [remeasuring, setRemeasuring] = useState(false); // re-running the read after a pin drag
   const markerRef = useRef(null);
+  const baseLayerRef = useRef(null);
+  const imagerySourceRef = useRef("esri");
+  const firstImgRef = useRef(true);
   const doRemeasureRef = useRef(null);
 
   // Pin dragged onto the correct house → re-run the read there. Kept in a ref so the
@@ -100,6 +112,7 @@ export default function RoofMeasureEditor({ result, onClose, onAdjust, onRemeasu
   };
 
   modeRef.current = mode;
+  imagerySourceRef.current = imagerySource;
   const cutMode = mode === "cut";
   const lat = result?.location?.lat;
   const lng = result?.location?.lng;
@@ -108,8 +121,8 @@ export default function RoofMeasureEditor({ result, onClose, onAdjust, onRemeasu
   useEffect(() => {
     if (!mapEl.current || mapRef.current || lat == null || lng == null) return;
     const m = L.map(mapEl.current, { zoomControl: true }).setView([lat, lng], 20);
-    L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-      { maxZoom: 21, maxNativeZoom: 19, attribution: "Imagery &copy; Esri" }).addTo(m);
+    const _b0 = BASEMAPS[imagerySourceRef.current] || BASEMAPS.esri;
+    baseLayerRef.current = L.tileLayer(_b0.url, _b0.opts).addTo(m);
     markerRef.current = L.marker([lat, lng], {
       draggable: !!onRemeasure, keyboard: false, autoPan: true,
       title: onRemeasure ? "Wrong house? Drag me onto the correct roof to re-measure." : undefined,
@@ -145,6 +158,17 @@ export default function RoofMeasureEditor({ result, onClose, onAdjust, onRemeasu
     if (!ov || !m) return;
     if (showMask) ov.addTo(m); else ov.remove();
   }, [showMask, maskState]);
+
+  // Imagery source picker — swap the trace basemap (Esri ↔ Mapbox) live, keeping it
+  // under the green mask + drawings. Skips the mount run (map-init already added it).
+  useEffect(() => {
+    if (firstImgRef.current) { firstImgRef.current = false; return; }
+    const m = mapRef.current; if (!m) return;
+    const b = BASEMAPS[imagerySource] || BASEMAPS.esri;
+    if (baseLayerRef.current) baseLayerRef.current.remove();
+    baseLayerRef.current = L.tileLayer(b.url, b.opts).addTo(m);
+    baseLayerRef.current.bringToBack();
+  }, [imagerySource]);
 
   // ✋ Move overlay: slide the whole green mask to line it up with the photo when
   // Google's footprint sits nudged off Esri's imagery (a registration shift). Pure
@@ -288,6 +312,19 @@ export default function RoofMeasureEditor({ result, onClose, onAdjust, onRemeasu
 
       <div style={{ position: "relative" }}>
         <div ref={mapEl} style={{ height: 380, width: "100%", background: "#e2e8f0" }} />
+        {MAPBOX_TOKEN && (
+          <div style={{ position: "absolute", top: 8, right: 8, zIndex: 500, display: "flex", borderRadius: 8, overflow: "hidden", boxShadow: "0 1px 5px rgba(0,0,0,.35)", fontFamily: FONT }}>
+            {["esri", "mapbox"].map((src) => (
+              <button key={src} onClick={() => setImagerySource(src)}
+                title={src === "mapbox" ? "Sharper / more recent imagery (Maxar)" : "Esri World Imagery"}
+                style={{ fontSize: 11.5, fontWeight: 800, padding: "5px 11px", border: "none", cursor: "pointer", letterSpacing: ".02em",
+                  color: imagerySource === src ? "#fff" : "#0f172a",
+                  background: imagerySource === src ? "#2563eb" : "rgba(255,255,255,.92)" }}>
+                {BASEMAPS[src].label}
+              </button>
+            ))}
+          </div>
+        )}
         {onRemeasure && (
           <div style={{ position: "absolute", top: 8, left: 8, zIndex: 500, background: "rgba(15,23,42,.85)", color: "#fff", fontSize: 12, fontWeight: 700, padding: "5px 10px", borderRadius: 8, pointerEvents: "none" }}>
             🏠 Wrong house? Drag the 📍 pin onto the correct roof — it re-measures.
