@@ -473,7 +473,6 @@ function Damage({ damage }) {
       {/* Signed → the Five Star pipeline flow. Click a stage to see just those claims. */}
       {filter === "signed" && (
         <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 6, margin: "-4px 0 14px", padding: "8px 10px", background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 10 }}>
-          <span style={{ fontSize: 11.5, fontWeight: 800, color: "#16a34a", marginRight: 2 }}>Five Star flow →</span>
           <button onClick={() => setSignedStage(null)} style={{ ...pill(!signedStage, "#334155"), padding: "5px 11px", fontSize: 12 }}>All · {signedDeals.length}</button>
           {SIGNED_FLOW.map((s) => (
             <button key={s.key} onClick={() => setSignedStage(s.key)} style={{ ...pill(signedStage === s.key, s.color), padding: "5px 11px", fontSize: 12 }}>{s.label} · {signedStageCounts[s.key] || 0}</button>
