@@ -82,6 +82,7 @@ export default function RoofMeasureEditor({ result, onClose, onAdjust, onRemeasu
   const [maskState, setMaskState] = useState("loading");
   const [showMask, setShowMask] = useState(true);     // ON by default — it IS the base you're correcting
   const [redraw, setRedraw] = useState(false);        // hidden escape hatch for a way-off read
+  const [flatAll, setFlatAll] = useState(false);      // rep marks a mis-pitched flat commercial roof as all-membrane
   const [remeasuring, setRemeasuring] = useState(false); // re-running the read after a pin drag
   const markerRef = useRef(null);
   const doRemeasureRef = useRef(null);
@@ -209,9 +210,16 @@ export default function RoofMeasureEditor({ result, onClose, onAdjust, onRemeasu
 
   const baseSloped = result?.materials?.sloped || {};
   const baseFlat = result?.materials?.flat || {};
-  const bSlopedM = baseSloped.measured_squares || 0;
-  const bFlatM = baseFlat.measured_squares || 0;
-  const baseTotal = result?.roof?.surface_squares ?? r2(bSlopedM + bFlatM);
+  const rawSlopedM = baseSloped.measured_squares || 0;
+  const rawFlatM = baseFlat.measured_squares || 0;
+  // "Whole roof is flat" — Solar mis-called a flat commercial roof as pitched
+  // (parapets/HVAC fooled its pitch read). Fold the mis-classed sloped squares into
+  // membrane, de-inflating them by the slope factor that was wrongly applied so the
+  // area is the true footprint. Nothing gets ordered as shingle on a membrane roof.
+  const pitchUsed = result?.roof?.avg_pitch_x12 ?? 6;
+  const bSlopedM = flatAll ? 0 : rawSlopedM;
+  const bFlatM = flatAll ? r2(rawFlatM + rawSlopedM / slopeFactor(pitchUsed)) : rawFlatM;
+  const baseTotal = result?.roof?.surface_squares ?? r2(rawSlopedM + rawFlatM);
   const slopedWaste = baseSloped.waste_pct ?? 12;
   const flatWaste = baseFlat.waste_pct ?? 10;
 
@@ -219,7 +227,7 @@ export default function RoofMeasureEditor({ result, onClose, onAdjust, onRemeasu
   const adjSloped = redraw ? addSloped : Math.max(0, bSlopedM + addSloped - cutSloped);
   const adjFlat = redraw ? addFlat : Math.max(0, bFlatM + addFlat - cutFlat);
   const total = r2(adjSloped + adjFlat);
-  const touched = corrections.length > 0 || redraw;
+  const touched = corrections.length > 0 || redraw || flatAll;
 
   // push corrected numbers up to the report card
   const everRef = useRef(false);
@@ -236,7 +244,7 @@ export default function RoofMeasureEditor({ result, onClose, onAdjust, onRemeasu
       onAdjust(null);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [corrections, pitch, redraw]);
+  }, [corrections, pitch, redraw, flatAll]);
 
   const curFlat = (+pitch) < 2.5;
   const delta = r2(total - baseTotal);
@@ -273,6 +281,23 @@ export default function RoofMeasureEditor({ result, onClose, onAdjust, onRemeasu
             </label>
           )}
         </div>
+
+        {/* Whole-roof pitch fix: one tap re-classes a mis-pitched flat commercial
+            roof to all-membrane (no shingle order, slope inflation removed). */}
+        {!redraw && (
+          <button
+            onClick={() => { const nv = !flatAll; setFlatAll(nv); if (nv) setPitch(0); }}
+            style={{
+              width: "100%", fontFamily: FONT, fontSize: 13.5, fontWeight: 800, cursor: "pointer",
+              marginBottom: 12, borderRadius: 9, padding: "10px 14px", letterSpacing: ".01em",
+              color: flatAll ? "#fff" : "#0891b2",
+              background: flatAll ? "#0891b2" : "#ecfeff",
+              border: `1px solid ${flatAll ? "#0e7490" : "#a5f3fc"}`,
+            }}
+          >
+            {flatAll ? "✓ Whole roof marked FLAT — all membrane (tap to undo)" : "🏢 Whole roof is flat? Tap to make it all membrane"}
+          </button>
+        )}
 
         {!redraw ? (
           <>

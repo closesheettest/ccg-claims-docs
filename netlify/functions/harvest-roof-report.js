@@ -197,8 +197,17 @@ export const handler = async (event) => {
     // mode bucket, then area-weight-average the planes within ±1 of it. That merges
     // a noise-split main plane while still shedding flat + steep-outlier facets.
     const sloped = planes.filter((p) => p.pitch_x12 != null && p.area_m2 && p.pitch_x12 >= DEFAULT_FLAT_CUTOFF_X12);
+    // Check-and-balance on the pitch: a handful of parapet / HVAC-curb patches on a
+    // big flat commercial roof read as ~4/12 and, being the only "sloped" planes,
+    // would wrongly declare the whole roof pitched (Colonia Ln read 4/12 while 85%
+    // of the area was flat membrane). Require the sloped planes to be a real SHARE of
+    // the roof area before trusting them as the predominant pitch — otherwise report
+    // the area-weighted (flat) pitch so a membrane roof honestly reads flat.
+    const slopedAreaM2 = sloped.reduce((a, p) => a + (p.area_m2 || 0), 0);
+    const totalPlaneM2 = planes.reduce((a, p) => a + (p.area_m2 || 0), 0);
+    const slopedShare = totalPlaneM2 ? slopedAreaM2 / totalPlaneM2 : 0;
     let pitchX12 = null;
-    if (sloped.length) {
+    if (sloped.length && slopedShare >= 0.30) {
       const buckets = new Map(); // whole x/12 → sloped m²
       for (const p of sloped) { const k = Math.round(p.pitch_x12); buckets.set(k, (buckets.get(k) || 0) + p.area_m2); }
       let mode = null, best = -1;
