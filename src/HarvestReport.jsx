@@ -105,9 +105,11 @@ export default function HarvestReport() {
         }
         return { data: all, error: null };
       };
-      // Try the location-aware columns; if the migration hasn't run yet, fall back to
-      // the basic report rather than erroring the whole page.
-      let { data, error } = await fetchAll(RICH);
+      // Try the fullest column set (location audit + the note that carries appt /
+      // open-close context). Peel back a tier at a time if a migration hasn't run:
+      // note → location columns → basic, so the report never errors on a missing col.
+      let { data, error } = await fetchAll(`${RICH}, note`);
+      if (error && /\bnote\b/i.test(error.message || "")) ({ data, error } = await fetchAll(RICH));
       let off = false;
       if (error && /loc_flag|dist_ft|\blat\b|\blng\b|column/i.test(error.message || "")) { off = true; ({ data, error } = await fetchAll(BASIC)); }
       setAuditOff(off);
@@ -249,6 +251,21 @@ export default function HarvestReport() {
       }
       m.set(name, cur);
     }
+    // Fold in pinless CONTEXT events — appointments (appt_done) and open/close-map —
+    // so a rep's stop-by-stop can EXPLAIN a quiet stretch instead of it reading like
+    // they vanished. These never touch the door-work counts (they're not visits or
+    // statuses); they only ride along in `acts` for the timeline. Pulled from the
+    // FULL row set (not viewRows) because they belong to neither lead-source bucket.
+    const CONTEXT_KINDS = new Set(["appt_done", "app_open", "app_close"]);
+    const ctxSeen = new Set();
+    for (const r of (rows || [])) {
+      if (!CONTEXT_KINDS.has(r.kind)) continue;
+      const k = `${r.rep_name || ""}|${r.kind}|${r.created_at}`;
+      if (ctxSeen.has(k)) continue; // collapse an exact double-fire
+      ctxSeen.add(k);
+      const cur = m.get(r.rep_name || "(unknown)");
+      if (cur) cur.acts.push(r);
+    }
     // Avg time at spot = arrival → the outcome tap (paired per stop, chronologically).
     for (const cur of m.values()) {
       cur.acts.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
@@ -279,7 +296,7 @@ export default function HarvestReport() {
     }
     return [...m.values()].map((r) => ({ ...r, pinsVisited: r.pins.size }))
       .sort((a, b) => new Date(b.last) - new Date(a.last));
-  }, [viewRows]);
+  }, [viewRows, rows]);
 
   // Group the reps by TEAM (zone), each with a subtotal. Admin sees every team;
   // with ?zone= set (the manager view) only that team is kept. Reps whose name
@@ -535,11 +552,47 @@ export default function HarvestReport() {
                         // and appt conversions (visit→appt, which carry the door + name).
                         const statusedKeys = new Set();
                         for (const a of r.acts) if (a.kind === "status" && a.to_status) statusedKeys.add(`${a.pin_id}:${a.to_status}`);
-                        return [...r.acts].reverse()
-                          .filter((a) => a.kind !== "arrival" && a.kind !== "manual_here" && a.kind !== "appt_done"
-                            && !(a.kind === "visit" && statusedKeys.has(`${a.pin_id}:${a.to_status}`))
-                            && !(a.kind === "visit" && !a.to_status))
-                          .map((a, i) => {
+                        // Build the timeline. Door outcomes render as before; the pinless
+                        // CONTEXT rows become gap-explainers: an appt_done expands into an
+                        // "🗓️ At appointment" marker (placed at its SCHEDULED time) and a
+                        // "✅ Appointment finished" marker (when tapped), so the pair
+                        // straddles the quiet stretch; open/close-map pass through as one
+                        // marker each. Everything carries _ts (effective time) so the whole
+                        // list sorts right even though the appt "start" predates its row.
+                        const timeline = [];
+                        for (const a of r.acts) {
+                          if (a.kind === "appt_done") {
+                            let meta = {}; try { meta = a.note ? JSON.parse(a.note) : {}; } catch { meta = {}; }
+                            if (meta.s) timeline.push({ ...a, _ev: "appt_start", _ts: meta.s, _addr: meta.a || "" });
+                            timeline.push({ ...a, _ev: "appt_end", _ts: a.created_at, _addr: meta.a || "" });
+                          } else if (a.kind === "app_open" || a.kind === "app_close") {
+                            timeline.push({ ...a, _ev: a.kind, _ts: a.created_at });
+                          } else {
+                            if (a.kind === "arrival" || a.kind === "manual_here") continue;
+                            if (a.kind === "visit" && statusedKeys.has(`${a.pin_id}:${a.to_status}`)) continue;
+                            if (a.kind === "visit" && !a.to_status) continue;
+                            timeline.push({ ...a, _ts: a.created_at });
+                          }
+                        }
+                        timeline.sort((x, y) => new Date(y._ts) - new Date(x._ts)); // newest first
+                        return timeline.map((a, i) => {
+                          // Context markers (appointments, open/close map) — a distinct
+                          // tinted line that explains the gap; not a clickable door stop.
+                          if (a._ev) {
+                            const CTX = {
+                              appt_start: { icon: "🗓️", label: "At appointment", bg: "#eef2ff", bd: "#c7d2fe", fg: "#4338ca" },
+                              appt_end:   { icon: "✅", label: "Appointment finished", bg: "#f0fdf4", bd: "#bbf7d0", fg: "#15803d" },
+                              app_open:   { icon: "📲", label: "Opened the map", bg: "#f8fafc", bd: "#e2e8f0", fg: "#64748b" },
+                              app_close:  { icon: "📴", label: "Closed the map", bg: "#f8fafc", bd: "#e2e8f0", fg: "#64748b" },
+                            }[a._ev];
+                            return (
+                              <div key={i} style={{ display: "flex", gap: 10, alignItems: "baseline", fontSize: 12.5, padding: "4px 8px", background: CTX.bg, borderRadius: 6, border: `1px solid ${CTX.bd}` }}>
+                                <span style={{ color: "#94a3b8", minWidth: 82, flexShrink: 0 }}>{fmtT(a._ts)}</span>
+                                <span style={{ fontWeight: 800, minWidth: 96, flexShrink: 0, color: CTX.fg }}>{CTX.icon} {CTX.label}</span>
+                                <span style={{ color: "#475569", flex: 1, minWidth: 0 }}>{a._addr || ""}</span>
+                              </div>
+                            );
+                          }
                           const pin = pinMap[a.pin_id] || {};
                           const tag = LOC_TAG(a);
                           const key = `${r.name}|${a.pin_id}|${a.kind}|${a.to_status || ""}|${a.created_at}`;

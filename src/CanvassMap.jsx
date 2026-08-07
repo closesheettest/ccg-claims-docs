@@ -1848,13 +1848,33 @@ export default function CanvassMap() {
       const repNm = repName || (authInfo.current && authInfo.current.rep && authInfo.current.rep.name) || null;
       const full = { rep_name: repNm, rep_token: auth.rt || null, round, ...row };
       supabase.from("canvass_activity").insert(full).then(({ error }) => {
-        if (error && /lat|lng|acc_m|dist_ft|loc_flag|column/i.test(error.message || "")) {
-          const { lat, lng, acc_m, dist_ft, loc_flag, ...basic } = full; // eslint-disable-line no-unused-vars
+        if (error && /lat|lng|acc_m|dist_ft|loc_flag|note|column/i.test(error.message || "")) {
+          // Drop the optional columns (location audit + note) if that migration
+          // hasn't run yet, so the core row still records.
+          const { lat, lng, acc_m, dist_ft, loc_flag, note, ...basic } = full; // eslint-disable-line no-unused-vars
           supabase.from("canvass_activity").insert(basic).then(() => {}, () => {});
         }
       }, () => {});
     } catch { /* ignore */ }
   }
+
+  // ── Open-map / close-map events ─────────────────────────────────────────
+  // Log once when a real rep opens the map, and again when they leave/background
+  // it (phone in pocket). This lets the office report EXPLAIN a quiet stretch —
+  // "closed the map at 11:04, back at 1:20" — instead of an unexplained gap that
+  // reads like the rep disappeared. Rep sessions only: never demo, spot-check, or
+  // the office/admin view. Fires once identity resolves so the row isn't orphaned.
+  const openLoggedRef = useRef(false);
+  useEffect(() => {
+    if (openLoggedRef.current) return;
+    if (demoMode || spotCheck || !auth.rt || !me || me.level === "admin") return;
+    openLoggedRef.current = true;
+    logActivity({ pin_id: null, kind: "app_open" });
+    const onLeave = () => { try { logActivity({ pin_id: null, kind: "app_close" }); } catch { /* ignore */ } };
+    window.addEventListener("pagehide", onLeave);
+    return () => window.removeEventListener("pagehide", onLeave);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [auth.rt, me, demoMode, spotCheck]);
 
   // ── Start my day ───────────────────────────────────────────────────────
   // Order the on-screen prospect pins nearest-first from a start point (the
@@ -2799,7 +2819,14 @@ export default function CanvassMap() {
     const tail = buildApptPlan(from, Date.now(), endMs, restAppts, pool, apptHomeRef.current);
     const next = [...prefix, ...tail];
     workingRef.current = new Set(next.filter((s) => !s.isAppt).map((s) => s.id));
-    logActivity({ pin_id: null, kind: "appt_done", to_status: "appt" });
+    // Stamp the appointment's address + its SCHEDULED time onto the log so the
+    // office report can bracket the quiet stretch: "🗓️ At appointment — <addr>"
+    // at the scheduled time, "✅ Appointment finished" now. Explains the gap.
+    const apptNote = (() => {
+      try { return JSON.stringify({ a: stop.address || stop.name || "", s: stop._appt?.at_ms ? new Date(stop._appt.at_ms).toISOString() : null }); }
+      catch { return null; }
+    })();
+    logActivity({ pin_id: null, kind: "appt_done", to_status: "appt", note: apptNote });
     setRoute(next); setStopIdx(prefix.length);
     if (map.current && next[prefix.length]) map.current.setView([next[prefix.length].latitude, next[prefix.length].longitude], 16);
   }
