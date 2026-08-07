@@ -297,13 +297,15 @@ function BTPABars({ funnel }) {
       </div>
       <div style={card}>
         <div style={{ fontSize: 15, fontWeight: 800, fontFamily: OSWALD }}>② PA Appointment → Sit &amp; Sign</div>
-        <div style={{ fontSize: 12, color: "#94a3b8", marginBottom: 10 }}>Of <b>{got}</b> that got an appointment — <b>{resolved}</b> resolved (waiting-on-docs &amp; upcoming still live).</div>
-        <Bar label="Signed the PA paperwork" n={signed} d={resolved} color="#16a34a" />
-        <Bar label="Not interested (sat &amp; declined)" n={declinedAppt} d={resolved} color="#64748b" />
+        <div style={{ fontSize: 12, color: "#94a3b8", marginBottom: 10 }}>Of <b>{got}</b> that got an appointment — <b>{resolved}</b> resolved (waiting-on-docs &amp; upcoming still live). <b>{sat}</b> sat down; <b>{noSit}</b> no-sat.</div>
+        {/* The sign rate is off the {sat} who actually SAT — a no-sit is a reschedule,
+            not a decline, so it can't be counted against the sign rate. This is why
+            Signed reads 9 ÷ 12 = 75%, not 9 ÷ 24. */}
+        <div style={{ fontSize: 11.5, fontWeight: 800, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.04em", margin: "2px 0 6px" }}>Of the {sat} who sat down — no-sits not counted against it</div>
+        <Bar label="Signed the PA paperwork" n={signed} d={sat} color="#16a34a" />
+        <Bar label="Not interested (sat &amp; declined)" n={declinedAppt} d={sat} color="#64748b" />
+        <div style={{ fontSize: 11.5, fontWeight: 800, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.04em", margin: "12px 0 6px" }}>Didn’t sit — of {resolved} resolved appointments</div>
         <Bar label="No-sit — needs to reschedule" n={noSit} d={resolved} color="#b91c1c" />
-        <div style={{ fontSize: 12, color: "#334155", marginTop: 6, lineHeight: 1.7 }}>
-          Sign rate (signed ÷ {sat} who sat — no-sits not counted against it): <b style={{ color: "#16a34a" }}>{pct(signed, sat)}%</b>
-        </div>
         {(waiting > 0 || upcoming > 0 || rebooked > 0) && (
           <div style={{ marginTop: 10, padding: "8px 11px", background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 10, fontSize: 12.5, color: "#1e40af" }}>
             📄 <b>{waiting}</b> sit pending · 🔁 <b>{rebooked}</b> no-sit rescheduled · 🔵 <b>{upcoming}</b> still to sit — not counted yet.
