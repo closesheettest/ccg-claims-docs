@@ -134,6 +134,12 @@ export default function RoofMeasure() {
 
 function ResultCard({ d: d0 }) {
   const [d, setD] = useState(d0);   // the read; drag-the-pin re-measures and replaces it
+  // The ⚠️ CHECK flag means "we're not sure this is the right building — confirm it."
+  // Dragging the pin onto the building IS that confirmation (a human just picked the
+  // structure), so once they've dragged we retire the red flag to a calm ✓ CONFIRMED —
+  // the parcel's living-sqft (which trips the flag) never changes within one lot, so
+  // re-computing confidence would keep nagging even after the rep put the pin dead-on.
+  const [confirmed, setConfirmed] = useState(false);
   // Re-run the read at a new spot (rep dragged the pin onto the correct house).
   async function remeasure(lat, lng) {
     try {
@@ -141,7 +147,7 @@ function ResultCard({ d: d0 }) {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ lat, lng }),
       });
       const nd = await res.json();
-      if (nd.ok) { setD({ ...nd, _addr: d._addr, _id: d._id }); setAdj(null); return true; }
+      if (nd.ok) { setD({ ...nd, _addr: d._addr, _id: d._id }); setAdj(null); setConfirmed(true); return true; }
     } catch { /* ignore */ }
     return false;
   }
@@ -189,7 +195,7 @@ function ResultCard({ d: d0 }) {
         <div style={{ fontSize: 16, fontWeight: 700 }}>{d.geocoded_as || d._addr}</div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           {isAdj && <span style={{ fontSize: 11, fontWeight: 800, color: "#16a34a", background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 999, padding: "3px 9px" }}>✏️ ADJUSTED</span>}
-          {d.confidence?.level === "low" && (
+          {d.confidence?.level === "low" && !confirmed && (
             <>
               <style>{`@keyframes roofCheckPulse{0%,100%{transform:scale(1);box-shadow:0 0 0 0 rgba(220,38,38,.55)}50%{transform:scale(1.09);box-shadow:0 0 0 9px rgba(220,38,38,0)}}`}</style>
               <span style={{ fontSize: 15, fontWeight: 900, padding: "8px 18px", borderRadius: 999, whiteSpace: "nowrap", color: "#fff", background: "#dc2626", border: "2px solid #b91c1c", letterSpacing: ".04em", boxShadow: "0 1px 4px rgba(0,0,0,.2)", animation: "roofCheckPulse 1.1s ease-in-out infinite" }}>
@@ -197,13 +203,18 @@ function ResultCard({ d: d0 }) {
               </span>
             </>
           )}
+          {confirmed && (
+            <span style={{ fontSize: 13, fontWeight: 900, padding: "6px 14px", borderRadius: 999, whiteSpace: "nowrap", color: "#fff", background: "#16a34a", border: "2px solid #15803d", letterSpacing: ".04em", boxShadow: "0 1px 4px rgba(0,0,0,.15)" }}>
+              ✓ CONFIRMED
+            </span>
+          )}
           <div style={{ fontSize: 12.5, color: "#64748b" }}>
             Imagery: <b style={{ color: qColor(d.imagery?.quality) }}>{d.imagery?.quality || "—"}</b> · {fmtDate(d.imagery?.date)}
           </div>
         </div>
       </div>
 
-      {d.confidence?.level === "low" && (
+      {d.confidence?.level === "low" && !confirmed && (
         <div style={{ background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 10, padding: "9px 13px", marginBottom: 14, fontSize: 13, color: "#92400e" }}>
           ⚠️ <b>Low confidence</b> — {d.confidence.message
             || `the satellite footprint and the independent building outline disagree by ${d.confidence.delta_pct}%. Google likely grabbed the wrong or partial building. Verify with the map (Buildings mode / trace) or the appraiser sq ft below.`}
