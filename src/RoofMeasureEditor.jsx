@@ -83,6 +83,7 @@ export default function RoofMeasureEditor({ result, onClose, onAdjust, onRemeasu
   const [showMask, setShowMask] = useState(true);     // ON by default — it IS the base you're correcting
   const [redraw, setRedraw] = useState(false);        // hidden escape hatch for a way-off read
   const [flatAll, setFlatAll] = useState(false);      // rep marks a mis-pitched flat commercial roof as all-membrane
+  const [moveMode, setMoveMode] = useState(false);    // slide the whole green mask to line it up (registration shift)
   const [remeasuring, setRemeasuring] = useState(false); // re-running the read after a pin drag
   const markerRef = useRef(null);
   const doRemeasureRef = useRef(null);
@@ -136,14 +137,43 @@ export default function RoofMeasureEditor({ result, onClose, onAdjust, onRemeasu
 
   useEffect(() => {
     const m = mapRef.current;
-    if (m) m.getContainer().style.cursor = drawing ? "crosshair" : "";
-  }, [drawing]);
+    if (m) m.getContainer().style.cursor = moveMode ? "move" : (drawing ? "crosshair" : "");
+  }, [drawing, moveMode]);
 
   useEffect(() => {
     const ov = maskOverlayRef.current, m = mapRef.current;
     if (!ov || !m) return;
     if (showMask) ov.addTo(m); else ov.remove();
   }, [showMask, maskState]);
+
+  // ✋ Move overlay: slide the whole green mask to line it up with the photo when
+  // Google's footprint sits nudged off Esri's imagery (a registration shift). Pure
+  // alignment — one-finger map pan is disabled while active and the square count
+  // never changes; it just lets the rep confirm the read sits on the real roof.
+  useEffect(() => {
+    const m = mapRef.current, ov = maskOverlayRef.current;
+    if (!m) return;
+    if (!moveMode || !ov) { if (m.dragging) m.dragging.enable(); return; }
+    m.dragging.disable();
+    let dragging = false, last = null;
+    let sw = ov.getBounds().getSouthWest(), ne = ov.getBounds().getNorthEast();
+    const onDown = (e) => { dragging = true; last = e.latlng; };
+    const onMove = (e) => {
+      if (!dragging || !last) return;
+      const dLat = e.latlng.lat - last.lat, dLng = e.latlng.lng - last.lng;
+      last = e.latlng;
+      sw = L.latLng(sw.lat + dLat, sw.lng + dLng);
+      ne = L.latLng(ne.lat + dLat, ne.lng + dLng);
+      ov.setBounds(L.latLngBounds(sw, ne));
+    };
+    const onUp = () => { dragging = false; last = null; };
+    m.on("mousedown", onDown); m.on("mousemove", onMove); m.on("mouseup", onUp);
+    return () => {
+      m.off("mousedown", onDown); m.off("mousemove", onMove); m.off("mouseup", onUp);
+      if (mapRef.current && mapRef.current.dragging) mapRef.current.dragging.enable();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [moveMode]);
 
   // ── drawing with draggable vertices
   function redrawActive() {
@@ -167,7 +197,7 @@ export default function RoofMeasureEditor({ result, onClose, onAdjust, onRemeasu
     setPtCount(ptsRef.current.length);
     redrawActive();
   }
-  function startDraw() { drawingRef.current = true; setDrawing(true); ptsRef.current = []; setPtCount(0); redrawActive(); }
+  function startDraw() { setMoveMode(false); drawingRef.current = true; setDrawing(true); ptsRef.current = []; setPtCount(0); redrawActive(); }
   function undoPoint() { ptsRef.current = ptsRef.current.slice(0, -1); setPtCount(ptsRef.current.length); redrawActive(); }
   function squareTrace() { if (ptsRef.current.length < 4) return; ptsRef.current = squareUp(ptsRef.current); redrawActive(); }
   function cancelDraw() {
@@ -299,12 +329,28 @@ export default function RoofMeasureEditor({ result, onClose, onAdjust, onRemeasu
           </button>
         )}
 
+        {/* ✋ Move overlay — slide the mask to line it up when the photo is shifted. */}
+        {!redraw && maskState === "ready" && (
+          <button
+            onClick={() => { const nv = !moveMode; if (nv) { cancelDraw(); setShowMask(true); } setMoveMode(nv); }}
+            style={{
+              width: "100%", fontFamily: FONT, fontSize: 13.5, fontWeight: 800, cursor: "pointer",
+              marginBottom: 12, borderRadius: 9, padding: "10px 14px", letterSpacing: ".01em",
+              color: moveMode ? "#fff" : "#7c3aed",
+              background: moveMode ? "#7c3aed" : "#f5f3ff",
+              border: `1px solid ${moveMode ? "#6d28d9" : "#ddd6fe"}`,
+            }}
+          >
+            {moveMode ? "✋ Moving — drag the green to line it up, tap to lock (number won't change)" : "✋ Overlay shifted off the roof? Tap, then drag it to line up"}
+          </button>
+        )}
+
         {!redraw ? (
           <>
             {/* the two tools */}
             <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-              <button onClick={() => { cancelDraw(); setMode("add"); }} style={seg(mode === "add", "#16a34a")}>➕ Add missed</button>
-              <button onClick={() => { cancelDraw(); setMode("cut"); }} style={seg(mode === "cut", "#dc2626")}>✂️ Cut extra</button>
+              <button onClick={() => { cancelDraw(); setMoveMode(false); setMode("add"); }} style={seg(mode === "add", "#16a34a")}>➕ Add missed</button>
+              <button onClick={() => { cancelDraw(); setMoveMode(false); setMode("cut"); }} style={seg(mode === "cut", "#dc2626")}>✂️ Cut extra</button>
             </div>
 
             {!drawing ? (
