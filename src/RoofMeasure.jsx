@@ -221,6 +221,40 @@ function ResultCard({ d: d0 }) {
         </div>
       )}
 
+      {/* 🤝 TEAM READ — the fusion council. Every independent source votes on the
+          squares; the team takes the median and shows how tightly they agree, so the
+          rep sees the blended number (and its confidence) before touching anything. */}
+      {d.team && d.team.n >= 1 && (() => {
+        const t = d.team;
+        const AG = {
+          tight:  { c: "#16a34a", bg: "#f0fdf4", bd: "#bbf7d0", txt: "sources agree — trust it" },
+          loose:  { c: "#b45309", bg: "#fffbeb", bd: "#fde68a", txt: "sources a bit apart — glance at the map" },
+          flag:   { c: "#dc2626", bg: "#fef2f2", bd: "#fecaca", txt: "sources disagree — likely wrong building, confirm the pin" },
+          single: { c: "#64748b", bg: "#f8fafc", bd: "#e5e7eb", txt: "one source so far — LiDAR + records add votes" },
+        }[t.agreement] || {};
+        return (
+          <div style={{ background: AG.bg, border: `1px solid ${AG.bd}`, borderRadius: 12, padding: "13px 15px", marginBottom: 16 }}>
+            <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
+                <span style={{ fontSize: 13, fontWeight: 800, color: "#334155", letterSpacing: ".02em" }}>🤝 TEAM READ</span>
+                <span style={{ fontSize: 26, fontWeight: 900, color: "#0f172a", lineHeight: 1 }}>{t.squares}<span style={{ fontSize: 14, fontWeight: 700, color: "#64748b" }}> sq</span></span>
+              </div>
+              <span style={{ fontSize: 11.5, fontWeight: 800, color: "#fff", background: AG.c, borderRadius: 999, padding: "4px 11px", letterSpacing: ".03em" }}>
+                {t.agreement === "single" ? "1 SOURCE" : `${t.spread_pct}% SPREAD · ${t.agreement.toUpperCase()}`}
+              </span>
+            </div>
+            <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginTop: 9 }}>
+              {t.votes.map((v) => (
+                <span key={v.source} style={{ fontSize: 13, color: "#475569" }}>
+                  <b style={{ color: "#0f172a" }}>{v.label}</b> {v.squares} sq
+                </span>
+              ))}
+            </div>
+            <div style={{ fontSize: 12, color: AG.c, marginTop: 7, fontWeight: 600 }}>{AG.txt}</div>
+          </div>
+        );
+      })()}
+
       {/* Reference only — pitch & facet count from the satellite. NOT a measurement:
           the rep traces the roof below and that trace is the number they price off. */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 14, marginBottom: 18 }}>

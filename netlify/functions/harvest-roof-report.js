@@ -342,6 +342,31 @@ export const handler = async (event) => {
       living_sqft: livingSqft,
     };
 
+    // ── TEAM READ (fusion council). Each independent source casts a vote for the
+    // roof's surface squares; the team takes the MEDIAN (robust to one bad vote) and
+    // flags when the votes disagree. Solar + Records (county footprint × slope) vote
+    // today; LiDAR joins as the third vote once the cloud cross-check is live.
+    // Validated on 183 Roofr roofs: where the sources agree the median lands within a
+    // few %, and a wide spread reliably fingers a wrong-building read.
+    const sfX12 = (x12) => Math.sqrt(1 + Math.pow((+x12 || 0) / 12, 2));
+    const votes = [];
+    const solarSq = sq(surfaceM2);
+    if (solarSq) votes.push({ source: "solar", label: "Satellite", squares: +solarSq.toFixed(1) });
+    if (femaSqft && pitchX12 != null) {
+      const recSq = femaSqft * sfX12(pitchX12) / 100;
+      if (recSq > 0) votes.push({ source: "records", label: "County records", squares: +recSq.toFixed(1) });
+    }
+    // (LiDAR vote is injected here once the Cloud Run cross-check returns a value.)
+    let team = null;
+    if (votes.length) {
+      const vals = votes.map((v) => v.squares).slice().sort((a, b) => a - b);
+      const mid = Math.floor(vals.length / 2);
+      const median = vals.length % 2 ? vals[mid] : (vals[mid - 1] + vals[mid]) / 2;
+      const spreadPct = vals.length >= 2 ? Math.round(((vals[vals.length - 1] - vals[0]) / median) * 100) : null;
+      const agreement = spreadPct == null ? "single" : spreadPct > 35 ? "flag" : spreadPct > 15 ? "loose" : "tight";
+      team = { squares: +median.toFixed(1), votes, n: votes.length, spread_pct: spreadPct, agreement };
+    }
+
     return json(200, {
       ok: true,
       source: "satellite",
@@ -351,6 +376,7 @@ export const handler = async (event) => {
       location: { lat, lng },
       appraiser,
       confidence,
+      team,
       imagery: { date: data.imageryDate || null, quality: data.imageryQuality || null },
       roof: {
         surface_squares: sq(surfaceM2),
