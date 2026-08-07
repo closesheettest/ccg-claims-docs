@@ -59,6 +59,32 @@ const BTPA_BUCKETS = [
   { key: "dead", label: "Dead / Not interested", color: "#64748b" },
 ];
 const BTPA_META = Object.fromEntries(BTPA_BUCKETS.map((b) => [b.key, b]));
+
+// Five Star "Signed File Details" flow — the sub-stages a signed claim moves
+// through (each a date the PA stamps in their portal). Powers the sub-buttons
+// under the Signed bucket.
+const SIGNED_FLOW = [
+  { key: "signed",     label: "Signed",             color: "#16a34a", mkey: null },
+  { key: "filed",      label: "Claim Filed",        color: "#0e7490", mkey: "filed" },
+  { key: "coverage",   label: "Coverage Opened",    color: "#7c3aed", mkey: "coverage" },
+  { key: "settlement", label: "Settlement / iink",  color: "#b45309", mkey: "settlement" },
+  { key: "closed",     label: "Closed / Cancelled", color: "#64748b", mkey: "closed" },
+];
+// The furthest milestone a signed deal has reached = its current stage.
+function signedStageOf(r) {
+  const m = r.milestones || {};
+  if (m.closed) return "closed";
+  if (m.settlement) return "settlement";
+  if (m.coverage) return "coverage";
+  if (m.filed) return "filed";
+  return "signed";
+}
+// A milestone value is unix seconds (or an ISO string). → short date, or null.
+function mdate(v) {
+  if (!v) return null;
+  const d = typeof v === "number" ? new Date(v * 1000) : new Date(v);
+  return isNaN(d.getTime()) ? null : fmtDate(d.toISOString());
+}
 // The real BTR pipeline stages, from live JobNimbus status.
 const STAGE_LABEL = { not_worked: "Not worked yet", declined: "Declined", no_sit: "No-sit / no-show", appt_scheduled: "Appointment set", sit_pending: "Sit-Pending (working)", no_sale: "No sale", credit_denial: "Credit denial", sold: "Sold", lost: "Lost / dead" };
 const STAGE_COLOR = { not_worked: "#94a3b8", declined: "#64748b", no_sit: "#a16207", appt_scheduled: "#2563eb", sit_pending: "#7c3aed", no_sale: "#b45309", credit_denial: "#0891b2", sold: "#16a34a", lost: "#9ca3af" };
@@ -383,9 +409,16 @@ function Retail({ retail }) {
 
 function Damage({ damage }) {
   const [filter, setFilter] = useState("all");
+  const [signedStage, setSignedStage] = useState(null); // sub-stage within Signed
   const all = damage.all || [];
   const counts = damage.buckets || {};
-  const deals = filter === "all" ? all : all.filter((d) => d.bucket === filter);
+  let deals = filter === "all" ? all : all.filter((d) => d.bucket === filter);
+  if (filter === "signed" && signedStage) deals = deals.filter((d) => signedStageOf(d) === signedStage);
+  // Signed sub-flow counts (each signed deal in exactly its furthest stage).
+  const signedDeals = all.filter((d) => d.bucket === "signed");
+  const signedStageCounts = {};
+  for (const d of signedDeals) { const s = signedStageOf(d); signedStageCounts[s] = (signedStageCounts[s] || 0) + 1; }
+  const pickFilter = (k) => { setFilter(k); setSignedStage(null); };
   const pill = (active, color) => ({
     fontFamily: OSWALD, fontSize: 12.5, fontWeight: 800, padding: "7px 13px", borderRadius: 999, cursor: "pointer",
     border: `2px solid ${color}`, background: active ? color : "#fff", color: active ? "#fff" : color, whiteSpace: "nowrap",
@@ -408,7 +441,13 @@ function Damage({ damage }) {
       <div style={{ textAlign: "right", fontSize: 12 }}>
         <div><b style={{ color: meta(r.bucket).color }}>{meta(r.bucket).label}</b></div>
         {r.bucket === "signed" ? (
-          (r.signed_at || r.start_at) && <div style={{ color: "#16a34a", fontWeight: 700 }}>Signed {fmtDate(r.signed_at || r.start_at)}</div>
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 1, fontSize: 11.5 }}>
+            {(r.signed_at || r.start_at) && <span style={{ color: "#16a34a", fontWeight: 700 }}>Signed {fmtDate(r.signed_at || r.start_at)}</span>}
+            {r.milestones?.filed && <span style={{ color: "#0e7490" }}>Filed{mdate(r.milestones.filed) ? ` ${mdate(r.milestones.filed)}` : ""}</span>}
+            {r.milestones?.coverage && <span style={{ color: "#7c3aed" }}>Coverage{mdate(r.milestones.coverage) ? ` ${mdate(r.milestones.coverage)}` : ""}</span>}
+            {r.milestones?.settlement && <span style={{ color: "#b45309" }}>Settlement{mdate(r.milestones.settlement) ? ` ${mdate(r.milestones.settlement)}` : ""}</span>}
+            {r.milestones?.closed && <span style={{ color: "#64748b" }}>Closed{mdate(r.milestones.closed) ? ` ${mdate(r.milestones.closed)}` : ""}</span>}
+          </div>
         ) : (
           <>
             {r.start_at && <div style={{ color: "#94a3b8" }}>{fmtDateTime(r.start_at)}</div>}
@@ -426,11 +465,21 @@ function Damage({ damage }) {
       </div>
       {/* BTPA lifecycle filter — need appt / missed / signed / no idea. */}
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 14 }}>
-        <button onClick={() => setFilter("all")} style={pill(filter === "all", "#334155")}>All BTPA · {all.length}</button>
+        <button onClick={() => pickFilter("all")} style={pill(filter === "all", "#334155")}>All BTPA · {all.length}</button>
         {BTPA_BUCKETS.map((b) => (
-          <button key={b.key} onClick={() => setFilter(b.key)} style={pill(filter === b.key, b.color)}>{b.label} · {counts[b.key] || 0}</button>
+          <button key={b.key} onClick={() => pickFilter(b.key)} style={pill(filter === b.key, b.color)}>{b.label} · {counts[b.key] || 0}</button>
         ))}
       </div>
+      {/* Signed → the Five Star pipeline flow. Click a stage to see just those claims. */}
+      {filter === "signed" && (
+        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 6, margin: "-4px 0 14px", padding: "8px 10px", background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 10 }}>
+          <span style={{ fontSize: 11.5, fontWeight: 800, color: "#16a34a", marginRight: 2 }}>Five Star flow →</span>
+          <button onClick={() => setSignedStage(null)} style={{ ...pill(!signedStage, "#334155"), padding: "5px 11px", fontSize: 12 }}>All · {signedDeals.length}</button>
+          {SIGNED_FLOW.map((s) => (
+            <button key={s.key} onClick={() => setSignedStage(s.key)} style={{ ...pill(signedStage === s.key, s.color), padding: "5px 11px", fontSize: 12 }}>{s.label} · {signedStageCounts[s.key] || 0}</button>
+          ))}
+        </div>
+      )}
       <Section
         title={`${filter === "all" ? "All BTPA" : meta(filter).label} (${deals.length})`}
         sub={filter === "all"

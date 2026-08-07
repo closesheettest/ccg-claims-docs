@@ -198,7 +198,12 @@ export const handler = async (event) => {
       const co = coId ? coName[coId] : null;
       const assigned = !!(paId || coId);
       const bucket = damageState(i, a, btpaNowMs);
-      const base = { ...card(i), pa: pn, company: co, stage: assigned ? (i.pa_stage || null) : null, notes: recentNotes(i), signed: bucket === "signed", bucket, signed_at: toISO(i.pa_signed_at) };
+      // Five Star "Signed File Details" milestones (the flow after Signed) — the exact
+      // date fields the PA fills in their portal (PAViews SIGNED_DETAIL_FIELDS). Unix
+      // seconds or truthy; the report UI turns these into the Signed sub-flow.
+      const mf = paFields(i);
+      const base = { ...card(i), pa: pn, company: co, stage: assigned ? (i.pa_stage || null) : null, notes: recentNotes(i), signed: bucket === "signed", bucket, signed_at: toISO(i.pa_signed_at),
+        milestones: bucket === "signed" ? { filed: mf.pa_filed || null, coverage: mf.pa_coverage_opened || null, settlement: mf.iss_uploaded || null, closed: mf.closed_cancelled || null } : undefined };
       const deal = a ? { ...base, start_at: a.start_at, appt_status: a.status } : { ...base, assigned };
       (a ? withApptArr : needApptArr).push(deal);
       allDamage.push(deal);
