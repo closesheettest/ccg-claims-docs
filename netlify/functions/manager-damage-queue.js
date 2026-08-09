@@ -110,7 +110,9 @@ exports.handler = async (event) => {
       };
       const deals = rows
         .filter((r) => dealZones(r).includes(z))
-        .map((r) => ({ inspection_id: r.id, client_name: r.client_name, address: r.address, city: r.city, county: r.county, zip: r.zip, mobile: r.mobile, rep: r.original_sales_rep_name || r.sales_rep_name || null }));
+        // Show the CURRENT rep (who gets the deal back on restore), not the original
+        // signer — the trainer (William Hernandez) signs many, which read as "his".
+        .map((r) => ({ inspection_id: r.id, client_name: r.client_name, address: r.address, city: r.city, county: r.county, zip: r.zip, mobile: r.mobile, rep: r.sales_rep_name || r.original_sales_rep_name || null }));
       return cors(200, JSON.stringify({ ok: true, deals }));
     }
 
