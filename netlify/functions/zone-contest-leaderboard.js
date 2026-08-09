@@ -4,10 +4,14 @@
 // configurable "positive-effort" contest and ranks teams by AVERAGE points per rep.
 //
 // THE CONTEST (see CONTEST below — swap the config for the next one):
-//   • Positive efforts, each worth points: appointment SET, appointment RUN, free
-//     roof inspection signed, go-back worked, Google-review request sent.
-//   • Daily doubling, per rep: the first two efforts each day are worth 1 pt; the
-//     3rd and every one after are worth 2. Resets each day.
+//   • ONE point per DOOR WORKED — a distinct pin+round with real activity: presence
+//     (an arrival / verified-at-door reading, incl. a not-home they walked up to and
+//     a return-visit go-back), a signed inspection (counts even remote), or a booked
+//     appointment. Arriving and signing the SAME door is one point, not both. A pin
+//     statused from afar with no arrival (boxed remotely) earns nothing. PLUS two
+//     pinless points: a sat appointment ("Appt done") and a Google-review send.
+//   • Daily doubling, per rep: the first two points each day are single; the 3rd and
+//     every one after are worth 2. Resets each day.
 //   • Team score = total points ÷ the team's ACTIVE-REP ROSTER (from TMS rep-zones),
 //     NOT activity — every active sales rep divides the team total whether or not they
 //     logged anything that week, so a rep who does nothing still drags the average to
@@ -34,7 +38,7 @@ const TMS_REP_ZONES_URL = "https://trainingmanagementsys.netlify.app/.netlify/fu
 
 // ── THE CONTEST ───────────────────────────────────────────────────────────
 // To run a different contest later: flip enabled, set the weeks, and (if the
-// rules change) adjust `scoring` / the qualifying efforts in effortOf().
+// rules change) adjust `scoring` / the qualifying efforts in the scan loop.
 const CONTEST = {
   enabled: false, // ← flip true Wednesday morning (Aug 12) to go live
   name: "Positive-Effort Team Contest",
@@ -53,36 +57,6 @@ const CONTEST = {
 
 const ZONE_TEAMS = { "Zone 1": "SQUAD", "Zone 2": "SitSold", "Zone 3": "SHARKS", "Zone 4": "HURRICANE" };
 const ZONE_ORDER = ["Zone 1", "Zone 2", "Zone 3", "Zone 4"];
-
-// Classify a canvass_activity row into a scoring EFFORT, or null if it isn't one.
-// `key` dedupes repeats within a rep (the server+client rows for one booking, a
-// re-fire, etc.) so one action = one effort. See the per-attribute notes.
-function effortOf(row) {
-  const s = row.to_status, k = row.kind;
-  // `gate: true` efforts are BARE door statuses that could be faked by boxing pins
-  // and statusing without walking up, so they only score if the rep actually arrived
-  // (see the loc_flag gate in the loop). Efforts with their OWN proof are exempt: a
-  // signed inspection (the signature proves presence), a booked appointment, a sat
-  // appointment, a review send. Arriving is never a point by itself.
-  //
-  // Google review: the SEND counts (anti-gaming — own-number block + one-credit-
-  // per-phone — is enforced at send time, so here we just count the logged sends).
-  if (k === "review_request") return { type: "review", key: `review|${row.pin_id || ""}|${row.created_at}`, gate: false };
-  // Appointment RUN: the rep tapped "Appt done" after sitting one.
-  if (k === "appt_done") return { type: "appt_run", key: `run|${row.created_at}`, gate: false };
-  // Appointment SET: a booking (logs both a status + a visit row — dedupe per door).
-  if (s === "appt") return { type: "appt_set", key: `set|${row.pin_id || row.created_at}`, gate: false };
-  // Free roof inspection signed on the map — the SIGNATURE is proof of presence, so
-  // it always counts even with no GPS/pin. Never gated.
-  if (s === "insp_sold") return { type: "inspection", key: `insp|${row.pin_id || row.created_at}`, gate: false };
-  // Go-back: BOTH a worked go-back pin OR any return knock — proxied as a round≥2
-  // visit/status with a real contact outcome (not just "not home"). This is a bare
-  // status, so it's GATED on arrival. ⚠️ may overlap with a same-door conversion
-  // above (allowed — rewards the harder work).
-  if (Number(row.round) >= 2 && (k === "visit" || k === "status") && s && s !== "not_home")
-    return { type: "goback", key: `gb|${row.pin_id || row.created_at}|${row.round}`, gate: true };
-  return null;
-}
 
 // Points for N efforts in one day (1-1-2 doubling). Order within the day doesn't
 // matter to the total, so we only need the count.
@@ -123,38 +97,38 @@ export const handler = async (event) => {
       `&order=created_at.asc`
     );
 
-    // Which pins did each rep actually ARRIVE at? An arrival event, or any row logged
-    // verified-at-the-door, proves presence. The go-back gate checks THIS — not the
-    // status row's own GPS — so a rep who arrived and then statused late / from down
-    // the street still counts (we know they were there); a pin they never arrived at
-    // (boxed and statused remotely) does not.
-    const arrivedKeys = new Set(); // `${normName}|${pin_id}`
-    for (const r of rows) {
-      const rep = (r.rep_name || "").trim();
-      if (!rep || !r.pin_id) continue;
-      if (r.kind === "arrival" || r.loc_flag === "verified") arrivedKeys.add(`${normalizeName(rep)}|${r.pin_id}`);
-    }
-
-    // Per rep, per day: distinct qualifying efforts. Keyed by NORMALIZED name so it
-    // lines up with the roster below (activity's rep_name vs the roster's name).
+    // ONE point per DOOR WORKED — a distinct pin+round that shows real activity. Not
+    // both arriving and signing at the same door; the door just counts once. A door
+    // qualifies on any of:
+    //   • presence — an arrival event, or a verified-at-door reading (this is the
+    //     "worked the pin" point; includes a not-home they walked up to, and a return
+    //     visit / go-back is a fresh point since it's keyed per round);
+    //   • a signed inspection — counts even with NO arrival (a remote e-sign is still
+    //     the achievement; we never try to infer presence from a signature);
+    //   • a booked appointment.
+    // A pin statused from afar with no arrival and no real outcome (boxed remotely)
+    // earns nothing. Plus two PINLESS points: a sat appointment ("Appt done") and a
+    // review send. Keyed by NORMALIZED name to line up with the roster below.
     const effortsByRepDay = new Map(); // normName → Map(dayKey → Set(effortKey))
-    let skippedNoArrival = 0;
     for (const r of rows) {
       const rep = (r.rep_name || "").trim();
       if (!rep) continue; // orphaned/nameless rows can't be attributed
-      const e = effortOf(r);
-      if (!e) continue;
-      const nk = normalizeName(rep);
-      // Gated efforts (bare door statuses = go-backs) only score if the rep ARRIVED at
-      // that pin. Late or far-away statusing is fine as long as they arrived at some
-      // point; a pin never arrived at (boxed remotely) doesn't count.
-      if (e.gate && !(r.pin_id && arrivedKeys.has(`${nk}|${r.pin_id}`))) { skippedNoArrival++; continue; }
-      const day = etDayKey(r.created_at);
-      let byDay = effortsByRepDay.get(nk);
-      if (!byDay) effortsByRepDay.set(nk, (byDay = new Map()));
-      let set = byDay.get(day);
-      if (!set) byDay.set(day, (set = new Set()));
-      set.add(e.key);
+      const nk = normalizeName(rep), day = etDayKey(r.created_at);
+      const s = r.to_status, k = r.kind, pin = r.pin_id, round = r.round ?? 0;
+      const add = (key) => {
+        let byDay = effortsByRepDay.get(nk);
+        if (!byDay) effortsByRepDay.set(nk, (byDay = new Map()));
+        let set = byDay.get(day);
+        if (!set) byDay.set(day, (set = new Set()));
+        set.add(key);
+      };
+      // Worked-door point (one per pin+round). Presence-less statuses (boxed dead /
+      // not-home) don't qualify — no arrival, no point.
+      if (pin && (k === "arrival" || r.loc_flag === "verified" || s === "insp_sold" || s === "appt"))
+        add(`door|${pin}|${round}`);
+      // Pinless points.
+      if (k === "appt_done") add(`run|${r.created_at}`);
+      if (k === "review_request") add(`review|${pin || ""}|${r.created_at}`);
     }
     // Rep points = sum over days of scoreDay(distinct efforts that day).
     const pointsByNorm = new Map();
@@ -198,7 +172,6 @@ export const handler = async (event) => {
       const rosterTotal = ZONE_ORDER.reduce((s, z) => s + ((rosterByZone[z] || []).length), 0);
       payload.scannedRows = rows.length; payload.rosterReps = rosterTotal;
       payload.repsWithPoints = pointsByNorm.size; payload.pointsMatchedToRoster = matchedReps;
-      payload.rejectedNoArrival = skippedNoArrival;
     }
     return cors(200, JSON.stringify(payload));
   } catch (e) {
