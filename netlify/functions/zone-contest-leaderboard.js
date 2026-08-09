@@ -123,6 +123,18 @@ export const handler = async (event) => {
       `&order=created_at.asc`
     );
 
+    // Which pins did each rep actually ARRIVE at? An arrival event, or any row logged
+    // verified-at-the-door, proves presence. The go-back gate checks THIS — not the
+    // status row's own GPS — so a rep who arrived and then statused late / from down
+    // the street still counts (we know they were there); a pin they never arrived at
+    // (boxed and statused remotely) does not.
+    const arrivedKeys = new Set(); // `${normName}|${pin_id}`
+    for (const r of rows) {
+      const rep = (r.rep_name || "").trim();
+      if (!rep || !r.pin_id) continue;
+      if (r.kind === "arrival" || r.loc_flag === "verified") arrivedKeys.add(`${normalizeName(rep)}|${r.pin_id}`);
+    }
+
     // Per rep, per day: distinct qualifying efforts. Keyed by NORMALIZED name so it
     // lines up with the roster below (activity's rep_name vs the roster's name).
     const effortsByRepDay = new Map(); // normName → Map(dayKey → Set(effortKey))
@@ -132,12 +144,12 @@ export const handler = async (event) => {
       if (!rep) continue; // orphaned/nameless rows can't be attributed
       const e = effortOf(r);
       if (!e) continue;
-      // Gated efforts (bare door statuses = go-backs) require arriving at the pin:
-      // reject a status logged confidently AWAY ("far") or with no GPS fix ("gps_off")
-      // — the "box a cluster and status it without walking up" gaming. Efforts with
-      // their own proof (signed inspection, booked/sat appt, review send) are exempt.
-      if (e.gate && (r.loc_flag === "far" || r.loc_flag === "gps_off")) { skippedNoArrival++; continue; }
-      const nk = normalizeName(rep), day = etDayKey(r.created_at);
+      const nk = normalizeName(rep);
+      // Gated efforts (bare door statuses = go-backs) only score if the rep ARRIVED at
+      // that pin. Late or far-away statusing is fine as long as they arrived at some
+      // point; a pin never arrived at (boxed remotely) doesn't count.
+      if (e.gate && !(r.pin_id && arrivedKeys.has(`${nk}|${r.pin_id}`))) { skippedNoArrival++; continue; }
+      const day = etDayKey(r.created_at);
       let byDay = effortsByRepDay.get(nk);
       if (!byDay) effortsByRepDay.set(nk, (byDay = new Map()));
       let set = byDay.get(day);
