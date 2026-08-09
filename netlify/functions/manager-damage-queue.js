@@ -93,10 +93,23 @@ exports.handler = async (event) => {
     if (body.action === "btr_load") {
       const z = String(body.zone || "").trim();
       if (!z) return cors(400, JSON.stringify({ ok: false, error: "zone required" }));
-      const sel = "id,client_name,address,city,county,zip,mobile,original_sales_rep_name,sales_rep_name,result_at";
+      const sel = "id,client_name,address,city,county,zip,mobile,original_sales_rep_id,original_sales_rep_name,sales_rep_id,sales_rep_name,result_at";
       const rows = await sbGet(`inspections?result=eq.damage&cancelled_at=is.null&jn_status=eq.${encodeURIComponent(BTR_NI_NAME)}&select=${sel}&order=result_at.desc&limit=1000`);
+      // Scope by the deal's REP zone, not just its county. Orange & Brevard sit in
+      // BOTH Zone 1 and Zone 2, so a county-only filter put every deal in those
+      // counties on BOTH managers' screens — Richard (Zone 2) was seeing Zone 1
+      // reps' deals (e.g. Leslie Dainty → Stephen Davis, Zone 1) and could restore
+      // another team's deal. A deal owned by a known ACTIVE rep belongs to THAT
+      // rep's zone; only a truly orphaned deal (rep inactive/unknown) falls back to
+      // the county's zone(s).
+      const dealZones = (r) => {
+        const rep = activeById.get(String(r.sales_rep_id || "")) || activeByName.get(norm(r.sales_rep_name))
+          || activeById.get(String(r.original_sales_rep_id || "")) || activeByName.get(norm(r.original_sales_rep_name));
+        if (rep && rep.zone) return [rep.zone];
+        return COUNTY_ZONES[normCounty(r.county)] || [];
+      };
       const deals = rows
-        .filter((r) => (COUNTY_ZONES[normCounty(r.county)] || []).includes(z))
+        .filter((r) => dealZones(r).includes(z))
         .map((r) => ({ inspection_id: r.id, client_name: r.client_name, address: r.address, city: r.city, county: r.county, zip: r.zip, mobile: r.mobile, rep: r.original_sales_rep_name || r.sales_rep_name || null }));
       return cors(200, JSON.stringify({ ok: true, deals }));
     }
