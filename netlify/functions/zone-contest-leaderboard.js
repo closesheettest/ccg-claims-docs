@@ -4,12 +4,12 @@
 // configurable "positive-effort" contest and ranks teams by AVERAGE points per rep.
 //
 // THE CONTEST (see CONTEST below — swap the config for the next one):
-//   • ONE point per DOOR WORKED — a distinct pin+round with real activity: presence
-//     (an arrival / verified-at-door reading, incl. a not-home they walked up to and
-//     a return-visit go-back), a signed inspection (counts even remote), or a booked
-//     appointment. Arriving and signing the SAME door is one point, not both. A pin
-//     statused from afar with no arrival (boxed remotely) earns nothing. PLUS two
-//     pinless points: a sat appointment ("Appt done") and a Google-review send.
+//   • Points STACK, one per thing done: ARRIVAL at a door (presence — an arrival /
+//     verified reading; incl. a not-home walked up to and a return-visit go-back),
+//     a SIGNED INSPECTION, a BOOKED APPOINTMENT, a SAT appointment, a review send.
+//     So an in-person inspection = 2 (the knock's arrival + the sign), while a remote
+//     e-sign = 1 (no knock, no arrival). A pin statused from afar with no arrival
+//     (boxed remotely) earns nothing.
 //   • Daily doubling, per rep: the first two points each day are single; the 3rd and
 //     every one after are worth 2. Resets each day.
 //   • Team score = total points ÷ the team's ACTIVE-REP ROSTER (from TMS rep-zones),
@@ -97,18 +97,17 @@ export const handler = async (event) => {
       `&order=created_at.asc`
     );
 
-    // ONE point per DOOR WORKED — a distinct pin+round that shows real activity. Not
-    // both arriving and signing at the same door; the door just counts once. A door
-    // qualifies on any of:
-    //   • presence — an arrival event, or a verified-at-door reading (this is the
-    //     "worked the pin" point; includes a not-home they walked up to, and a return
-    //     visit / go-back is a fresh point since it's keyed per round);
-    //   • a signed inspection — counts even with NO arrival (a remote e-sign is still
-    //     the achievement; we never try to infer presence from a signature);
-    //   • a booked appointment.
+    // Points STACK — one per distinct thing a rep did:
+    //   • ARRIVAL ("worked the pin") — presence at a door: an arrival event or a
+    //     verified-at-door reading. Includes a not-home they walked up to; a return
+    //     visit (go-back) is a fresh point (keyed per round). This is the point that
+    //     makes an IN-PERSON inspection worth 2 — the knock that precedes it logs the
+    //     arrival. A REMOTE e-sign has no knock, so no arrival → the inspection alone.
+    //   • SIGNED INSPECTION — its own point, on top of the arrival if there was one.
+    //   • BOOKED APPOINTMENT — its own point.
+    //   • plus two PINLESS points: a sat appointment ("Appt done") and a review send.
     // A pin statused from afar with no arrival and no real outcome (boxed remotely)
-    // earns nothing. Plus two PINLESS points: a sat appointment ("Appt done") and a
-    // review send. Keyed by NORMALIZED name to line up with the roster below.
+    // earns nothing. Keyed by NORMALIZED name to line up with the roster below.
     const effortsByRepDay = new Map(); // normName → Map(dayKey → Set(effortKey))
     for (const r of rows) {
       const rep = (r.rep_name || "").trim();
@@ -122,13 +121,11 @@ export const handler = async (event) => {
         if (!set) byDay.set(day, (set = new Set()));
         set.add(key);
       };
-      // Worked-door point (one per pin+round). Presence-less statuses (boxed dead /
-      // not-home) don't qualify — no arrival, no point.
-      if (pin && (k === "arrival" || r.loc_flag === "verified" || s === "insp_sold" || s === "appt"))
-        add(`door|${pin}|${round}`);
-      // Pinless points.
-      if (k === "appt_done") add(`run|${r.created_at}`);
-      if (k === "review_request") add(`review|${pin || ""}|${r.created_at}`);
+      if (pin && (k === "arrival" || r.loc_flag === "verified")) add(`arrive|${pin}|${round}`); // worked the door
+      if (s === "insp_sold") add(`insp|${pin || r.created_at}`);   // signed inspection (stacks)
+      if (s === "appt") add(`set|${pin || r.created_at}`);         // booked appointment (stacks)
+      if (k === "appt_done") add(`run|${r.created_at}`);           // sat an appointment (pinless)
+      if (k === "review_request") add(`review|${pin || ""}|${r.created_at}`); // review send (pinless)
     }
     // Rep points = sum over days of scoreDay(distinct efforts that day).
     const pointsByNorm = new Map();
