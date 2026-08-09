@@ -40,6 +40,8 @@ const CONTEST = {
   weeks: [
     { label: "Week 1", start: "2026-08-12", end: "2026-08-13" }, // Wed–Thu
     { label: "Week 2", start: "2026-08-19", end: "2026-08-20" }, // Wed–Thu
+    { label: "Week 3", start: "2026-08-26", end: "2026-08-27" }, // Wed–Thu
+    { label: "Week 4", start: "2026-09-02", end: "2026-09-03" }, // Wed–Thu
   ],
   // Daily doubling: the first `freeCount` efforts each day are worth `freePts`,
   // every one after is worth `thenPts`.
