@@ -59,24 +59,28 @@ const ZONE_ORDER = ["Zone 1", "Zone 2", "Zone 3", "Zone 4"];
 // re-fire, etc.) so one action = one effort. See the per-attribute notes.
 function effortOf(row) {
   const s = row.to_status, k = row.kind;
-  // `door: true` efforts require the rep to have actually ARRIVED at the pin — a
-  // status logged away from the door doesn't score (see the loc_flag gate in the
-  // loop). Pinless efforts (a sat appointment, a review text) aren't door work.
+  // `gate: true` efforts are BARE door statuses that could be faked by boxing pins
+  // and statusing without walking up, so they only score if the rep actually arrived
+  // (see the loc_flag gate in the loop). Efforts with their OWN proof are exempt: a
+  // signed inspection (the signature proves presence), a booked appointment, a sat
+  // appointment, a review send. Arriving is never a point by itself.
   //
   // Google review: the SEND counts (anti-gaming — own-number block + one-credit-
   // per-phone — is enforced at send time, so here we just count the logged sends).
-  if (k === "review_request") return { type: "review", key: `review|${row.pin_id || ""}|${row.created_at}`, door: false };
+  if (k === "review_request") return { type: "review", key: `review|${row.pin_id || ""}|${row.created_at}`, gate: false };
   // Appointment RUN: the rep tapped "Appt done" after sitting one.
-  if (k === "appt_done") return { type: "appt_run", key: `run|${row.created_at}`, door: false };
+  if (k === "appt_done") return { type: "appt_run", key: `run|${row.created_at}`, gate: false };
   // Appointment SET: a booking (logs both a status + a visit row — dedupe per door).
-  if (s === "appt") return { type: "appt_set", key: `set|${row.pin_id || row.created_at}`, door: true };
-  // Free roof inspection signed on the map.
-  if (s === "insp_sold") return { type: "inspection", key: `insp|${row.pin_id || row.created_at}`, door: true };
+  if (s === "appt") return { type: "appt_set", key: `set|${row.pin_id || row.created_at}`, gate: false };
+  // Free roof inspection signed on the map — the SIGNATURE is proof of presence, so
+  // it always counts even with no GPS/pin. Never gated.
+  if (s === "insp_sold") return { type: "inspection", key: `insp|${row.pin_id || row.created_at}`, gate: false };
   // Go-back: BOTH a worked go-back pin OR any return knock — proxied as a round≥2
-  // visit/status with a real contact outcome (not just "not home"). ⚠️ may overlap
-  // with a same-door conversion above (allowed — rewards the harder work).
+  // visit/status with a real contact outcome (not just "not home"). This is a bare
+  // status, so it's GATED on arrival. ⚠️ may overlap with a same-door conversion
+  // above (allowed — rewards the harder work).
   if (Number(row.round) >= 2 && (k === "visit" || k === "status") && s && s !== "not_home")
-    return { type: "goback", key: `gb|${row.pin_id || row.created_at}|${row.round}`, door: true };
+    return { type: "goback", key: `gb|${row.pin_id || row.created_at}|${row.round}`, gate: true };
   return null;
 }
 
@@ -128,13 +132,11 @@ export const handler = async (event) => {
       if (!rep) continue; // orphaned/nameless rows can't be attributed
       const e = effortOf(r);
       if (!e) continue;
-      // A DOOR point requires arriving at the pin. Reject a status logged confidently
-      // AWAY from the door ("far") or with no GPS fix ("gps_off") — the "box a cluster
-      // and status it without walking up" gaming. Pinless efforts (sat appt, review)
-      // aren't door work and skip this gate. (Note: signed-inspection + some booking
-      // flows currently log NO location — those still count until we stamp arrival on
-      // them; see the map-side follow-up.)
-      if (e.door && (r.loc_flag === "far" || r.loc_flag === "gps_off")) { skippedNoArrival++; continue; }
+      // Gated efforts (bare door statuses = go-backs) require arriving at the pin:
+      // reject a status logged confidently AWAY ("far") or with no GPS fix ("gps_off")
+      // — the "box a cluster and status it without walking up" gaming. Efforts with
+      // their own proof (signed inspection, booked/sat appt, review send) are exempt.
+      if (e.gate && (r.loc_flag === "far" || r.loc_flag === "gps_off")) { skippedNoArrival++; continue; }
       const nk = normalizeName(rep), day = etDayKey(r.created_at);
       let byDay = effortsByRepDay.get(nk);
       if (!byDay) effortsByRepDay.set(nk, (byDay = new Map()));
