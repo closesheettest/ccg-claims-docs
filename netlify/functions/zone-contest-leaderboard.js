@@ -8,8 +8,11 @@
 //     roof inspection signed, go-back worked, Google-review request sent.
 //   • Daily doubling, per rep: the first two efforts each day are worth 1 pt; the
 //     3rd and every one after are worth 2. Resets each day.
-//   • Team score = total points ÷ reps ACTIVE that week (active = any map activity
-//     on a contest day — a barely-active rep still divides, so dead weight hurts).
+//   • Team score = total points ÷ the team's ACTIVE-REP ROSTER (from TMS rep-zones),
+//     NOT activity — every active sales rep divides the team total whether or not they
+//     logged anything that week, so a rep who does nothing still drags the average to
+//     0. That's what pressures managers to cut dead weight. POINTS are still earned
+//     only on the contest days (Wed + Thu).
 //   • Runs only on the contest DAYS (Wed + Thu). Each contest WEEK is scored on its
 //     own and the board RESETS — it shows the active week only (latest week started).
 //
@@ -102,66 +105,60 @@ export const handler = async (event) => {
     let active = null;
     for (const w of weeksWithBounds) if (w.startUTC <= now && (!active || w.startUTC > active.startUTC)) active = w;
     if (!active) active = weeksWithBounds[0]; // before the contest starts — no data yet, so the board stays empty
-    const start = active.startUTC, end = active.endUTC;
+    const contestStart = active.startUTC, contestEnd = active.endUTC; // Wed–Thu: where POINTS come from
 
-    // Pull every activity row in the contest-week window (paged — a single request
-    // is capped at 1000, which would drop reps). We need ALL rows: efforts to score
-    // AND every rep who was active (the divisor), including 0-point reps.
+    // Pull activity for the CONTEST DAYS only (paged — a single request caps at 1000).
+    // Points come only from these days; the divisor is the active-rep ROSTER below.
     const rows = await sbGetAll(
       `canvass_activity?select=rep_name,kind,to_status,from_status,pin_id,round,created_at` +
-      `&created_at=gte.${encodeURIComponent(start.toISOString())}&created_at=lte.${encodeURIComponent(end.toISOString())}` +
+      `&created_at=gte.${encodeURIComponent(contestStart.toISOString())}&created_at=lte.${encodeURIComponent(contestEnd.toISOString())}` +
       `&order=created_at.asc`
     );
 
-    // rep → day → Set(effortKeys); rep → Set(active days). Active = any row at all.
-    const effortsByRepDay = new Map(); // rep → Map(dayKey → Set(effortKey))
-    const activeReps = new Set();
+    // Per rep, per day: distinct qualifying efforts. Keyed by NORMALIZED name so it
+    // lines up with the roster below (activity's rep_name vs the roster's name).
+    const effortsByRepDay = new Map(); // normName → Map(dayKey → Set(effortKey))
     for (const r of rows) {
       const rep = (r.rep_name || "").trim();
       if (!rep) continue; // orphaned/nameless rows can't be attributed
-      activeReps.add(rep);
       const e = effortOf(r);
       if (!e) continue;
-      const day = etDayKey(r.created_at);
-      let byDay = effortsByRepDay.get(rep);
-      if (!byDay) effortsByRepDay.set(rep, (byDay = new Map()));
+      const nk = normalizeName(rep), day = etDayKey(r.created_at);
+      let byDay = effortsByRepDay.get(nk);
+      if (!byDay) effortsByRepDay.set(nk, (byDay = new Map()));
       let set = byDay.get(day);
       if (!set) byDay.set(day, (set = new Set()));
       set.add(e.key);
     }
-
     // Rep points = sum over days of scoreDay(distinct efforts that day).
-    const pointsByRep = new Map();
-    for (const [rep, byDay] of effortsByRepDay) {
+    const pointsByNorm = new Map();
+    for (const [nk, byDay] of effortsByRepDay) {
       let pts = 0;
       for (const set of byDay.values()) pts += scoreDay(set.size);
-      pointsByRep.set(rep, pts);
+      pointsByNorm.set(nk, pts);
     }
 
-    // Zone resolver (reps + managers both count — whoever resolves to a zone).
-    const { zoneOf } = await fetchZoneResolver();
-
-    // Aggregate into zones: every ACTIVE rep divides (0-point reps included), so
-    // dead weight pulls the team average down.
-    const agg = {}; // zone → { points, reps:[{name,count}], activeReps }
-    let unattributed = 0;
-    for (const rep of activeReps) {
-      const zone = zoneOf(rep);
-      if (!zone) { unattributed++; continue; }
-      const z = agg[zone] || (agg[zone] = { points: 0, reps: [], activeReps: 0 });
-      const pts = pointsByRep.get(rep) || 0;
-      z.points += pts;
-      z.activeReps += 1;
-      z.reps.push({ name: rep, count: pts });
-    }
+    // The DIVISOR is the ACTIVE SALES-REP ROSTER, not activity: every active rep on a
+    // team divides that team's total whether or not they logged anything this week —
+    // so a rep who does nothing still drags the average to 0. Reps + managers both
+    // count (managers lift the average but aren't prize-eligible — a payout rule, not
+    // computed here). Points from anyone NOT on the active roster are dropped.
+    const { rosterByZone } = await fetchZoneResolver();
+    let matchedReps = 0;
 
     const zones = ZONE_ORDER
       .map((zone) => {
-        const z = agg[zone];
-        if (!z || z.activeReps === 0) return null; // team with nobody active yet — omit
-        const avg = Math.round((z.points / z.activeReps) * 10) / 10;
-        const reps = z.reps.sort((a, b) => b.count - a.count);
-        return { zone, team: ZONE_TEAMS[zone] || zone, count: avg, avg, points: z.points, activeReps: z.activeReps, reps };
+        const roster = rosterByZone[zone] || [];
+        if (!roster.length) return null; // no active reps on this team → omit
+        const reps = roster.map((m) => {
+          const pts = pointsByNorm.get(m.norm) || 0;
+          if (pts) matchedReps++;
+          return { name: m.name, count: pts };
+        }).sort((a, b) => b.count - a.count);
+        const points = reps.reduce((s, r) => s + r.count, 0);
+        const activeReps = roster.length;
+        const avg = Math.round((points / activeReps) * 10) / 10;
+        return { zone, team: ZONE_TEAMS[zone] || zone, count: avg, avg, points, activeReps, reps };
       })
       .filter(Boolean)
       .sort((a, b) => b.avg - a.avg);
@@ -169,9 +166,13 @@ export const handler = async (event) => {
 
     const payload = {
       ok: true, enabled: CONTEST.enabled, contest: CONTEST.name, week: active.label,
-      range: { start: start.toISOString(), end: end.toISOString() }, zones,
+      range: { start: contestStart.toISOString(), end: contestEnd.toISOString() }, zones,
     };
-    if (qp.debug === "1") { payload.scannedRows = rows.length; payload.activeReps = activeReps.size; payload.unattributed = unattributed; }
+    if (qp.debug === "1") {
+      const rosterTotal = ZONE_ORDER.reduce((s, z) => s + ((rosterByZone[z] || []).length), 0);
+      payload.scannedRows = rows.length; payload.rosterReps = rosterTotal;
+      payload.repsWithPoints = pointsByNorm.size; payload.pointsMatchedToRoster = matchedReps;
+    }
     return cors(200, JSON.stringify(payload));
   } catch (e) {
     return cors(500, JSON.stringify({ ok: false, error: e.message || "Unknown error" }));
@@ -192,16 +193,23 @@ async function sbGetAll(path) {
   return out;
 }
 
-// Zone resolver — TMS rep-zones keyed by normalized name (activity carries only the
-// name). Same normalization as the sibling boards. Reps + managers both resolve if
-// they're in the feed with a zone.
+// Active-rep ROSTER from TMS rep-zones — the contest divisor. Grouped by zone,
+// deduped by normalized name (which is how points are matched back). The default
+// feed is the active set; we still drop anyone explicitly flagged inactive. Reps +
+// managers both count if they carry a zone.
 async function fetchZoneResolver() {
   let reps = [];
   try { const res = await fetch(TMS_REP_ZONES_URL); if (res.ok) reps = (await res.json()).reps || []; } catch { /* best-effort */ }
-  const byName = {};
-  for (const r of reps) if (r.name) byName[normalizeName(r.name)] = r.zone;
-  const zoneOf = (name) => byName[normalizeName(name)] || null;
-  return { zoneOf };
+  const rosterByZone = {};
+  const seen = new Set();
+  for (const r of reps) {
+    if (!r.name || !r.zone || r.active === false) continue;
+    const norm = normalizeName(r.name);
+    if (seen.has(norm)) continue;
+    seen.add(norm);
+    (rosterByZone[r.zone] || (rosterByZone[r.zone] = [])).push({ name: String(r.name).trim(), norm });
+  }
+  return { rosterByZone };
 }
 function normalizeName(s) {
   return String(s || "").toLowerCase()
