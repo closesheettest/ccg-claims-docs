@@ -59,20 +59,24 @@ const ZONE_ORDER = ["Zone 1", "Zone 2", "Zone 3", "Zone 4"];
 // re-fire, etc.) so one action = one effort. See the per-attribute notes.
 function effortOf(row) {
   const s = row.to_status, k = row.kind;
+  // `door: true` efforts require the rep to have actually ARRIVED at the pin — a
+  // status logged away from the door doesn't score (see the loc_flag gate in the
+  // loop). Pinless efforts (a sat appointment, a review text) aren't door work.
+  //
   // Google review: the SEND counts (anti-gaming — own-number block + one-credit-
   // per-phone — is enforced at send time, so here we just count the logged sends).
-  if (k === "review_request") return { type: "review", key: `review|${row.pin_id || ""}|${row.created_at}` };
+  if (k === "review_request") return { type: "review", key: `review|${row.pin_id || ""}|${row.created_at}`, door: false };
   // Appointment RUN: the rep tapped "Appt done" after sitting one.
-  if (k === "appt_done") return { type: "appt_run", key: `run|${row.created_at}` };
+  if (k === "appt_done") return { type: "appt_run", key: `run|${row.created_at}`, door: false };
   // Appointment SET: a booking (logs both a status + a visit row — dedupe per door).
-  if (s === "appt") return { type: "appt_set", key: `set|${row.pin_id || row.created_at}` };
+  if (s === "appt") return { type: "appt_set", key: `set|${row.pin_id || row.created_at}`, door: true };
   // Free roof inspection signed on the map.
-  if (s === "insp_sold") return { type: "inspection", key: `insp|${row.pin_id || row.created_at}` };
+  if (s === "insp_sold") return { type: "inspection", key: `insp|${row.pin_id || row.created_at}`, door: true };
   // Go-back: BOTH a worked go-back pin OR any return knock — proxied as a round≥2
   // visit/status with a real contact outcome (not just "not home"). ⚠️ may overlap
   // with a same-door conversion above (allowed — rewards the harder work).
   if (Number(row.round) >= 2 && (k === "visit" || k === "status") && s && s !== "not_home")
-    return { type: "goback", key: `gb|${row.pin_id || row.created_at}|${row.round}` };
+    return { type: "goback", key: `gb|${row.pin_id || row.created_at}|${row.round}`, door: true };
   return null;
 }
 
@@ -110,7 +114,7 @@ export const handler = async (event) => {
     // Pull activity for the CONTEST DAYS only (paged — a single request caps at 1000).
     // Points come only from these days; the divisor is the active-rep ROSTER below.
     const rows = await sbGetAll(
-      `canvass_activity?select=rep_name,kind,to_status,from_status,pin_id,round,created_at` +
+      `canvass_activity?select=rep_name,kind,to_status,from_status,pin_id,round,loc_flag,created_at` +
       `&created_at=gte.${encodeURIComponent(contestStart.toISOString())}&created_at=lte.${encodeURIComponent(contestEnd.toISOString())}` +
       `&order=created_at.asc`
     );
@@ -118,11 +122,19 @@ export const handler = async (event) => {
     // Per rep, per day: distinct qualifying efforts. Keyed by NORMALIZED name so it
     // lines up with the roster below (activity's rep_name vs the roster's name).
     const effortsByRepDay = new Map(); // normName → Map(dayKey → Set(effortKey))
+    let skippedNoArrival = 0;
     for (const r of rows) {
       const rep = (r.rep_name || "").trim();
       if (!rep) continue; // orphaned/nameless rows can't be attributed
       const e = effortOf(r);
       if (!e) continue;
+      // A DOOR point requires arriving at the pin. Reject a status logged confidently
+      // AWAY from the door ("far") or with no GPS fix ("gps_off") — the "box a cluster
+      // and status it without walking up" gaming. Pinless efforts (sat appt, review)
+      // aren't door work and skip this gate. (Note: signed-inspection + some booking
+      // flows currently log NO location — those still count until we stamp arrival on
+      // them; see the map-side follow-up.)
+      if (e.door && (r.loc_flag === "far" || r.loc_flag === "gps_off")) { skippedNoArrival++; continue; }
       const nk = normalizeName(rep), day = etDayKey(r.created_at);
       let byDay = effortsByRepDay.get(nk);
       if (!byDay) effortsByRepDay.set(nk, (byDay = new Map()));
@@ -172,6 +184,7 @@ export const handler = async (event) => {
       const rosterTotal = ZONE_ORDER.reduce((s, z) => s + ((rosterByZone[z] || []).length), 0);
       payload.scannedRows = rows.length; payload.rosterReps = rosterTotal;
       payload.repsWithPoints = pointsByNorm.size; payload.pointsMatchedToRoster = matchedReps;
+      payload.rejectedNoArrival = skippedNoArrival;
     }
     return cors(200, JSON.stringify(payload));
   } catch (e) {
@@ -231,5 +244,6 @@ function etDayEnd(dateStr) { const [y, m, d] = dateStr.split("-").map(Number); r
 function etDayKey(iso) { const p = tzParts(new Date(iso)); return `${p.year}-${p.month}-${p.day}`; }
 
 function cors(status, body) {
-  return { statusCode: status, headers: { "Content-Type": "application/json", "Cache-Control": "public, max-age=60", "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, OPTIONS", "Access-Control-Allow-Headers": "Content-Type" }, body };
+  // Short cache — each contest week is only two days, so standings must move fast.
+  return { statusCode: status, headers: { "Content-Type": "application/json", "Cache-Control": "public, max-age=20", "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, OPTIONS", "Access-Control-Allow-Headers": "Content-Type" }, body };
 }
