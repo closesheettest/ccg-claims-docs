@@ -17219,6 +17219,7 @@ if (!hasDamage) {
                                 <div style={{ fontSize: 36, marginBottom: 10 }}>{item.emoji}</div>
                                 <div style={{ fontSize: 16, fontWeight: 700, color: "#111827", fontFamily: "'Oswald', sans-serif", marginBottom: 4 }}>{item.label}{item.href ? " ↗" : ""}</div>
                                 <div style={{ fontSize: 13, color: "#6b7280", fontFamily: "'Nunito', sans-serif", lineHeight: 1.4 }}>{item.desc}</div>
+                                {item.key === "roof_measure" && <RoofMeasureCompanyToggle />}
                               </button>
                             ))}
                           </div>
