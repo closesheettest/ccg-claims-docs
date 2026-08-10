@@ -51,9 +51,8 @@ export const handler = async (event) => {
       try { body = JSON.parse(event.body || "{}"); } catch { return cors(400, JSON.stringify({ ok: false, error: "bad JSON" })); }
 
       if (body.action === "company") {
-        // Light gate: if a shared admin token is configured, require it.
-        const adminTok = await getRaw("harvest_admin_token");
-        if (adminTok && String(body.admin || "") !== String(adminTok)) return cors(403, JSON.stringify({ ok: false, error: "admin only" }));
+        // Toggled from the PIN-gated admin dashboard (Manager Settings), so no extra
+        // token here — consistent with the other anon-key harvest endpoints.
         await setSetting(COMPANY_KEY, !!body.on);
         return cors(200, JSON.stringify({ ok: true, company_enabled: !!body.on }));
       }

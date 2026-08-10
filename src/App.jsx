@@ -4495,6 +4495,44 @@ const MANAGER_TILES = [
   { group: "settings", key: "post_job", emoji: "🚿", label: "Post Job", desc: "Pressure-washer route — installs to wash, sorted by install start + estimated completion (shingle/metal × squares), each flagged for day 2, with optimized Apple/Google Maps." },
 ];
 
+// Company master switch for the rep-facing Roof Measurement tool, shown right on
+// the Roof Measurement tile in Manager Settings. OFF by default. When ON, the
+// regional managers can then turn it on per-rep. Self-contained: loads + flips the
+// company flag via roofmeasure-settings. stopPropagation so tapping the toggle
+// doesn't also open the tool tile it sits inside.
+function RoofMeasureCompanyToggle() {
+  const [on, setOn] = useState(null); // null = loading
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    fetch("/.netlify/functions/roofmeasure-settings")
+      .then((r) => r.json()).then((d) => setOn(!!(d && d.ok && d.company_enabled))).catch(() => setOn(false));
+  }, []);
+  const toggle = async (e) => {
+    e.stopPropagation(); e.preventDefault();
+    if (busy || on === null) return;
+    setBusy(true);
+    const next = !on;
+    try {
+      const r = await fetch("/.netlify/functions/roofmeasure-settings", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "company", on: next }),
+      });
+      const d = await r.json();
+      if (d && d.ok) setOn(!!d.company_enabled);
+    } catch { /* leave as-is on failure */ }
+    setBusy(false);
+  };
+  return (
+    <div onClick={toggle} style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid #eef2f7", display: "flex", alignItems: "center", gap: 8, cursor: on === null ? "default" : "pointer" }}>
+      <span style={{ fontSize: 11.5, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.04em", color: "#6b7280" }}>Company access</span>
+      <span style={{ marginLeft: "auto", position: "relative", display: "inline-block", width: 44, height: 24, borderRadius: 999, background: on ? "#16a34a" : "#cbd5e1", transition: "background .15s", opacity: busy ? 0.55 : 1 }}>
+        <span style={{ position: "absolute", top: 2, left: on ? 22 : 2, width: 20, height: 20, borderRadius: "50%", background: "#fff", boxShadow: "0 1px 2px rgba(0,0,0,.3)", transition: "left .15s" }} />
+      </span>
+      <span style={{ fontSize: 12, fontWeight: 800, color: on ? "#16a34a" : "#94a3b8", minWidth: 26 }}>{on === null ? "…" : on ? "ON" : "OFF"}</span>
+    </div>
+  );
+}
+
 // Standalone apps (separate sites) launched from the hub. These open in a
 // new tab so the dashboard stays put.
 const ADMIN_APPS = [
@@ -8788,6 +8826,7 @@ function AdminDashboard() {
       <div style={{ fontSize: 32, marginBottom: 8 }}>{item.emoji}</div>
       <div style={{ fontSize: 15, fontWeight: 700, color: "#111827", fontFamily: "'Oswald', sans-serif", marginBottom: 4 }}>{item.label}{item.href ? " ↗" : ""}</div>
       <div style={{ fontSize: 12.5, color: "#6b7280", lineHeight: 1.4 }}>{item.desc}</div>
+      {item.key === "roof_measure" && <RoofMeasureCompanyToggle />}
     </button>
   );
 
