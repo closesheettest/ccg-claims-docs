@@ -6,7 +6,7 @@ import React, { useEffect, useState } from "react";
 
 const FONT = "'Nunito', system-ui, sans-serif";
 const OSWALD = "'Oswald', sans-serif";
-const TOKENS = ["{name}", "{link}", "{address}", "{company}"];
+const TOKENS = ["{name}", "{rep}", "{link}", "{address}", "{company}"];
 
 export default function GobackSchedule() {
   const [config, setConfig] = useState(null); // null=loading | {enabled, messages}

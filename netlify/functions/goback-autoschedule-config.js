@@ -10,7 +10,11 @@
 //
 // Stored in app_settings under goback_autoschedule_config. The cron sender + the
 // homeowner booking page read this same config. Merge tokens usable in a body:
-//   {name}  {link}  {address}  {company}
+//   {name}  {rep}  {link}  {address}  {company}
+//   {name} = homeowner first name, {rep} = assigned rep's first name.
+//
+// NOTE: the DEFAULT_CONFIG below is Neal's live, approved verbiage — kept here in
+// source on purpose so a rebuild or a wiped app_settings row never loses it.
 //
 // Env: VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY.
 
@@ -22,7 +26,7 @@ const KEY = "goback_autoschedule_config";
 const DEFAULT_CONFIG = {
   enabled: false,
   messages: [
-    { delay_days: 0, send_time: "17:00", body: "Thanks for having U.S. Shingle out today, {name}! We'd love to come back and walk you through what we found on your roof — grab a time that works for you 👉 {link}" },
+    { delay_days: 0, send_time: "17:00", body: "Hello {name} this is {rep} with U S Shingle and Metal and we just finished your roof inspection. I have your detailed report with photos and want to deliver it and go over it with you so please just grab a time that works for you 👉 {link}" },
     { delay_days: 2, send_time: "10:00", body: "Hi {name}, still happy to come walk you through your roof findings whenever it's convenient. Pick a time here 👉 {link}" },
     { delay_days: 4, send_time: "14:00", body: "Just checking back — we can swing by to go over your roof at a time that works for you. Book here 👉 {link}" },
   ],
