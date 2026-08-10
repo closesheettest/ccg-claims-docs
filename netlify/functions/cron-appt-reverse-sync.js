@@ -111,6 +111,9 @@ export const handler = async () => {
       const t = Date.parse(p.status_updated_at || "");
       return Number.isFinite(t) && (Date.now() - t) < REP_PROTECT_MS;
     };
+    // A rep-set status at ANY age (not just the 7-day fresh window). Used to keep a
+    // stale "No Sit" address guess from resurrecting a door the rep already worked.
+    const repSet = (p) => { const by = String(p.status_by || ""); return !!by && !/^JN\b/i.test(by); };
 
     const patches = [];
     for (const [sk, arr] of streetIdx) {
@@ -126,6 +129,11 @@ export const handler = async () => {
         if (!best) continue;
         if (p.status === best) continue;
         if ((PIN_RANK[p.status] || 0) >= bestRank) continue;                 // never downgrade a heavier pin
+        // A stale "No Sit" address guess must NEVER resurrect a door a rep already
+        // worked (e.g. killed as dead). The map-dead never pushed to JobNimbus —
+        // the pin has no jn_job_id — so JN reads "No Sit" forever; without this the
+        // door flips back to the reschedule list every week (Sam's dead no-sits).
+        if (best === "no_sit_reschedule" && repSet(p)) continue;
         const apptBeatsNi = (best === "appt" || best === "insp_sold") && NI.has(p.status);
         if (repProtected(p) && !apptBeatsNi) continue;                       // rep call sticks, unless a booked appt beats their NI
         patches.push(fetch(`${SB_URL}/rest/v1/canvass_prospects?id=eq.${p.id}`, {
