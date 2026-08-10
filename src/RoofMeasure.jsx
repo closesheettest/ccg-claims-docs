@@ -48,6 +48,19 @@ export default function RoofMeasure() {
     }
   }
 
+  // Deep-link from an appointment on the rep map: ?address=…&job=…&rep=… auto-loads
+  // the read and remembers the job/rep so Save can attach it to the deal (Slice 2b).
+  const prefill = useRef(null);
+  useEffect(() => {
+    try {
+      const p = new URLSearchParams(window.location.search);
+      const a = (p.get("address") || "").trim();
+      prefill.current = { job: p.get("job") || null, rep: p.get("rep") || null, address: a || null };
+      if (a) { setAddress(a); measure(a); }
+    } catch { /* ignore */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const latest = rows[0];
 
   return (

@@ -945,6 +945,7 @@ export default function CanvassMap() {
   });
   const [pinTypes, setPinTypes] = useState(FALLBACK_TYPES);
   const [me, setMe] = useState(null);          // { name, level } once signed in
+  const [roofMeasureOn, setRoofMeasureOn] = useState(false); // "Measure Roof" on appts — only when company + this rep are both switched on
   const [authError, setAuthError] = useState("");
   const [apptPin, setApptPin] = useState(null); // pin being scheduled → appointment
   const replanAfterBookRef = useRef(null);      // appt anchor to re-plan after a "Rescheduled" re-book
@@ -1875,6 +1876,20 @@ export default function CanvassMap() {
     return () => window.removeEventListener("pagehide", onLeave);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [auth.rt, me, demoMode, spotCheck]);
+
+  // Roof-measure gate: the rep gets the "📐 Measure Roof" button on appointments
+  // only when the COMPANY switch (admin) AND this rep's switch (their manager) are
+  // both on. roofmeasure-settings resolves both in one call, keyed by JN id.
+  useEffect(() => {
+    const jn = me?.jn_id;
+    if (!jn) { setRoofMeasureOn(false); return; }
+    let live = true;
+    fetch(`/.netlify/functions/roofmeasure-settings?rep=${encodeURIComponent(jn)}`)
+      .then((r) => r.json())
+      .then((d) => { if (live) setRoofMeasureOn(!!(d && d.ok && d.enabled)); })
+      .catch(() => { if (live) setRoofMeasureOn(false); });
+    return () => { live = false; };
+  }, [me?.jn_id]);
 
   // ── Start my day ───────────────────────────────────────────────────────
   // Order the on-screen prospect pins nearest-first from a start point (the
@@ -4221,6 +4236,16 @@ export default function CanvassMap() {
                     style={{ display: "block", textAlign: "center", width: "100%", boxSizing: "border-box", marginTop: 12, background: "#1d4ed8", color: "#fff", borderRadius: 12, padding: "12px", fontSize: 14.5, fontWeight: 800, textDecoration: "none" }}>
                     🧭 Directions to the appointment
                   </a>
+                  {/* 📐 Measure the roof — gated on the company + per-rep switches. Opens the
+                      satellite measure tool pre-loaded to this address (job + rep passed so a
+                      Save can attach it to the deal). */}
+                  {roofMeasureOn && (
+                    <button type="button"
+                      onClick={() => window.open(`/?mode=roofmeasure&address=${encodeURIComponent(stop.address || stop.name || "")}&job=${encodeURIComponent(stop._appt?.jn_job_id || "")}&rep=${encodeURIComponent(me?.jn_id || "")}`, "_blank", "noopener")}
+                      style={{ width: "100%", boxSizing: "border-box", marginTop: 8, background: "#0e7c86", color: "#fff", border: "none", borderRadius: 12, padding: "12px", fontSize: 14.5, fontWeight: 800, cursor: "pointer" }}>
+                      📐 Measure this roof
+                    </button>
+                  )}
                   {/* How'd the appointment go? — same 3 outcomes for IQ / FB / AI / BTR appts. */}
                   <div style={{ fontSize: 11.5, fontWeight: 800, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.05em", marginTop: 14, marginBottom: 6 }}>How'd it go?</div>
                   <button type="button" onClick={() => apptRescheduled(stop)}
