@@ -274,7 +274,7 @@ function ResultCard({ d: d0 }) {
       {team && team.n >= 1 && (() => {
         const t = team;
         const AG = {
-          tight:  { c: "#16a34a", bg: "#f0fdf4", bd: "#bbf7d0", txt: "sources agree — trust it" },
+          tight:  { c: "#0e7490", bg: "#ecfeff", bd: "#a5f3fc", txt: "sources agree — but trees can fool both; trace it to be sure" },
           loose:  { c: "#b45309", bg: "#fffbeb", bd: "#fde68a", txt: "sources a bit apart — glance at the map" },
           flag:   { c: "#dc2626", bg: "#fef2f2", bd: "#fecaca", txt: "sources disagree — likely wrong building, confirm the pin" },
           single: { c: "#64748b", bg: "#f8fafc", bd: "#e5e7eb", txt: "one source so far — LiDAR + records add votes" },
