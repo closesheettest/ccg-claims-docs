@@ -127,7 +127,13 @@ export default function HarvestTrainingPage({ onDone } = {}) {
             ✅ I watched the whole video
           </button>
         ) : (
-          <div style={{ marginTop: 8, fontSize: 12.5, color: "#94a3b8", fontWeight: 700 }}>▶ Watch the whole video — this checks off automatically when it finishes.</div>
+          <div style={{ marginTop: 8 }}>
+            <div style={{ fontSize: 12.5, color: "#94a3b8", fontWeight: 700, marginBottom: 8 }}>▶ It checks off on its own when the video finishes. If it doesn't, tap below.</div>
+            <button type="button" onClick={markWhyDone}
+              style={{ fontSize: 13, fontWeight: 800, color: "#fff", background: "#2563eb", border: "none", borderRadius: 10, padding: "9px 14px", cursor: "pointer" }}>
+              ✅ I watched it — unlock the test
+            </button>
+          </div>
         )
       )}
 
@@ -174,13 +180,21 @@ function ytId(u) { const m = String(u).match(/(?:youtube\.com\/watch\?v=|youtu\.
 function vimeoId(u) { const m = String(u).match(/vimeo\.com\/(?:video\/)?(\d+)/); return m ? m[1] : null; }
 function VideoEmbed({ url, onEnded }) {
   const vref = useRef(null);
+  const firedRef = useRef(false);
   const yt = ytId(url), vim = vimeoId(url);
   const src = yt ? `https://www.youtube.com/embed/${yt}?rel=0` : vim ? `https://player.vimeo.com/video/${vim}` : null;
+  // Self-hosted mp4: onEnded is unreliable on mobile (and a stalled stream never
+  // reaches the very end), so ALSO credit completion once the rep has watched ≥90%.
+  const onTime = () => {
+    const v = vref.current;
+    if (!v || firedRef.current || !v.duration) return;
+    if (v.currentTime / v.duration >= 0.9) { firedRef.current = true; onEnded && onEnded(); }
+  };
   return (
     <div style={{ width: "100%", background: "#000", borderRadius: 14, overflow: "hidden", position: "relative", aspectRatio: "16 / 9" }}>
       {src
         ? <iframe src={src} title="Why DoorDispatcher" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowFullScreen style={{ position: "absolute", inset: 0, width: "100%", height: "100%", border: "none" }} />
-        : <video ref={vref} src={url} controls playsInline onEnded={onEnded} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "contain", background: "#000" }} />}
+        : <video ref={vref} src={url} controls playsInline onEnded={onEnded} onTimeUpdate={onTime} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "contain", background: "#000" }} />}
     </div>
   );
 }
