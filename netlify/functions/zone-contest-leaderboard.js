@@ -105,10 +105,10 @@ export const handler = async (event) => {
     if (!active) active = weeksWithBounds[0];
     let contestStart = active.startUTC, contestEnd = active.endUTC, weekLabel = active.label;
 
-    // Preview a real window before the contest starts: score the trailing 7 days so
-    // there's something to look at. (Only in preview; the live board stays empty until
-    // Week 1's Wednesday.)
-    if (preview && contestStart > now) {
+    // Owner preview while the contest is still OFF: score the trailing 7 days so
+    // there's real activity to look at. (Once it's live/enabled, preview shows the
+    // actual contest window instead.)
+    if (preview && !enabled) {
       contestEnd = now;
       contestStart = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
       weekLabel = "Preview · last 7 days";
