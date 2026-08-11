@@ -33,6 +33,20 @@ export default function VisitActions({ type, deal, rep, api }) {
 // "View certificate" — every go-back (damage / no-damage / retail) gets this so the
 // rep can show the homeowner the inspection report WITH PHOTOS on the spot. Builds
 // the report PDF (cache-first, so it's near-instant once rendered) and opens it.
+// Pages painted into the report tab so it's never a blank white screen: a loading
+// state while the PDF builds, then a hand-off that auto-opens the PDF AND shows a
+// tappable link (for in-app browsers that block the silent redirect).
+const PAGE_HEAD = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Inspection Report</title><style>body{margin:0;font-family:-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;background:#0f172a;color:#e2e8f0;display:flex;min-height:100vh;align-items:center;justify-content:center;text-align:center;padding:24px}.box{max-width:340px}.spin{width:40px;height:40px;border:4px solid #334155;border-top-color:#22d3ee;border-radius:50%;margin:0 auto 18px;animation:s 1s linear infinite}@keyframes s{to{transform:rotate(360deg)}}h1{font-size:19px;margin:0 0 8px}p{color:#94a3b8;font-size:14px;line-height:1.5;margin:0 0 18px}a.btn{display:inline-block;background:#22d3ee;color:#083344;font-weight:800;text-decoration:none;padding:14px 22px;border-radius:12px;font-size:16px}</style></head><body><div class="box">`;
+const PAGE_FOOT = `</div></body></html>`;
+const LOADING_HTML = `${PAGE_HEAD}<div class="spin"></div><h1>Building your inspection report…</h1><p>Pulling the photos together — this takes a few seconds. Please keep this tab open.</p>${PAGE_FOOT}`;
+function readyHtml(url) {
+  const safe = String(url).replace(/"/g, "&quot;");
+  return `${PAGE_HEAD}<h1>Your report is ready</h1><p>Opening it now… if it doesn't open on its own, tap below.</p><a class="btn" href="${safe}">📄 Open the report</a><script>setTimeout(function(){try{location.replace(${JSON.stringify(url)})}catch(e){location.href=${JSON.stringify(url)}}},300)<\/script>${PAGE_FOOT}`;
+}
+function errorHtml(msg) {
+  const safe = String(msg || "Couldn't build the report").replace(/[<>&]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;" }[c]));
+  return `${PAGE_HEAD}<h1>Couldn't open the report</h1><p>${safe}</p><p style="font-size:13px">Close this tab and try again, or tell the office.</p>${PAGE_FOOT}`;
+}
 function ViewCertButton({ deal }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
@@ -41,8 +55,12 @@ function ViewCertButton({ deal }) {
     const jnid = deal?.jn_job_id;
     if (!jnid) { setErr("No JobNimbus job on this deal yet — can't build the report."); return; }
     setBusy(true); setErr("");
-    // Open the tab synchronously (before the await) so mobile Safari doesn't block it.
+    // Open the tab synchronously (before the await) so mobile Safari doesn't block it,
+    // and paint a loading page immediately — building the PDF takes a few seconds, and
+    // a blank tab reads as "broken / white screen" (and some in-app browsers silently
+    // drop a delayed w.location redirect, leaving it white forever).
     const w = window.open("", "_blank");
+    if (w) { try { w.document.write(LOADING_HTML); w.document.close(); } catch { /* ignore */ } }
     try {
       const r = await fetch("/.netlify/functions/generate-and-upload-insp-report", {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -50,8 +68,19 @@ function ViewCertButton({ deal }) {
       });
       const o = await r.json().catch(() => ({}));
       if (!o.ok || !o.pdf_signed_url) throw new Error(o.error || "Couldn't build the report");
-      if (w) w.location = o.pdf_signed_url; else window.open(o.pdf_signed_url, "_blank");
-    } catch (e) { if (w) { try { w.close(); } catch { /* ignore */ } } setErr(e.message || "Couldn't load the certificate"); }
+      const url = o.pdf_signed_url;
+      if (w) {
+        // Hand off with BOTH an auto-redirect and a big tappable link — so it opens even
+        // on in-app browsers that block the silent redirect.
+        try { w.document.open(); w.document.write(readyHtml(url)); w.document.close(); }
+        catch { try { w.location = url; } catch { window.open(url, "_blank"); } }
+      } else {
+        window.open(url, "_blank");
+      }
+    } catch (e) {
+      if (w) { try { w.document.open(); w.document.write(errorHtml(e.message)); w.document.close(); } catch { try { w.close(); } catch { /* ignore */ } } }
+      setErr(e.message || "Couldn't load the certificate");
+    }
     setBusy(false);
   };
   return (
