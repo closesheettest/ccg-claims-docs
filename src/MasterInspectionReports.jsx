@@ -44,7 +44,7 @@ function Grouped({ groups, renderRow, keyFn }) {
 
 const OUT_COLOR = { signed: "#16a34a", refused: "#b91c1c", pending: "#d97706" };
 const OUT_LABEL = { signed: "✅ Signed", refused: "❌ Refused", pending: "⏳ No outcome" };
-const RETAIL_COLOR = { ni: "#64748b", btr_appt: "#2563eb", sold: "#16a34a", credit_denial: "#0891b2", no_sale: "#b45309", pending: "#94a3b8" };
+const RETAIL_COLOR = { ni: "#64748b", btr_appt: "#2563eb", retail_appt: "#7c3aed", sold: "#16a34a", credit_denial: "#0891b2", no_sale: "#b45309", pending: "#94a3b8" };
 // Inspection-result display labels (per bossman): Damage → BTPA, Retail → BTR, No Damage → ND.
 const GOBACK_LABEL = { damage: "BTPA", retail: "BTR", no_damage: "ND" };
 const GOBACK_COLOR = { damage: "#b91c1c", retail: "#0891b2", no_damage: "#64748b" };

@@ -25,7 +25,7 @@ export function retailStage(status, outcome) {
       if (outcome === "credit_denial") return "credit_denial";
       if (outcome === "no_sale") return "no_sale";
       if (outcome === "ni") return "declined";
-      if (outcome === "btr_appt") return "appt_scheduled";
+      if (outcome === "btr_appt" || outcome === "retail_appt") return "appt_scheduled";
       return "not_worked";                                              // signed inspection, retail go-back not started
     }
     if (/sit sold|signed contract|production review|job prep|funding|pace|upcoming install|install set|roof started|new roof|paid|commission|collection|sitsold pa/.test(s)) return "sold";
@@ -41,6 +41,6 @@ export function retailStage(status, outcome) {
   if (outcome === "credit_denial") return "credit_denial";
   if (outcome === "no_sale") return "no_sale";
   if (outcome === "ni") return "declined";
-  if (outcome === "btr_appt") return "appt_scheduled";
+  if (outcome === "btr_appt" || outcome === "retail_appt") return "appt_scheduled";
   return "not_worked";
 }

@@ -59,6 +59,10 @@ export const handler = async (event) => {
   // A rep-generated door (dropped on the DoorDispatcher) reports to JN as
   // "Self Generated" instead of the default "Harvesting" source.
   const selfGen = !!(pin.extra && typeof pin.extra === "object" && pin.extra.self_generated === true);
+  // A referral or self-generated lead is BORN retail — it never had an inspection, so
+  // it goes in as a plain RETAIL appointment, NOT Back-to-Retail. A true BTR is an
+  // inspection pin (not self-gen) whose homeowner declined the free inspection.
+  const bornRetail = selfGen;
   const jnSource = selfGen ? "Self Generated" : "Harvesting";
   const payLeadSource = selfGen ? "Self Generated" : "Harvest BTR Appt";
 
@@ -140,13 +144,18 @@ export const handler = async (event) => {
     // 3. Initial Appointment task on the runner's calendar.
     await jnPost("tasks", {
       record_type: APPT_TASK_RT, record_type_name: "Initial Appointment", type: "task",
-      title: `Retail Appointment (BTR) — ${nm}`, date_start: apptSec, date_end: 0,
+      title: `Retail Appointment${bornRetail ? "" : " (BTR)"} — ${nm}`, date_start: apptSec, date_end: 0,
       related: [{ id: jobId, type: "job" }], ...(ownerJn ? { owners: [{ id: ownerJn }] } : {}),
     });
 
+    const whenStr = new Date(apptMs).toLocaleString("en-US", { timeZone: "America/New_York" });
+    const contactStr = `${phone ? ` · ${phone}` : ""}${email ? ` · ${email}` : ""}`;
+    const noteText = bornRetail
+      ? `🏷️ Retail appointment booked by ${rep.name || "rep"} for ${whenStr} — ${pin.extra?.referral ? "referral" : "self-generated"} retail lead. Runs with ${assigned}.${contactStr}`
+      : `🏠 Back-to-Retail appointment booked by ${rep.name || "rep"} for ${whenStr} — homeowner declined the inspection, wants retail. Runs with ${assigned}.${contactStr}`;
     await jnPost("activities", {
       record_type_name: "Note",
-      note: `🏠 Back-to-Retail appointment booked by ${rep.name || "rep"} for ${new Date(apptMs).toLocaleString("en-US", { timeZone: "America/New_York" })} — homeowner declined the inspection, wants retail. Runs with ${assigned}.${phone ? ` · ${phone}` : ""}${email ? ` · ${email}` : ""}`,
+      note: noteText,
       primary: { id: jobId, type: "job" }, related: [{ id: jobId, type: "job" }], is_status_change: false,
     }).catch(() => {});
 
@@ -164,14 +173,14 @@ export const handler = async (event) => {
       original_sales_rep_id: rep.jobnimbus_id || null, original_sales_rep_name: rep.name || null,
       signed_at: nowIso, date: nowIso, docs_signed: false,
       result: "retail", result_at: nowIso,
-      retail_outcome: "btr_appt", retail_outcome_at: nowIso, retail_outcome_by: rep.name || null,
+      retail_outcome: bornRetail ? "retail_appt" : "btr_appt", retail_outcome_at: nowIso, retail_outcome_by: rep.name || null,
       jn_job_id: jobId, jn_status: APPT_STATUS_NAME, jn_pushed_at: nowIso,
       lead_source: payLeadSource,
     }).catch((e) => { console.warn("BTR pay-credit insert failed:", e.message); });
 
     // 5. Flip the pin to Appt.
     const log = Array.isArray(pin.status_log) ? [...pin.status_log] : [];
-    log.push({ at: nowIso, from: pin.status, to: "appt", by: rep.name || "rep", appt_at: apptIso, jn_job_id: jobId, btr: true, runs_with: assigned });
+    log.push({ at: nowIso, from: pin.status, to: "appt", by: rep.name || "rep", appt_at: apptIso, jn_job_id: jobId, btr: !bornRetail, retail_appt: bornRetail || undefined, runs_with: assigned });
     await fetch(`${SB_URL}/rest/v1/canvass_prospects?id=eq.${encodeURIComponent(pinId)}`, {
       method: "PATCH", headers: { ...sb, Prefer: "return=minimal" },
       body: JSON.stringify({ status: "appt", status_updated_at: nowIso, status_by: rep.name || null, jn_job_id: jobId, status_log: log }),
