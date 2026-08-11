@@ -31,6 +31,7 @@ import InspectionMap from "./InspectionMap";
 import InspectorLinks from "./InspectorLinks";
 import RoofMeasure from "./RoofMeasure";
 import GobackSchedule from "./GobackSchedule";
+import ContestAdmin from "./ContestAdmin";
 import RoofTakeoff from "./RoofTakeoff";
 import InspectionVisitReport from "./InspectionVisitReport";
 import HarvestHowTo from "./HarvestHowTo";
@@ -4438,6 +4439,7 @@ const MANAGER_TILES = [
   { group: "signing", key: "thankyou", emoji: "🎉", label: "Thank You Pages", desc: "Customize what's sent to homeowners and when (SMS / email)." },
   { group: "signing", key: "sms", emoji: "💬", label: "SMS Templates", desc: "All communication to reps and homeowners — customize it here." },
   { group: "signing", key: "goback_schedule", emoji: "🗓️", label: "After-Inspection Self-Scheduling", desc: "The text sequence that invites the homeowner to book their come-back review after an inspection — turn it on/off, set each message's wait & send time, and write every text body.", href: "/?mode=gobackschedule" },
+  { group: "settings", key: "contest", emoji: "🏁", label: "Contest Leaderboard", desc: "Turn the Positive-Effort Contest board on or off (keep it off for Week 1 if you want) and preview the current team standings.", href: "/?mode=contest" },
   { group: "signing", key: "report", emoji: "📊", label: "Weekly Report", desc: "View signings by rep and date range" },
   { group: "signing", key: "analytics", emoji: "📈", label: "Submission Analytics", desc: "Totals, category % and avg days per rep" },
   { group: "signing", key: "dupes", emoji: "👯", label: "Find Duplicates", desc: (<><span style={{ color: "#dc2626", fontWeight: 800 }}>⚠️ DO NOT USE</span> unless you've been trained on it. Address-based deduper — deletes records.</>) },
@@ -9660,6 +9662,10 @@ export default function App() {
     // ?mode=gobackschedule — admin CMS for the after-inspection self-scheduling texts.
     if (portalMode === "gobackschedule") {
       return <GobackSchedule />;
+    }
+    // ?mode=contest — admin on/off for the Positive-Effort Contest leaderboard + live standings.
+    if (portalMode === "contest") {
+      return <ContestAdmin />;
     }
     // ?mode=rooftakeoff — production takeoff: sub-area rectangles → linear takeoff.
     if (portalMode === "rooftakeoff") {
