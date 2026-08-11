@@ -124,7 +124,9 @@ export const handler = async (event) => {
           for (const a of ["booked", "went", "signed", "goback", "review"]) totals[a] += counts[a];
           const attrCount = counts.booked + counts.went + counts.signed + counts.goback + counts.review;
           const sold = salesDays.get(day) || 0;
-          const dayPoints = scoreDay(attrCount) + sold * SALE_POINTS;
+          // Ramp runs PER attribute type (1st & 2nd of a type = 1 pt, 3rd+ = 2 pts).
+          const dayPoints = scoreDay(counts.booked) + scoreDay(counts.went) + scoreDay(counts.signed)
+            + scoreDay(counts.goback) + scoreDay(counts.review) + sold * SALE_POINTS;
           points += dayPoints; sales += sold;
           dayList.push({ day, counts, sold, attrCount, dayPoints });
         }

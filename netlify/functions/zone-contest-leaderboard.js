@@ -11,8 +11,9 @@
 //       - do a go-back                   (kind "goback")
 //       - send a Google review           (kind "review_request")
 //     NOTHING for knocking a door / arriving at a pin.
-//   • DAILY RAMP, per rep: the first 2 attributes each day are worth 1 pt each; the
-//     3rd and every one after are worth 2 pts each. Resets each day.
+//   • DAILY RAMP, per rep, PER ATTRIBUTE TYPE: for each type, the first 2 that day
+//     are worth 1 pt each; the 3rd and every one after (of that same type) are worth
+//     2 pts each. Each type ramps on its own. Resets each day.
 //   • A ROOF SOLD in JobNimbus = a flat 6 pts, added ON TOP (not part of the ramp).
 //     Membership = the job's "Sold Date" (cf_date_5) falls in the contest window and
 //     its status is a live sold stage; attributed to the rep by name.
@@ -121,31 +122,34 @@ export const handler = async (event) => {
       `&order=created_at.asc`
     );
 
-    // One point-earning ATTRIBUTE per distinct thing a rep did, deduped per rep/day:
-    const attrByRepDay = new Map(); // normName → Map(dayKey → Set(attrKey))
+    // Distinct attributes per rep/day, kept PER TYPE — the ramp runs separately for
+    // each attribute type (1st & 2nd of a type = 1 pt, 3rd+ of that type = 2 pts).
+    const attrByRepDay = new Map(); // normName → Map(dayKey → {booked:Set, went:Set, signed:Set, goback:Set, review:Set})
     for (const r of rows) {
       const rep = (r.rep_name || "").trim();
       if (!rep) continue;
       const nk = normalizeName(rep), day = etDayKey(r.created_at);
       const s = r.to_status, k = r.kind, pin = r.pin_id;
-      const add = (key) => {
-        let byDay = attrByRepDay.get(nk);
-        if (!byDay) attrByRepDay.set(nk, (byDay = new Map()));
-        let set = byDay.get(day);
-        if (!set) byDay.set(day, (set = new Set()));
-        set.add(key);
-      };
-      if (s === "appt") add(`appt|${pin || r.created_at}`);          // booked an appointment
-      if (k === "appt_done") add(`ran|${r.created_at}`);             // went to an appointment
-      if (s === "insp_sold") add(`insp|${pin || r.created_at}`);     // free roof inspection signed
-      if (k === "goback") add(`goback|${r.note || r.created_at}`);   // did a go-back (note=inspection_id)
-      if (k === "review_request") add(`review|${r.note || r.created_at}`); // sent a Google review
+      let type = null, key = null;
+      if (s === "appt") { type = "booked"; key = `${pin || r.created_at}`; }            // booked an appointment
+      else if (k === "appt_done") { type = "went"; key = r.created_at; }                // went to an appointment
+      else if (s === "insp_sold") { type = "signed"; key = `${pin || r.created_at}`; }  // free roof inspection signed
+      else if (k === "goback") { type = "goback"; key = r.note || r.created_at; }        // did a go-back
+      else if (k === "review_request") { type = "review"; key = r.note || r.created_at; } // sent a Google review
+      if (!type) continue;
+      let byDay = attrByRepDay.get(nk);
+      if (!byDay) attrByRepDay.set(nk, (byDay = new Map()));
+      let dd = byDay.get(day);
+      if (!dd) byDay.set(day, (dd = { booked: new Set(), went: new Set(), signed: new Set(), goback: new Set(), review: new Set() }));
+      dd[type].add(key);
     }
-    // Ramp points = sum over days of scoreDay(distinct attributes that day).
+    // Ramp points = sum over days of the per-TYPE ramp (each type ramps on its own).
     const rampByNorm = new Map();
     for (const [nk, byDay] of attrByRepDay) {
       let pts = 0;
-      for (const set of byDay.values()) pts += scoreDay(set.size);
+      for (const dd of byDay.values()) {
+        pts += scoreDay(dd.booked.size) + scoreDay(dd.went.size) + scoreDay(dd.signed.size) + scoreDay(dd.goback.size) + scoreDay(dd.review.size);
+      }
       rampByNorm.set(nk, pts);
     }
 
