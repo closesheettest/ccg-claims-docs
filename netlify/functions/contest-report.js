@@ -1,0 +1,193 @@
+// Contest AUDIT report — the checks-and-balance behind zone-contest-leaderboard.
+// Same scan + scoring, but instead of just team averages it exposes every rep's
+// per-DAY, per-ATTRIBUTE COUNTS (how many, not points) so you can see exactly where
+// the points come from and confirm the board is recording correctly.
+//
+//   GET /.netlify/functions/contest-report[?days=N][?week=1..4]
+//     • default          → the active contest week (Wed+Thu)
+//     • ?days=7          → trailing N days (real data before the contest starts)
+//     • ?week=2          → a specific contest week
+//   → { ok, window:{label,start,end}, attributes:[{key,label}],
+//       teams:[{ zone, team, points, avg, activeReps,
+//                reps:[{ name, points, sales, totals:{booked,went,signed,goback,review},
+//                        days:[{ day, counts:{…}, sold, attrCount, dayPoints }] }] }] }
+//
+// Env: VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY, JOBNIMBUS_API_KEY
+
+const SB_URL = process.env.VITE_SUPABASE_URL;
+const SB_KEY = process.env.VITE_SUPABASE_ANON_KEY;
+const JN_KEY = process.env.JOBNIMBUS_API_KEY;
+const JN_BASE = "https://app.jobnimbus.com/api1";
+const sb = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` };
+const TMS_REP_ZONES_URL = "https://trainingmanagementsys.netlify.app/.netlify/functions/rep-zones";
+
+const WEEKS = [
+  { label: "Week 1", start: "2026-08-12", end: "2026-08-13" },
+  { label: "Week 2", start: "2026-08-19", end: "2026-08-20" },
+  { label: "Week 3", start: "2026-08-26", end: "2026-08-27" },
+  { label: "Week 4", start: "2026-09-02", end: "2026-09-03" },
+];
+const RAMP = { freeCount: 2, freePts: 1, thenPts: 2 };
+const SALE_POINTS = 6;
+const ATTRIBUTES = [
+  { key: "booked", label: "Appt booked" },
+  { key: "went", label: "Appt ran" },
+  { key: "signed", label: "Insp signed" },
+  { key: "goback", label: "Go-back" },
+  { key: "review", label: "Review sent" },
+];
+const ZONE_TEAMS = { "Zone 1": "SQUAD", "Zone 2": "SitSold", "Zone 3": "SHARKS", "Zone 4": "HURRICANE" };
+const ZONE_ORDER = ["Zone 1", "Zone 2", "Zone 3", "Zone 4"];
+const SOLD_STATUS_NAMES = ["Sit - Sold", "Signed Contract", "Production Review", "Job Prep", "In Funding", "Waiting on PACE", "Upcoming Installs", "Install Set", "Roof Started", "New Roof", "Paid & Closed", "Upcoming Commissions", "Holds", "Extras"];
+const SOLD_STATUSES = new Set(["sit sold", "signed contract", "production review", "job prep", "in funding", "waiting on pace", "upcoming installs", "install set", "roof started", "new roof", "install complete collect payment", "paid closed", "upcoming commissions", "commission", "holds", "extras"]);
+
+function scoreDay(n) { let p = 0; for (let i = 1; i <= n; i++) p += i <= RAMP.freeCount ? RAMP.freePts : RAMP.thenPts; return p; }
+
+export const handler = async (event) => {
+  if (event.httpMethod === "OPTIONS") return cors(200, "");
+  if (event.httpMethod !== "GET") return cors(405, JSON.stringify({ ok: false, error: "GET only" }));
+  if (!SB_URL || !SB_KEY) return cors(500, JSON.stringify({ ok: false, error: "env missing" }));
+  const qp = event.queryStringParameters || {};
+
+  try {
+    // Pick the window.
+    const now = new Date();
+    let start, end, label;
+    if (qp.days && Number(qp.days) > 0) {
+      end = now; start = new Date(now.getTime() - Number(qp.days) * 86400000); label = `Last ${Number(qp.days)} days`;
+    } else if (qp.week && WEEKS[Number(qp.week) - 1]) {
+      const w = WEEKS[Number(qp.week) - 1]; start = etDayStart(w.start); end = etDayEnd(w.end); label = w.label;
+    } else {
+      // Active week = latest whose Wed has started; if none started, trailing 7 days.
+      const wb = WEEKS.map((w) => ({ ...w, s: etDayStart(w.start), e: etDayEnd(w.end) }));
+      let active = null;
+      for (const w of wb) if (w.s <= now && (!active || w.s > active.s)) active = w;
+      if (active) { start = active.s; end = active.e; label = active.label; }
+      else { end = now; start = new Date(now.getTime() - 7 * 86400000); label = "Last 7 days"; }
+    }
+
+    const rows = await sbGetAll(
+      `canvass_activity?select=rep_name,kind,to_status,pin_id,note,created_at` +
+      `&created_at=gte.${encodeURIComponent(start.toISOString())}&created_at=lte.${encodeURIComponent(end.toISOString())}&order=created_at.asc`
+    );
+
+    // Per rep → per day → per attribute → Set of distinct keys (dedup matches the board).
+    const byRep = new Map(); // norm → Map(day → {booked:Set, went:Set, signed:Set, goback:Set, review:Set})
+    for (const r of rows) {
+      const rep = (r.rep_name || "").trim(); if (!rep) continue;
+      const nk = normalizeName(rep), day = etDayKey(r.created_at);
+      const s = r.to_status, k = r.kind, pin = r.pin_id;
+      let attr = null, key = null;
+      if (s === "appt") { attr = "booked"; key = `${pin || r.created_at}`; }
+      else if (k === "appt_done") { attr = "went"; key = r.created_at; }
+      else if (s === "insp_sold") { attr = "signed"; key = `${pin || r.created_at}`; }
+      else if (k === "goback") { attr = "goback"; key = r.note || r.created_at; }
+      else if (k === "review_request") { attr = "review"; key = r.note || r.created_at; }
+      if (!attr) continue;
+      let days = byRep.get(nk); if (!days) byRep.set(nk, (days = new Map()));
+      let d = days.get(day); if (!d) days.set(day, (d = { booked: new Set(), went: new Set(), signed: new Set(), goback: new Set(), review: new Set() }));
+      d[attr].add(key);
+    }
+
+    // Sales per rep per day (Sold Date in window), best-effort.
+    const salesByRepDay = new Map(); // norm → Map(day → count)
+    try {
+      if (JN_KEY) {
+        const sold = await fetchSoldJobs(Math.floor(start.getTime() / 1000) - 2 * 86400);
+        for (const j of sold) {
+          const st = String(j.status_name || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+          if (!SOLD_STATUSES.has(st)) continue;
+          const ms = soldDateMs(j);
+          if (ms == null || ms < start.getTime() || ms > end.getTime()) continue;
+          const nk = normalizeName(j.sales_rep_name || ""); if (!nk) continue;
+          const day = etDayKey(new Date(ms).toISOString());
+          let m = salesByRepDay.get(nk); if (!m) salesByRepDay.set(nk, (m = new Map()));
+          m.set(day, (m.get(day) || 0) + 1);
+        }
+      }
+    } catch { /* best-effort */ }
+
+    const { rosterByZone } = await fetchZoneResolver();
+    const teams = ZONE_ORDER.map((zone) => {
+      const roster = rosterByZone[zone] || [];
+      if (!roster.length) return null;
+      const reps = roster.map((m) => {
+        const days = byRep.get(m.norm) || new Map();
+        const salesDays = salesByRepDay.get(m.norm) || new Map();
+        const allDayKeys = new Set([...days.keys(), ...salesDays.keys()]);
+        const totals = { booked: 0, went: 0, signed: 0, goback: 0, review: 0 };
+        const dayList = [];
+        let points = 0, sales = 0;
+        for (const day of [...allDayKeys].sort()) {
+          const d = days.get(day);
+          const counts = { booked: d ? d.booked.size : 0, went: d ? d.went.size : 0, signed: d ? d.signed.size : 0, goback: d ? d.goback.size : 0, review: d ? d.review.size : 0 };
+          for (const a of ["booked", "went", "signed", "goback", "review"]) totals[a] += counts[a];
+          const attrCount = counts.booked + counts.went + counts.signed + counts.goback + counts.review;
+          const sold = salesDays.get(day) || 0;
+          const dayPoints = scoreDay(attrCount) + sold * SALE_POINTS;
+          points += dayPoints; sales += sold;
+          dayList.push({ day, counts, sold, attrCount, dayPoints });
+        }
+        return { name: m.name, points, sales, totals, days: dayList };
+      }).sort((a, b) => b.points - a.points);
+      const points = reps.reduce((s, r) => s + r.points, 0);
+      const activeReps = roster.length;
+      return { zone, team: ZONE_TEAMS[zone] || zone, points, avg: Math.round((points / activeReps) * 10) / 10, activeReps, reps };
+    }).filter(Boolean).sort((a, b) => b.avg - a.avg);
+
+    return cors(200, JSON.stringify({ ok: true, window: { label, start: start.toISOString(), end: end.toISOString() }, attributes: ATTRIBUTES, teams }));
+  } catch (e) {
+    return cors(500, JSON.stringify({ ok: false, error: e.message || "error" }));
+  }
+};
+
+async function sbGetAll(path) {
+  const out = [];
+  for (let from = 0; from < 200000; from += 1000) {
+    const r = await fetch(`${SB_URL}/rest/v1/${path}`, { headers: { ...sb, "Range-Unit": "items", Range: `${from}-${from + 999}` } });
+    if (!r.ok) break;
+    const rows = await r.json().catch(() => []);
+    out.push(...rows);
+    if (rows.length < 1000) break;
+  }
+  return out;
+}
+async function fetchSoldJobs(since) {
+  const byId = new Map();
+  for (const name of SOLD_STATUS_NAMES) {
+    const filter = encodeURIComponent(JSON.stringify({ must: [{ match_phrase: { status_name: name } }] }));
+    for (let page = 0; page < 20; page++) {
+      const r = await fetch(`${JN_BASE}/jobs?size=100&from=${page * 100}&sort=-date_updated&date_updated_after=${since}&filter=${filter}`,
+        { headers: { Authorization: `Bearer ${JN_KEY}`, "Content-Type": "application/json" } });
+      if (!r.ok) break;
+      const d = await r.json().catch(() => ({}));
+      const list = d.results || d.jobs || [];
+      for (const j of list) byId.set(j.jnid || j.id, j);
+      if (list.length < 100) break;
+    }
+  }
+  return [...byId.values()];
+}
+function soldDateMs(job) { const v = job["Sold Date"] != null ? job["Sold Date"] : job.cf_date_5; const n = Number(v); return Number.isFinite(n) && n > 0 ? n * 1000 : null; }
+async function fetchZoneResolver() {
+  let reps = [];
+  try { const res = await fetch(TMS_REP_ZONES_URL); if (res.ok) reps = (await res.json()).reps || []; } catch { /* best-effort */ }
+  const rosterByZone = {}; const seen = new Set();
+  for (const r of reps) {
+    if (!r.name || !r.zone || r.active === false) continue;
+    const norm = normalizeName(r.name); if (seen.has(norm)) continue; seen.add(norm);
+    (rosterByZone[r.zone] || (rosterByZone[r.zone] = [])).push({ name: String(r.name).trim(), norm });
+  }
+  return { rosterByZone };
+}
+function normalizeName(s) {
+  return String(s || "").toLowerCase().replace(/["“”]([^"“”]*)["“”]/g, "").replace(/'([^']*)'/g, "").replace(/\(([^)]*)\)/g, "").replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim();
+}
+const TZ = "America/New_York";
+function tzParts(date) { const dtf = new Intl.DateTimeFormat("en-US", { timeZone: TZ, hour12: false, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" }); const p = {}; for (const part of dtf.formatToParts(date)) p[part.type] = part.value; return p; }
+function offsetMs(date) { const p = tzParts(date); return Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute, +p.second) - date.getTime(); }
+function etWallToUTC(y, mo, d, h, mi, s) { const guess = Date.UTC(y, mo - 1, d, h, mi, s); return new Date(guess - offsetMs(new Date(guess))); }
+function etDayStart(dateStr) { const [y, m, d] = dateStr.split("-").map(Number); return etWallToUTC(y, m, d, 0, 0, 0); }
+function etDayEnd(dateStr) { const [y, m, d] = dateStr.split("-").map(Number); return etWallToUTC(y, m, d, 23, 59, 59); }
+function etDayKey(iso) { const p = tzParts(new Date(iso)); return `${p.year}-${p.month}-${p.day}`; }
+function cors(status, body) { return { statusCode: status, headers: { "Content-Type": "application/json", "Cache-Control": "public, max-age=30", "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, OPTIONS", "Access-Control-Allow-Headers": "Content-Type" }, body }; }
