@@ -1,67 +1,85 @@
 // Public, read-only CONTEST leaderboard — a togglable team-standings strip on the
 // rep dashboard alongside zone-leaderboard (inspections), zone-sales-leaderboard,
-// and zone-harvest-leaderboard. Unlike those (which count ONE thing), this runs a
-// configurable "positive-effort" contest and ranks teams by AVERAGE points per rep.
+// and zone-harvest-leaderboard. Unlike those (which count ONE thing), this runs the
+// "positive-effort" contest and ranks teams by AVERAGE points per rep.
 //
-// THE CONTEST (see CONTEST below — swap the config for the next one):
-//   • Points STACK, one per thing done: ARRIVAL at a door (presence — an arrival /
-//     verified reading; incl. a not-home walked up to and a return-visit go-back),
-//     a SIGNED INSPECTION, a BOOKED APPOINTMENT, a SAT appointment, a review send.
-//     So an in-person inspection = 2 (the knock's arrival + the sign), while a remote
-//     e-sign = 1 (no knock, no arrival). A pin statused from afar with no arrival
-//     (boxed remotely) earns nothing.
-//   • Daily doubling, per rep: the first two points each day are single; the 3rd and
-//     every one after are worth 2. Resets each day.
+// THE CONTEST (rules the field managers approved — see Sales-Contest-Ruleset):
+//   • POSITIVE ATTRIBUTES, each worth points on a daily ramp (all via the map):
+//       - book an appointment            (to_status "appt")
+//       - go to an appointment           (kind "appt_done")
+//       - get a free roof inspection SIGNED (to_status "insp_sold")
+//       - do a go-back                   (kind "goback")
+//       - send a Google review           (kind "review_request")
+//     NOTHING for knocking a door / arriving at a pin.
+//   • DAILY RAMP, per rep: the first 2 attributes each day are worth 1 pt each; the
+//     3rd and every one after are worth 2 pts each. Resets each day.
+//   • A ROOF SOLD in JobNimbus = a flat 6 pts, added ON TOP (not part of the ramp).
+//     Membership = the job's "Sold Date" (cf_date_5) falls in the contest window and
+//     its status is a live sold stage; attributed to the rep by name.
 //   • Team score = total points ÷ the team's ACTIVE-REP ROSTER (from TMS rep-zones),
-//     NOT activity — every active sales rep divides the team total whether or not they
-//     logged anything that week, so a rep who does nothing still drags the average to
-//     0. That's what pressures managers to cut dead weight. POINTS are still earned
-//     only on the contest days (Wed + Thu).
-//   • Runs only on the contest DAYS (Wed + Thu). Each contest WEEK is scored on its
-//     own and the board RESETS — it shows the active week only (latest week started).
+//     NOT activity — every active rep divides the team total whether or not they
+//     logged anything, so dead weight drags the average down. Reps + managers both
+//     count (managers lift the average but aren't prize-eligible — a payout rule).
+//   • Points come only from the contest DAYS (Wed + Thu). Each week is scored on its
+//     own and the board RESETS — it shows the active week only.
 //
-// OFF SWITCH: CONTEST.enabled=false → returns { ok:true, zones:[] }, and the
-// dashboard's mount() hides any board whose feed has no zones. Flip enabled=true
-// (and deploy) Wednesday morning to go live. `?preview=1` computes anyway (for a
-// dry run while it's still off); `?debug=1` adds scan diagnostics.
+// OFF SWITCH: app_settings.contest_enabled (bool). false → { ok:true, enabled:false,
+// zones:[] }, and the dashboard hides any board whose feed has no zones. Flip it true
+// to go live. `?preview=1` computes anyway (a private dry-run while it's off) — and
+// if the contest hasn't started yet, preview scores a TRAILING 7-day window so there's
+// something real to look at. `?debug=1` adds scan diagnostics.
 //
 //   GET /.netlify/functions/zone-contest-leaderboard[?preview=1][?debug=1]
 //   → { ok, enabled, contest, week, range:{start,end}, zones:[{ zone, team, count,
-//       avg, points, activeReps, reps:[{ name, count }] }] }
+//       avg, points, activeReps, sales, reps:[{ name, count }] }] }
 //
-// Env: VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY
+// Env: VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY, JOBNIMBUS_API_KEY (for the sale bonus)
 
 const SB_URL = process.env.VITE_SUPABASE_URL;
 const SB_KEY = process.env.VITE_SUPABASE_ANON_KEY;
+const JN_KEY = process.env.JOBNIMBUS_API_KEY;
+const JN_BASE = "https://app.jobnimbus.com/api1";
 const sb = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` };
 const TMS_REP_ZONES_URL = "https://trainingmanagementsys.netlify.app/.netlify/functions/rep-zones";
 
 // ── THE CONTEST ───────────────────────────────────────────────────────────
-// To run a different contest later: flip enabled, set the weeks, and (if the
-// rules change) adjust `scoring` / the qualifying efforts in the scan loop.
 const CONTEST = {
-  enabled: false, // ← flip true Wednesday morning (Aug 12) to go live
   name: "Positive-Effort Team Contest",
   // Each contest week is scored on its own (the board resets between them). A week
   // is its Wed + Thu; points are only earned on these ET days.
   weeks: [
     { label: "Week 1", start: "2026-08-12", end: "2026-08-13" }, // Wed–Thu
-    { label: "Week 2", start: "2026-08-19", end: "2026-08-20" }, // Wed–Thu
-    { label: "Week 3", start: "2026-08-26", end: "2026-08-27" }, // Wed–Thu
-    { label: "Week 4", start: "2026-09-02", end: "2026-09-03" }, // Wed–Thu
+    { label: "Week 2", start: "2026-08-19", end: "2026-08-20" },
+    { label: "Week 3", start: "2026-08-26", end: "2026-08-27" },
+    { label: "Week 4", start: "2026-09-02", end: "2026-09-03" },
   ],
-  // Daily doubling: the first `freeCount` efforts each day are worth `freePts`,
+  // Daily ramp: the first `freeCount` attributes each day are worth `freePts`,
   // every one after is worth `thenPts`.
-  scoring: { freeCount: 2, freePts: 1, thenPts: 2 },
+  ramp: { freeCount: 2, freePts: 1, thenPts: 2 },
+  salePoints: 6, // flat, per roof sold in JN, on top of the ramp
 };
 
 const ZONE_TEAMS = { "Zone 1": "SQUAD", "Zone 2": "SitSold", "Zone 3": "SHARKS", "Zone 4": "HURRICANE" };
 const ZONE_ORDER = ["Zone 1", "Zone 2", "Zone 3", "Zone 4"];
 
-// Points for N efforts in one day (1-1-2 doubling). Order within the day doesn't
+// Sold-stage status names (exact JN spellings, to pull only sold jobs) + a normalized
+// set for the authoritative membership check. Mirrors zone-sales-leaderboard.
+const SOLD_STATUS_NAMES = [
+  "Sit - Sold", "Signed Contract", "Production Review", "Job Prep", "In Funding",
+  "Waiting on PACE", "Upcoming Installs", "Install Set", "Roof Started", "New Roof",
+  "Paid & Closed", "Upcoming Commissions", "Holds", "Extras",
+];
+const SOLD_STATUSES = new Set([
+  "sit sold", "signed contract", "production review", "job prep", "in funding",
+  "waiting on pace", "upcoming installs", "install set", "roof started", "new roof",
+  "install complete collect payment", "paid closed", "upcoming commissions",
+  "commission", "holds", "extras",
+]);
+
+// Points for N attributes in one day (1-1-2 ramp). Order within the day doesn't
 // matter to the total, so we only need the count.
 function scoreDay(n) {
-  const { freeCount, freePts, thenPts } = CONTEST.scoring;
+  const { freeCount, freePts, thenPts } = CONTEST.ramp;
   let pts = 0;
   for (let i = 1; i <= n; i++) pts += i <= freeCount ? freePts : thenPts;
   return pts;
@@ -74,101 +92,118 @@ export const handler = async (event) => {
 
   const qp = event.queryStringParameters || {};
   const preview = qp.preview === "1";
+  const enabled = await getContestEnabled();
   // OFF until the toggle flips (preview overrides so we can dry-run while it's off).
-  if (!CONTEST.enabled && !preview) return cors(200, JSON.stringify({ ok: true, enabled: false, zones: [] }));
+  if (!enabled && !preview) return cors(200, JSON.stringify({ ok: true, enabled: false, zones: [] }));
 
   try {
-    // Pick the ACTIVE contest week = the latest week whose Wed has already started
-    // (so Week 1 shows through the weekend, then flips to Week 2 on its Wednesday).
+    // Pick the ACTIVE contest week = the latest week whose Wed has already started.
     const now = new Date();
-    const weeksWithBounds = CONTEST.weeks.map((w) => ({
-      ...w, startUTC: etDayStart(w.start), endUTC: etDayEnd(w.end),
-    }));
+    const weeksWithBounds = CONTEST.weeks.map((w) => ({ ...w, startUTC: etDayStart(w.start), endUTC: etDayEnd(w.end) }));
     let active = null;
     for (const w of weeksWithBounds) if (w.startUTC <= now && (!active || w.startUTC > active.startUTC)) active = w;
-    if (!active) active = weeksWithBounds[0]; // before the contest starts — no data yet, so the board stays empty
-    const contestStart = active.startUTC, contestEnd = active.endUTC; // Wed–Thu: where POINTS come from
+    if (!active) active = weeksWithBounds[0];
+    let contestStart = active.startUTC, contestEnd = active.endUTC, weekLabel = active.label;
 
-    // Pull activity for the CONTEST DAYS only (paged — a single request caps at 1000).
-    // Points come only from these days; the divisor is the active-rep ROSTER below.
+    // Preview a real window before the contest starts: score the trailing 7 days so
+    // there's something to look at. (Only in preview; the live board stays empty until
+    // Week 1's Wednesday.)
+    if (preview && contestStart > now) {
+      contestEnd = now;
+      contestStart = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      weekLabel = "Preview · last 7 days";
+    }
+
+    // Attributes come from the map activity in the window (paged — 1000 cap).
     const rows = await sbGetAll(
-      `canvass_activity?select=rep_name,kind,to_status,from_status,pin_id,round,loc_flag,created_at` +
+      `canvass_activity?select=rep_name,kind,to_status,pin_id,round,note,created_at` +
       `&created_at=gte.${encodeURIComponent(contestStart.toISOString())}&created_at=lte.${encodeURIComponent(contestEnd.toISOString())}` +
       `&order=created_at.asc`
     );
 
-    // Points STACK — one per distinct thing a rep did:
-    //   • ARRIVAL ("worked the pin") — presence at a door: an arrival event or a
-    //     verified-at-door reading. Includes a not-home they walked up to; a return
-    //     visit (go-back) is a fresh point (keyed per round). This is the point that
-    //     makes an IN-PERSON inspection worth 2 — the knock that precedes it logs the
-    //     arrival. A REMOTE e-sign has no knock, so no arrival → the inspection alone.
-    //   • SIGNED INSPECTION — its own point, on top of the arrival if there was one.
-    //   • BOOKED APPOINTMENT — its own point.
-    //   • plus two PINLESS points: a sat appointment ("Appt done") and a review send.
-    // A pin statused from afar with no arrival and no real outcome (boxed remotely)
-    // earns nothing. Keyed by NORMALIZED name to line up with the roster below.
-    const effortsByRepDay = new Map(); // normName → Map(dayKey → Set(effortKey))
+    // One point-earning ATTRIBUTE per distinct thing a rep did, deduped per rep/day:
+    const attrByRepDay = new Map(); // normName → Map(dayKey → Set(attrKey))
     for (const r of rows) {
       const rep = (r.rep_name || "").trim();
-      if (!rep) continue; // orphaned/nameless rows can't be attributed
+      if (!rep) continue;
       const nk = normalizeName(rep), day = etDayKey(r.created_at);
-      const s = r.to_status, k = r.kind, pin = r.pin_id, round = r.round ?? 0;
+      const s = r.to_status, k = r.kind, pin = r.pin_id;
       const add = (key) => {
-        let byDay = effortsByRepDay.get(nk);
-        if (!byDay) effortsByRepDay.set(nk, (byDay = new Map()));
+        let byDay = attrByRepDay.get(nk);
+        if (!byDay) attrByRepDay.set(nk, (byDay = new Map()));
         let set = byDay.get(day);
         if (!set) byDay.set(day, (set = new Set()));
         set.add(key);
       };
-      if (pin && (k === "arrival" || r.loc_flag === "verified")) add(`arrive|${pin}|${round}`); // worked the door
-      if (s === "insp_sold") add(`insp|${pin || r.created_at}`);   // signed inspection (stacks)
-      if (s === "appt") add(`set|${pin || r.created_at}`);         // booked appointment (stacks)
-      if (k === "appt_done") add(`run|${r.created_at}`);           // sat an appointment (pinless)
-      if (k === "review_request") add(`review|${pin || ""}|${r.created_at}`); // review send (pinless)
+      if (s === "appt") add(`appt|${pin || r.created_at}`);          // booked an appointment
+      if (k === "appt_done") add(`ran|${r.created_at}`);             // went to an appointment
+      if (s === "insp_sold") add(`insp|${pin || r.created_at}`);     // free roof inspection signed
+      if (k === "goback") add(`goback|${r.note || r.created_at}`);   // did a go-back (note=inspection_id)
+      if (k === "review_request") add(`review|${r.note || r.created_at}`); // sent a Google review
     }
-    // Rep points = sum over days of scoreDay(distinct efforts that day).
-    const pointsByNorm = new Map();
-    for (const [nk, byDay] of effortsByRepDay) {
+    // Ramp points = sum over days of scoreDay(distinct attributes that day).
+    const rampByNorm = new Map();
+    for (const [nk, byDay] of attrByRepDay) {
       let pts = 0;
       for (const set of byDay.values()) pts += scoreDay(set.size);
-      pointsByNorm.set(nk, pts);
+      rampByNorm.set(nk, pts);
     }
 
-    // The DIVISOR is the ACTIVE SALES-REP ROSTER, not activity: every active rep on a
-    // team divides that team's total whether or not they logged anything this week —
-    // so a rep who does nothing still drags the average to 0. Reps + managers both
-    // count (managers lift the average but aren't prize-eligible — a payout rule, not
-    // computed here). Points from anyone NOT on the active roster are dropped.
+    // Sale bonus: +6 flat per roof sold in JN whose Sold Date is in the window.
+    // Best-effort — if JN is unavailable, the board still shows the attribute points.
+    const salesByNorm = new Map();
+    let saleTotal = 0;
+    try {
+      if (JN_KEY) {
+        const sold = await fetchSoldJobs(Math.floor(contestStart.getTime() / 1000) - 2 * 24 * 60 * 60);
+        for (const j of sold) {
+          const status = String(j.status_name || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+          if (!SOLD_STATUSES.has(status)) continue;
+          const ms = soldDateMs(j);
+          if (ms == null || ms < contestStart.getTime() || ms > contestEnd.getTime()) continue;
+          const nk = normalizeName(j.sales_rep_name || "");
+          if (!nk) continue;
+          salesByNorm.set(nk, (salesByNorm.get(nk) || 0) + 1);
+          saleTotal++;
+        }
+      }
+    } catch { /* JN best-effort — keep the attribute points */ }
+
+    // DIVISOR = active sales-rep ROSTER (not activity). Points from anyone off-roster
+    // are dropped.
     const { rosterByZone } = await fetchZoneResolver();
     let matchedReps = 0;
 
     const zones = ZONE_ORDER
       .map((zone) => {
         const roster = rosterByZone[zone] || [];
-        if (!roster.length) return null; // no active reps on this team → omit
+        if (!roster.length) return null;
+        let saleCount = 0;
         const reps = roster.map((m) => {
-          const pts = pointsByNorm.get(m.norm) || 0;
+          const sales = salesByNorm.get(m.norm) || 0;
+          saleCount += sales;
+          const pts = (rampByNorm.get(m.norm) || 0) + sales * CONTEST.salePoints;
           if (pts) matchedReps++;
-          return { name: m.name, count: pts };
+          return { name: m.name, count: pts, sales };
         }).sort((a, b) => b.count - a.count);
         const points = reps.reduce((s, r) => s + r.count, 0);
         const activeReps = roster.length;
         const avg = Math.round((points / activeReps) * 10) / 10;
-        return { zone, team: ZONE_TEAMS[zone] || zone, count: avg, avg, points, activeReps, reps };
+        return { zone, team: ZONE_TEAMS[zone] || zone, count: avg, avg, points, activeReps, sales: saleCount, reps };
       })
       .filter(Boolean)
       .sort((a, b) => b.avg - a.avg);
     zones.forEach((z, i) => { z.rank = i + 1; });
 
     const payload = {
-      ok: true, enabled: CONTEST.enabled, contest: CONTEST.name, week: active.label,
+      ok: true, enabled, contest: CONTEST.name, week: weekLabel,
       range: { start: contestStart.toISOString(), end: contestEnd.toISOString() }, zones,
     };
     if (qp.debug === "1") {
       const rosterTotal = ZONE_ORDER.reduce((s, z) => s + ((rosterByZone[z] || []).length), 0);
       payload.scannedRows = rows.length; payload.rosterReps = rosterTotal;
-      payload.repsWithPoints = pointsByNorm.size; payload.pointsMatchedToRoster = matchedReps;
+      payload.repsWithPoints = rampByNorm.size; payload.pointsMatchedToRoster = matchedReps;
+      payload.soldInWindow = saleTotal;
     }
     return cors(200, JSON.stringify(payload));
   } catch (e) {
@@ -176,8 +211,18 @@ export const handler = async (event) => {
   }
 };
 
-// Paged REST fetch — PostgREST caps a single response at 1000 rows, so page with
-// the Range header until a short page comes back.
+// Contest on/off — app_settings.contest_enabled (so it flips without a deploy).
+async function getContestEnabled() {
+  try {
+    const r = await fetch(`${SB_URL}/rest/v1/app_settings?key=eq.contest_enabled&select=value&limit=1`, { headers: sb });
+    if (!r.ok) return false;
+    const rows = await r.json().catch(() => []);
+    const v = rows[0]?.value;
+    return v === true || v === "true" || v === 1 || v === "1";
+  } catch { return false; }
+}
+
+// Paged REST fetch — PostgREST caps a single response at 1000 rows.
 async function sbGetAll(path) {
   const out = [];
   for (let from = 0; from < 200000; from += 1000) {
@@ -190,10 +235,30 @@ async function sbGetAll(path) {
   return out;
 }
 
-// Active-rep ROSTER from TMS rep-zones — the contest divisor. Grouped by zone,
-// deduped by normalized name (which is how points are matched back). The default
-// feed is the active set; we still drop anyone explicitly flagged inactive. Reps +
-// managers both count if they carry a zone.
+// Sold JN jobs touched since `since` (unix sec) — pulled by sold-stage status_name.
+async function fetchSoldJobs(since) {
+  const byId = new Map();
+  for (const name of SOLD_STATUS_NAMES) {
+    const filter = encodeURIComponent(JSON.stringify({ must: [{ match_phrase: { status_name: name } }] }));
+    for (let page = 0; page < 20; page++) {
+      const r = await fetch(`${JN_BASE}/jobs?size=100&from=${page * 100}&sort=-date_updated&date_updated_after=${since}&filter=${filter}`,
+        { headers: { Authorization: `Bearer ${JN_KEY}`, "Content-Type": "application/json" } });
+      if (!r.ok) break;
+      const d = await r.json().catch(() => ({}));
+      const rows = d.results || d.jobs || [];
+      for (const j of rows) byId.set(j.jnid || j.id, j);
+      if (rows.length < 100) break;
+    }
+  }
+  return [...byId.values()];
+}
+function soldDateMs(job) {
+  const v = job["Sold Date"] != null ? job["Sold Date"] : job.cf_date_5;
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? n * 1000 : null;
+}
+
+// Active-rep ROSTER from TMS rep-zones — the contest divisor.
 async function fetchZoneResolver() {
   let reps = [];
   try { const res = await fetch(TMS_REP_ZONES_URL); if (res.ok) reps = (await res.json()).reps || []; } catch { /* best-effort */ }
@@ -214,7 +279,7 @@ function normalizeName(s) {
     .replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim();
 }
 
-// ── ET day windows (shares the tz math with the sibling boards) ──
+// ── ET day windows ──
 const TZ = "America/New_York";
 function tzParts(date) {
   const dtf = new Intl.DateTimeFormat("en-US", { timeZone: TZ, hour12: false, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" });
@@ -224,10 +289,8 @@ function offsetMs(date) { const p = tzParts(date); return Date.UTC(+p.year, +p.m
 function etWallToUTC(y, mo, d, h, mi, s) { const guess = Date.UTC(y, mo - 1, d, h, mi, s); return new Date(guess - offsetMs(new Date(guess))); }
 function etDayStart(dateStr) { const [y, m, d] = dateStr.split("-").map(Number); return etWallToUTC(y, m, d, 0, 0, 0); }
 function etDayEnd(dateStr) { const [y, m, d] = dateStr.split("-").map(Number); return etWallToUTC(y, m, d, 23, 59, 59); }
-// The ET calendar day (YYYY-MM-DD) a timestamp falls on — for grouping efforts by day.
 function etDayKey(iso) { const p = tzParts(new Date(iso)); return `${p.year}-${p.month}-${p.day}`; }
 
 function cors(status, body) {
-  // Short cache — each contest week is only two days, so standings must move fast.
   return { statusCode: status, headers: { "Content-Type": "application/json", "Cache-Control": "public, max-age=20", "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, OPTIONS", "Access-Control-Allow-Headers": "Content-Type" }, body };
 }

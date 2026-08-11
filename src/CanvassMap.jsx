@@ -1963,6 +1963,14 @@ export default function CanvassMap() {
   }, [me]);
   // Drive the visit-action endpoints with the visit token (same call shape the
   // Rep Visit Hub uses, so the shared panels behave identically).
+  // The go-back OUTCOME endpoints (a rep actually worked the go-back), vs. the
+  // read-only ones (fetching slots/calendars) which don't count. Completing any of
+  // these logs one "goback" attribute for the contest, keyed by inspection so
+  // several actions on the same go-back count once.
+  const GOBACK_DONE_FNS = new Set([
+    "no-damage-send", "damage-to-retail", "retail-task-create", "retail-outcome-set",
+    "referral-decline", "retail-not-interested", "goback-not-home",
+  ]);
   async function visitApi(fn, payload) {
     // Practice mode: never hit real endpoints (no token, nothing to save). Return a benign
     // empty result so the shared go-back panels render their UI (calendars/options show)
@@ -1971,6 +1979,10 @@ export default function CanvassMap() {
     const r = await fetch(`/.netlify/functions/${fn}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: visitToken, ...payload }) });
     const o = await r.json().catch(() => ({}));
     if (!r.ok || !o.ok) { const err = new Error(o.error || "Request failed"); err.body = o; throw err; }
+    // Contest credit: a completed go-back (or a PA appt booked from one) → one attribute.
+    if (GOBACK_DONE_FNS.has(fn) || (fn === "pa-schedule-api" && payload && payload.action === "book")) {
+      logActivity({ pin_id: null, kind: "goback", note: String(payload?.inspection_id || "") });
+    }
     return o;
   }
   // Close the visit sheet and refresh the list so a just-worked go-back drops off.
@@ -3818,6 +3830,12 @@ export default function CanvassMap() {
             ⭐ Referral
           </button>
         )}
+        {/* ⭐ Ask for a Google review — sits right above the Referral button. Texts the
+            homeowner the review link + logs a review_request (counts for the contest). */}
+        {!selecting && !referralForm && !newPin && !adding && (auth.rt || testMode) && (
+          <ReviewFab disabled={demoMode || spotCheck}
+            onLogged={(phone) => logActivity({ pin_id: null, kind: "review_request", note: phone })} />
+        )}
         {referralForm && !referralPlacing && (
           <div style={{ position: "absolute", inset: 0, zIndex: 1200, background: "rgba(15,23,42,.45)", display: "flex", alignItems: "flex-end", justifyContent: "center" }} onClick={closeReferral}>
             <div onClick={(e) => e.stopPropagation()} style={{ width: "100%", maxWidth: 460, background: "#fff", borderTopLeftRadius: 18, borderTopRightRadius: 18, padding: "18px 18px 24px", boxShadow: "0 -4px 20px rgba(0,0,0,.2)" }}>
@@ -5063,6 +5081,57 @@ function Chip({ active, onClick, color, label, check }) {
 
 // Desktop right-column filter card — the "chip" for the web view.
 // Collapsible legend section (keeps the long "Pins to show" list tidy).
+// Floating ⭐ on the map: rep types a homeowner's cell → texts them the Google
+// review link (send-review-sms) and logs a `review_request` so it counts for the
+// contest. A rep can't credit their own number — that's a homeowner ask.
+function ReviewFab({ disabled, onLogged }) {
+  const [open, setOpen] = React.useState(false);
+  const [phone, setPhone] = React.useState("");
+  const [name, setName] = React.useState("");
+  const [busy, setBusy] = React.useState(false);
+  const [msg, setMsg] = React.useState("");
+  if (disabled) return null;
+  const send = async () => {
+    const digits = phone.replace(/\D/g, "");
+    if (digits.length < 10) { setMsg("Enter a valid 10-digit cell."); return; }
+    setBusy(true); setMsg("");
+    try {
+      const r = await fetch("/.netlify/functions/send-review-sms", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone: digits, name: name.trim() }),
+      });
+      const o = await r.json().catch(() => ({}));
+      if (!r.ok || !o.ok) throw new Error(o.error || "Send failed");
+      try { onLogged && onLogged(digits); } catch { /* ignore */ }
+      setMsg("✓ Review text sent!"); setPhone(""); setName("");
+      setTimeout(() => { setOpen(false); setMsg(""); }, 1600);
+    } catch (e) { setMsg(e.message || "Send failed"); }
+    setBusy(false);
+  };
+  return (
+    <div style={{ position: "absolute", right: 12, bottom: 64, zIndex: 600, display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
+      {open && (
+        <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 14, boxShadow: "0 8px 30px rgba(0,0,0,.22)", padding: 14, width: 264, marginBottom: 10 }}>
+          <div style={{ fontSize: 14, fontWeight: 800, color: "#0f172a", marginBottom: 2 }}>⭐ Ask for a Google review</div>
+          <div style={{ fontSize: 11.5, color: "#64748b", marginBottom: 9 }}>Texts the homeowner your review link.</div>
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Homeowner name (optional)"
+            style={{ width: "100%", boxSizing: "border-box", fontSize: 14, padding: "9px 10px", borderRadius: 9, border: "1px solid #cbd5e1", marginBottom: 7 }} />
+          <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Homeowner cell #" inputMode="tel" type="tel"
+            style={{ width: "100%", boxSizing: "border-box", fontSize: 14, padding: "9px 10px", borderRadius: 9, border: "1px solid #cbd5e1", marginBottom: 9 }} />
+          {msg && <div style={{ fontSize: 12.5, fontWeight: 700, color: msg[0] === "✓" ? "#16a34a" : "#dc2626", marginBottom: 8 }}>{msg}</div>}
+          <div style={{ display: "flex", gap: 8 }}>
+            <button type="button" onClick={() => { setOpen(false); setMsg(""); }} style={{ flex: "0 0 auto", fontSize: 13, fontWeight: 700, padding: "9px 12px", borderRadius: 9, border: "1px solid #e2e8f0", background: "#fff", color: "#64748b", cursor: "pointer" }}>Close</button>
+            <button type="button" onClick={send} disabled={busy} style={{ flex: 1, fontSize: 14, fontWeight: 800, padding: "9px 12px", borderRadius: 9, border: "none", background: busy ? "#93c5a3" : "#16a34a", color: "#fff", cursor: busy ? "default" : "pointer" }}>{busy ? "Sending…" : "Send review text"}</button>
+          </div>
+        </div>
+      )}
+      <button type="button" onClick={() => setOpen((o) => !o)}
+        style={{ background: "#16a34a", color: "#fff", border: "none", borderRadius: 999, padding: "11px 16px", fontSize: 13.5, fontWeight: 800, fontFamily: "'Oswald', sans-serif", boxShadow: "0 3px 12px rgba(0,0,0,.28)", cursor: "pointer" }}>
+        🌟 Review
+      </button>
+    </div>
+  );
+}
 function LegendGroup({ title, open, onToggle, children }) {
   return (
     <div style={{ marginBottom: 8 }}>
