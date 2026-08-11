@@ -3178,7 +3178,11 @@ export default function CanvassMap() {
   // Arm tap-to-place: the next map tap drops a self-gen pin there.
   function startAddHouse() { setSelected(null); setSelectedInstall(null); setNewPin(null); setOwnerOverride(false); setOverridePhone(""); setAdding(true); }
   function cancelAdd() { setAdding(false); setNewPin(null); setOwnerOverride(false); setOverridePhone(""); }
-  function openReferral() { setSelected(null); setSelectedInstall(null); setAdding(false); setReferralText(""); setReferralPlace(null); setReferralForm({ name: "", phone: "", referred_by: "" }); }
+  function openReferral() { setSelected(null); setSelectedInstall(null); setAdding(false); setReferralText(""); setReferralPlace(null); setReferralForm({ name: "", phone: "", referred_by: "", mode: "referral" }); }
+  // Self-generated RETAIL appointment: same drop-a-pin form (retail mode), then straight
+  // into the BTR appointment modal → books a retail appt in JN + logs to_status "appt"
+  // (counts for the contest). Rep-generated retail the rep found in the field.
+  function openRetailAppt() { setSelected(null); setSelectedInstall(null); setAdding(false); setReferralText(""); setReferralPlace(null); setReferralForm({ name: "", phone: "", referred_by: "", mode: "retail" }); }
   function closeReferral() { setReferralForm(null); setReferralPlace(null); setReferralText(""); setReferralSaving(false); setReferralPlacing(false); }
   // Save a referral: it drops a ⭐ pin (OVERRIDING any pin already at that door) and
   // creates the JN lead as source "Referral" (harvest-flagged when worked). In
@@ -3187,30 +3191,34 @@ export default function CanvassMap() {
     const pl = referralPlace;
     if (!pl || typeof pl.lat !== "number" || typeof pl.lng !== "number") { alert("Pick the address from the dropdown so it lands in the right spot."); return; }
     if (referralSaving) return;
+    const isRetail = referralForm?.mode === "retail";
+    const noun = isRetail ? "retail appointment" : "referral";
     setReferralSaving(true);
     try {
       let pin;
       if (demoMode || !auth.rt) {
-        pin = { id: `ref_demo_${Date.now()}`, name: (referralForm.name || "").trim() || "Referral", phone: (referralForm.phone || "").trim() || null,
+        pin = { id: `ref_demo_${Date.now()}`, name: (referralForm.name || "").trim() || (isRetail ? "Retail lead" : "Referral"), phone: (referralForm.phone || "").trim() || null,
           address: pl.address || referralText, city: pl.city || null, state: pl.state || "FL", zip: pl.zip || null,
-          latitude: pl.lat, longitude: pl.lng, status: "referral", list_name: "Referral",
-          extra: { referral: true, referred_by: (referralForm.referred_by || "").trim() || null, self_generated: true, created_by: me?.name || repName || null, created_by_jn: me?.jn_id || null } };
+          latitude: pl.lat, longitude: pl.lng, status: isRetail ? "insp" : "referral", list_name: isRetail ? "Self-Generated" : "Referral",
+          extra: { referral: !isRetail || undefined, referred_by: isRetail ? undefined : ((referralForm.referred_by || "").trim() || null), self_generated: true, created_by: me?.name || repName || null, created_by_jn: me?.jn_id || null } };
       } else {
         const r = await fetch("/.netlify/functions/harvest-add-pin", {
           method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ rt: auth.rt, referral: true, lat: pl.lat, lng: pl.lng,
+          body: JSON.stringify({ rt: auth.rt, referral: isRetail ? undefined : true, lat: pl.lat, lng: pl.lng,
             address: pl.address || "", city: pl.city || "", state: pl.state || "FL", zip: pl.zip || "",
             owner: (referralForm.name || "").trim(), phone: (referralForm.phone || "").trim() || undefined,
-            referred_by: (referralForm.referred_by || "").trim() }),
+            referred_by: isRetail ? undefined : (referralForm.referred_by || "").trim() }),
         });
         const d = await r.json().catch(() => ({}));
-        if (!d.ok || !d.pin) { alert(d.error || "Couldn't add the referral — try again."); setReferralSaving(false); return; }
+        if (!d.ok || !d.pin) { alert(d.error || `Couldn't add the ${noun} — try again.`); setReferralSaving(false); return; }
         pin = d.pin;
       }
       setProspects((list) => [...list.filter((x) => x.id !== pin.id), pin]);
       closeReferral();
-      openCall(pin); // straight into the call card so the rep can dial + set the outcome
-    } catch { alert("Couldn't add the referral — try again."); setReferralSaving(false); }
+      // Retail → straight into the appointment modal (books the JN retail appt + logs
+      // the "appt" activity). Referral → the call card to dial + set the outcome.
+      if (isRetail) setBtrPin(pin); else openCall(pin);
+    } catch { alert(`Couldn't add the ${noun} — try again.`); setReferralSaving(false); }
   }
   // ── Referral CALL card ─────────────────────────────────────────────────────
   async function openCall(pin) {
@@ -3830,6 +3838,14 @@ export default function CanvassMap() {
             ⭐ Referral
           </button>
         )}
+        {/* 🏷️ Self-generated retail appointment — sits above the Review button. Drops a
+            self-gen pin, then books a retail appt in JN (counts for the contest as an appt). */}
+        {!selecting && !referralForm && !newPin && !adding && !btrPin && (auth.rt || testMode) && (
+          <button type="button" onClick={openRetailAppt}
+            style={{ position: "absolute", right: 12, bottom: 112, zIndex: 600, background: "#2563eb", color: "#fff", border: "none", borderRadius: 999, padding: "11px 16px", fontSize: 13.5, fontWeight: 800, fontFamily: "'Oswald', sans-serif", boxShadow: "0 3px 12px rgba(0,0,0,.28)", cursor: "pointer" }}>
+            🏷️ Retail Appt
+          </button>
+        )}
         {/* ⭐ Ask for a Google review — sits right above the Referral button. Texts the
             homeowner the review link + logs a review_request (counts for the contest). */}
         {!selecting && !referralForm && !newPin && !adding && (auth.rt || testMode) && (
@@ -3840,10 +3856,10 @@ export default function CanvassMap() {
           <div style={{ position: "absolute", inset: 0, zIndex: 1200, background: "rgba(15,23,42,.45)", display: "flex", alignItems: "flex-end", justifyContent: "center" }} onClick={closeReferral}>
             <div onClick={(e) => e.stopPropagation()} style={{ width: "100%", maxWidth: 460, background: "#fff", borderTopLeftRadius: 18, borderTopRightRadius: 18, padding: "18px 18px 24px", boxShadow: "0 -4px 20px rgba(0,0,0,.2)" }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                <div style={{ fontSize: 17, fontWeight: 900, color: "#0f172a" }}>⭐ Add a Referral</div>
+                <div style={{ fontSize: 17, fontWeight: 900, color: "#0f172a" }}>{referralForm.mode === "retail" ? "🏷️ Retail Appointment" : "⭐ Add a Referral"}</div>
                 <button type="button" onClick={closeReferral} style={{ background: "none", border: "none", fontSize: 22, color: "#94a3b8", cursor: "pointer", lineHeight: 1 }}>×</button>
               </div>
-              <div style={{ fontSize: 12.5, color: "#b45309", marginTop: 2, marginBottom: 12 }}>The warmest lead on the map — it drops a pin and overrides any pin already there.</div>
+              <div style={{ fontSize: 12.5, color: referralForm.mode === "retail" ? "#1d4ed8" : "#b45309", marginTop: 2, marginBottom: 12 }}>{referralForm.mode === "retail" ? "A retail appointment you set in the field — drops a pin and books it in JobNimbus on the next step." : "The warmest lead on the map — it drops a pin and overrides any pin already there."}</div>
               <input value={referralForm.name} onChange={(e) => setReferralForm((f) => ({ ...f, name: e.target.value }))} placeholder="Homeowner name"
                 style={{ width: "100%", boxSizing: "border-box", height: 46, padding: "0 12px", borderRadius: 10, border: "1px solid #d1d5db", fontSize: 15, marginBottom: 9 }} />
               <input type="tel" inputMode="tel" value={referralForm.phone} onChange={(e) => setReferralForm((f) => ({ ...f, phone: e.target.value }))} placeholder="Phone"
@@ -3859,11 +3875,13 @@ export default function CanvassMap() {
                 style={{ marginTop: 8, fontSize: 12.5, fontWeight: 800, color: "#b45309", background: "#fff7ed", border: "1px solid #fed7aa", borderRadius: 9, padding: "8px 12px", cursor: "pointer" }}>
                 📍 Can't find it? Tap the map to drop it here
               </button>
-              <input value={referralForm.referred_by} onChange={(e) => setReferralForm((f) => ({ ...f, referred_by: e.target.value }))} placeholder="Referred by (optional)"
-                style={{ width: "100%", boxSizing: "border-box", height: 44, padding: "0 12px", borderRadius: 10, border: "1px solid #e2e8f0", fontSize: 14, marginTop: 9, background: "#f8fafc" }} />
+              {referralForm.mode !== "retail" && (
+                <input value={referralForm.referred_by} onChange={(e) => setReferralForm((f) => ({ ...f, referred_by: e.target.value }))} placeholder="Referred by (optional)"
+                  style={{ width: "100%", boxSizing: "border-box", height: 44, padding: "0 12px", borderRadius: 10, border: "1px solid #e2e8f0", fontSize: 14, marginTop: 9, background: "#f8fafc" }} />
+              )}
               <button type="button" disabled={!referralPlace || referralSaving} onClick={submitReferral}
-                style={{ width: "100%", marginTop: 14, padding: "14px", borderRadius: 12, border: "none", fontSize: 15, fontWeight: 800, fontFamily: "'Oswald', sans-serif", background: (!referralPlace || referralSaving) ? "#fcd9a6" : "#d97706", color: "#fff", cursor: (!referralPlace || referralSaving) ? "default" : "pointer" }}>
-                {referralSaving ? "Saving…" : "⭐ Save & work it"}
+                style={{ width: "100%", marginTop: 14, padding: "14px", borderRadius: 12, border: "none", fontSize: 15, fontWeight: 800, fontFamily: "'Oswald', sans-serif", background: (!referralPlace || referralSaving) ? (referralForm.mode === "retail" ? "#bfdbfe" : "#fcd9a6") : (referralForm.mode === "retail" ? "#2563eb" : "#d97706"), color: "#fff", cursor: (!referralPlace || referralSaving) ? "default" : "pointer" }}>
+                {referralSaving ? "Saving…" : referralForm.mode === "retail" ? "🏷️ Set the appointment" : "⭐ Save & work it"}
               </button>
             </div>
           </div>
