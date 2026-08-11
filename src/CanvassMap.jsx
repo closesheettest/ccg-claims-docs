@@ -3843,7 +3843,7 @@ export default function CanvassMap() {
         {!selecting && !referralForm && !newPin && !adding && !btrPin && (auth.rt || testMode) && (
           <button type="button" onClick={openRetailAppt}
             style={{ position: "absolute", right: 12, bottom: 112, zIndex: 600, background: "#2563eb", color: "#fff", border: "none", borderRadius: 999, padding: "11px 16px", fontSize: 13.5, fontWeight: 800, fontFamily: "'Oswald', sans-serif", boxShadow: "0 3px 12px rgba(0,0,0,.28)", cursor: "pointer" }}>
-            🏷️ Retail Appt
+            🏷️ Self Gen
           </button>
         )}
         {/* ⭐ Ask for a Google review — sits right above the Referral button. Texts the
@@ -3856,7 +3856,7 @@ export default function CanvassMap() {
           <div style={{ position: "absolute", inset: 0, zIndex: 1200, background: "rgba(15,23,42,.45)", display: "flex", alignItems: "flex-end", justifyContent: "center" }} onClick={closeReferral}>
             <div onClick={(e) => e.stopPropagation()} style={{ width: "100%", maxWidth: 460, background: "#fff", borderTopLeftRadius: 18, borderTopRightRadius: 18, padding: "18px 18px 24px", boxShadow: "0 -4px 20px rgba(0,0,0,.2)" }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                <div style={{ fontSize: 17, fontWeight: 900, color: "#0f172a" }}>{referralForm.mode === "retail" ? "🏷️ Retail Appointment" : "⭐ Add a Referral"}</div>
+                <div style={{ fontSize: 17, fontWeight: 900, color: "#0f172a" }}>{referralForm.mode === "retail" ? "🏷️ Self-Gen Retail Appt" : "⭐ Add a Referral"}</div>
                 <button type="button" onClick={closeReferral} style={{ background: "none", border: "none", fontSize: 22, color: "#94a3b8", cursor: "pointer", lineHeight: 1 }}>×</button>
               </div>
               <div style={{ fontSize: 12.5, color: referralForm.mode === "retail" ? "#1d4ed8" : "#b45309", marginTop: 2, marginBottom: 12 }}>{referralForm.mode === "retail" ? "A retail appointment you set in the field — drops a pin and books it in JobNimbus on the next step." : "The warmest lead on the map — it drops a pin and overrides any pin already there."}</div>
