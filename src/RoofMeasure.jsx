@@ -388,42 +388,65 @@ function ResultCard({ d: d0 }) {
   );
 }
 
-// 📐 The no-draw workflow: pull the county appraiser BUILDING SKETCH for this
-// address, show it, and let the rep type each roofed section's length × width off
-// it. Overhang is auto-added (1.5 ft/side), pitch comes from the satellite read, and
-// footprint × slope factor = squares — no tracing. Feeds the card's applyAppraiser.
+// 📐 The no-draw workflow — AUTO-FIRST. Ask the county appraiser for this address's
+// UNDER-ROOF FOOTPRINT (appraiser-data: Batch-1 counties give it with zero typing) and
+// finish the roof for the rep: footprint + eave overhang × pitch = squares, with the
+// building sketch shown for a visual gut-check. If the county has no raw data, fall
+// back to the sketch-and-type path (appraiser-sketch). Feeds the card's applyAppraiser.
+//
+// Overhang from a sqft-only footprint: appraisers measure wall-to-wall, but the roof
+// plane runs out to the drip edge. For a roughly square building the eave ring area is
+// perimeter×oh + 4·oh²  ≈ 4·√A·oh + 4·oh²  (matches the +1.5 ft/side we calibrated on
+// Hollybrook to Roofr). We add that to A, then apply the slope factor.
+function ohArea(A, oh) { return A > 0 && oh > 0 ? 4 * Math.sqrt(A) * oh + 4 * oh * oh : 0; }
+
 function SketchMeasure({ d, pitch, onUse, active, satSquares }) {
-  const [state, setState] = useState("loading");  // loading | done | miss
-  const [sketches, setSketches] = useState([]);
+  const [state, setState] = useState("loading");  // loading | auto | manual | miss
+  const [data, setData] = useState(null);          // appraiser-data raw result (auto)
+  const [sketches, setSketches] = useState([]);    // appraiser-sketch fallback images
   const [missMsg, setMissMsg] = useState("");
   const [overhang, setOverhang] = useState("1.5");
   const [sections, setSections] = useState([{ l: "", w: "" }]);
+  const [manualOpen, setManualOpen] = useState(false);  // auto mode: "measure it myself" escape hatch
+
+  const address = d.geocoded_as || d._addr;
+  const county = d.county || d.appraiser?.county || "";
 
   useEffect(() => {
-    const address = d.geocoded_as || d._addr;
     if (!address) { setState("miss"); return; }
-    let alive = true; setState("loading");
-    fetch("/.netlify/functions/appraiser-sketch", {
+    let alive = true;
+    setState("loading"); setData(null); setSketches([]); setMissMsg(""); setManualOpen(false);
+    // 1) Raw appraiser DATA — footprint by address, zero typing (Batch-1 counties).
+    fetch("/.netlify/functions/appraiser-data", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ address, county: d.county || d.appraiser?.county || "" }),
+      body: JSON.stringify({ address, county }),
     })
       .then((r) => r.json())
-      .then((j) => {
+      .then(async (j) => {
         if (!alive) return;
-        if (j && j.ok && (j.sketches || []).length) { setSketches(j.sketches); setState("done"); }
-        else { setMissMsg(j?.error || ""); setState("miss"); }
+        if (j && j.ok && j.footprint_sqft > 0) { setData(j); setState("auto"); return; }
+        // 2) No raw data → sketch + manual typing (appraiser-sketch: Pasco etc.).
+        try {
+          const sr = await fetch("/.netlify/functions/appraiser-sketch", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ address, county }),
+          });
+          const sj = await sr.json();
+          if (!alive) return;
+          if (sj && sj.ok && (sj.sketches || []).length) { setSketches(sj.sketches); setState("manual"); return; }
+          setMissMsg(sj?.error || j?.error || ""); setState("miss");
+        } catch { if (alive) setState("miss"); }
       })
       .catch(() => { if (alive) setState("miss"); });
     return () => { alive = false; };
-  }, [d.geocoded_as, d._addr]);
+  }, [address, county]);
 
   const oh = Math.max(0, parseFloat(overhang) || 0);
   const p = (pitch ?? 6) / 12;
   const sf = Math.sqrt(1 + p * p);
-  // Overhang belongs on the OUTER edge of the roof, so add it to the MAIN outline
-  // only (section 0). The extra sections are protrusions that butt against the house
-  // — adding +oh to every side of a small jog balloons it and double-counts the seam
-  // where it meets the main (that's what pushed Hollybrook to 42.7 vs Roofr's 39.6).
+
+  // Manual path: overhang on the MAIN outline only (section 0). Protrusions butt against
+  // the house — +oh on every side balloons them and double-counts the shared seam.
   const footprint = sections.reduce((s, sec, i) => {
     const l = parseFloat(sec.l), w = parseFloat(sec.w);
     if (!(l > 0 && w > 0)) return s;
@@ -433,36 +456,122 @@ function SketchMeasure({ d, pitch, onUse, active, satSquares }) {
   const setSec = (i, patch) => setSections((ss) => ss.map((s, j) => (j === i ? { ...s, ...patch } : s)));
 
   const wrap = { border: "1px solid #e5e7eb", borderRadius: 12, padding: "13px 15px", marginBottom: 16, background: "#fafafa" };
-  const head = <div style={{ fontSize: 13, fontWeight: 800, color: "#334155", letterSpacing: ".02em", marginBottom: 8 }}>📐 MEASURE FROM THE APPRAISER SKETCH</div>;
+  const head = (
+    <div style={{ fontSize: 13, fontWeight: 800, color: "#334155", letterSpacing: ".02em", marginBottom: 8 }}>
+      📐 AUTO-MEASURE FROM THE COUNTY APPRAISER
+    </div>
+  );
+  const input = { width: 82, fontFamily: FONT, fontSize: 15, padding: "7px 9px", border: "1px solid #cbd5e1", borderRadius: 8, textAlign: "center" };
 
-  if (state === "loading") return <div style={wrap}>{head}<div style={{ fontSize: 13, color: "#64748b" }}>Pulling the appraiser sketch…</div></div>;
+  if (state === "loading") return <div style={wrap}>{head}<div style={{ fontSize: 13, color: "#64748b" }}>Asking the county appraiser for this roof…</div></div>;
+
   if (state === "miss") return (
     <div style={{ ...wrap, background: "#f8fafc" }}>{head}
-      <div style={{ fontSize: 12.5, color: "#94a3b8" }}>{missMsg || "No appraiser sketch auto-loaded for this address."} <span style={{ color: "#cbd5e1" }}>(Auto-sketch is Pasco-only right now — trace on the map instead.)</span></div>
+      <div style={{ fontSize: 12.5, color: "#94a3b8" }}>{missMsg || "No county appraiser data auto-loaded for this address."} <span style={{ color: "#cbd5e1" }}>(This county isn't wired for auto-measure yet — trace it on the map below.)</span></div>
     </div>
   );
 
-  const input = { width: 82, fontFamily: FONT, fontSize: 15, padding: "7px 9px", border: "1px solid #cbd5e1", borderRadius: 8, textAlign: "center" };
+  // ── AUTO: county returned the under-roof footprint. Finish the roof, no typing. ──
+  if (state === "auto" && data) {
+    const A = Math.round(Number(data.footprint_sqft) || 0);
+    const withOh = A + ohArea(A, oh);
+    const autoSquares = withOh > 0 ? Math.round((withOh * sf) / 100 * 100) / 100 : 0;
+    const subs = data.subareas || [];
+    return (
+      <div style={{ ...wrap, background: active ? "#f0fdf4" : "#f8fdf9", borderColor: active ? "#86efac" : "#bbf7d0" }}>
+        {head}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", fontSize: 12.5, color: "#166534", marginBottom: 10 }}>
+          <span style={{ fontWeight: 800, background: "#dcfce7", border: "1px solid #86efac", borderRadius: 999, padding: "3px 10px" }}>✓ {data.county} appraiser</span>
+          <span style={{ color: "#64748b" }}>No typing needed — read straight from the county records.</span>
+        </div>
 
+        {/* The measurement */}
+        <div style={{ display: "flex", alignItems: "baseline", gap: 14, flexWrap: "wrap", marginBottom: 10 }}>
+          <div>
+            <div style={LABEL}>Under-roof footprint</div>
+            <div style={{ fontSize: 26, fontWeight: 900, color: "#0f172a", lineHeight: 1.05 }}>{A.toLocaleString()}<span style={{ fontSize: 13, fontWeight: 700, color: "#64748b" }}> sqft</span></div>
+          </div>
+          <div style={{ fontSize: 22, color: "#cbd5e1" }}>→</div>
+          <div>
+            <div style={LABEL}>Roof at {pitch ?? 6}/12{oh > 0 ? ` + ${oh}ft eave` : ""}</div>
+            <div style={{ fontSize: 30, fontWeight: 900, color: "#16a34a", lineHeight: 1.05 }}>{autoSquares}<span style={{ fontSize: 14, fontWeight: 700, color: "#64748b" }}> sq</span></div>
+          </div>
+          {satSquares != null && (
+            <div style={{ fontSize: 12, color: "#94a3b8" }}>satellite saw {satSquares} sq</div>
+          )}
+        </div>
+
+        {/* Section breakdown from the records (the "raw data" scan) */}
+        {subs.length > 0 && (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
+            {subs.map((s, i) => (
+              <span key={i} style={{ fontSize: 11.5, color: "#475569", background: "#fff", border: "1px solid #e5e7eb", borderRadius: 999, padding: "3px 9px" }}>
+                {s.desc} <b style={{ color: "#0f172a" }}>{Number(s.sqft).toLocaleString()}</b>
+              </span>
+            ))}
+          </div>
+        )}
+
+        {/* The sketch — visual gut-check that the county pulled the right building */}
+        {data.sketch && (
+          <div style={{ marginBottom: 10, textAlign: "center", background: "#fff", border: "1px solid #e5e7eb", borderRadius: 10, padding: 8, overflow: "auto" }}>
+            <img src={data.sketch} alt="Appraiser building sketch" style={{ maxWidth: "100%", height: "auto" }} />
+            <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 4 }}>County sketch — confirm this is the right building</div>
+          </div>
+        )}
+
+        <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "6px 0 10px" }}>
+          <span style={{ fontSize: 12.5, fontWeight: 700, color: "#475569" }}>Overhang per side (ft)</span>
+          <input value={overhang} onChange={(e) => setOverhang(e.target.value)} inputMode="decimal" style={{ ...input, width: 64 }} />
+          {data.matched_address && <span style={{ fontSize: 11.5, color: "#cbd5e1" }}>matched: {data.matched_address}</span>}
+        </div>
+
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap", paddingTop: 10, borderTop: "1px solid #e5e7eb" }}>
+          <button type="button" onClick={() => setManualOpen((v) => !v)} style={{ fontSize: 12.5, fontWeight: 700, color: "#2563eb", background: "none", border: "none", cursor: "pointer", padding: 0 }}>
+            {manualOpen ? "Hide manual entry" : "Not right? Measure it myself →"}
+          </button>
+          <button type="button" disabled={!(autoSquares > 0)} onClick={() => onUse(withOh)}
+            style={{ fontFamily: FONT, fontSize: 14, fontWeight: 800, color: "#fff", background: autoSquares > 0 ? "#16a34a" : "#94a3b8", border: "none", borderRadius: 10, padding: "10px 18px", cursor: autoSquares > 0 ? "pointer" : "default" }}>
+            {active ? "✓ Using this — update" : "Use this measurement"}
+          </button>
+        </div>
+
+        {manualOpen && (
+          <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px dashed #cbd5e1" }}>
+            <ManualSections sections={sections} setSections={setSections} setSec={setSec} oh={oh} input={input} pitch={pitch} footprint={footprint} squares={squares} satSquares={satSquares} onUse={onUse} active={active} />
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // ── MANUAL: no raw data, but the county served a sketch — read L×W off it. ──
   return (
     <div style={{ ...wrap, background: active ? "#f0fdf4" : "#fafafa", borderColor: active ? "#bbf7d0" : "#e5e7eb" }}>
       {head}
       <div style={{ fontSize: 12.5, color: "#64748b", marginBottom: 10 }}>
-        Read each roofed section's <b>length × width</b> off the sketch and type them — the <b>Main</b> first, then each jog/garage/porch. Overhang is added to the main outline; pitch comes from the satellite ({pitch != null ? `${pitch}/12` : "—"}). No drawing needed.
+        This county doesn't publish the sqft, but here's its building sketch. Read each roofed section's <b>length × width</b> off it — the <b>Main</b> first, then each jog/garage/porch. Overhang is added to the main outline; pitch comes from the satellite ({pitch != null ? `${pitch}/12` : "—"}).
       </div>
-
       {sketches.map((s, i) => (
-        <div key={s.pid + "-" + s.bid} style={{ marginBottom: 10, textAlign: "center", background: "#fff", border: "1px solid #e5e7eb", borderRadius: 10, padding: 8, overflow: "auto" }}>
+        <div key={(s.pid || "") + "-" + (s.bid || i)} style={{ marginBottom: 10, textAlign: "center", background: "#fff", border: "1px solid #e5e7eb", borderRadius: 10, padding: 8, overflow: "auto" }}>
           <img src={s.image} alt={`Appraiser sketch ${i + 1}`} style={{ maxWidth: "100%", height: "auto" }} />
           {sketches.length > 1 && <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 4 }}>Building {i + 1} of {sketches.length}</div>}
         </div>
       ))}
-
       <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "8px 0 4px" }}>
         <span style={{ fontSize: 12.5, fontWeight: 700, color: "#475569" }}>Overhang per side (ft)</span>
         <input value={overhang} onChange={(e) => setOverhang(e.target.value)} inputMode="decimal" style={{ ...input, width: 64 }} />
       </div>
+      <ManualSections sections={sections} setSections={setSections} setSec={setSec} oh={oh} input={input} pitch={pitch} footprint={footprint} squares={squares} satSquares={satSquares} onUse={onUse} active={active} />
+    </div>
+  );
+}
 
+// The section-by-section typing UI (Main + protrusions) shared by the manual path and
+// the auto path's "measure it myself" escape hatch.
+function ManualSections({ sections, setSections, setSec, oh, input, pitch, footprint, squares, satSquares, onUse, active }) {
+  return (
+    <>
       <div style={{ display: "flex", flexDirection: "column", gap: 8, margin: "8px 0" }}>
         {sections.map((sec, i) => (
           <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
@@ -476,7 +585,6 @@ function SketchMeasure({ d, pitch, onUse, active, satSquares }) {
         ))}
         <button type="button" onClick={() => setSections((ss) => [...ss, { l: "", w: "" }])} style={{ alignSelf: "flex-start", fontSize: 12.5, fontWeight: 700, color: "#2563eb", background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 8, padding: "6px 12px", cursor: "pointer" }}>+ Add a section (garage / porch)</button>
       </div>
-
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap", marginTop: 10, paddingTop: 10, borderTop: "1px solid #e5e7eb" }}>
         <div style={{ fontSize: 12.5, color: "#64748b" }}>
           {footprint > 0
@@ -488,7 +596,7 @@ function SketchMeasure({ d, pitch, onUse, active, satSquares }) {
           {active ? "✓ Using this — update" : "Use this measurement"}
         </button>
       </div>
-    </div>
+    </>
   );
 }
 
