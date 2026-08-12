@@ -65,17 +65,32 @@ export const handler = async (event) => {
     if (result === "damage") {
       const ids = rows.map((r) => r.id);
       const latestAppt = {};
+      const apptStats = {}; // id -> { cancelled, past } = PA appts that DIDN'T go through
+      const nowMs = Date.now();
       if (ids.length) {
         const inList = ids.map((id) => `"${id}"`).join(",");
-        const appts = await sbGet(`pa_appointments?inspection_id=in.(${encodeURIComponent(inList)})&status=neq.cancelled&select=inspection_id,start_at,status`);
+        // Pull ALL appts (incl. cancelled) so we can tell the rep WHY it's back on their
+        // list ("2 appointments didn't go through"). Only NON-cancelled feed the state.
+        const appts = await sbGet(`pa_appointments?inspection_id=in.(${encodeURIComponent(inList)})&select=inspection_id,start_at,status`);
         for (const a of appts) {
           if (!a.inspection_id) continue;
+          const st = (apptStats[a.inspection_id] = apptStats[a.inspection_id] || { cancelled: 0, past: 0 });
+          if (String(a.status || "").toLowerCase() === "cancelled") { st.cancelled++; continue; }
           const cur = latestAppt[a.inspection_id];
           if (!cur || String(a.start_at || "") > String(cur.start_at || "")) latestAppt[a.inspection_id] = a;
+          const t = a.start_at ? new Date(a.start_at).getTime() : 0;
+          if (t && t < nowMs) st.past++; // a booked time that came and went
         }
       }
-      const nowMs = Date.now();
       rows = rows.filter((r) => damageNeedsGoback(damageState(r, latestAppt[r.id] || null, nowMs)));
+      // Stamp a plain-English reason so the rep knows why it bounced back to them.
+      for (const r of rows) {
+        const st = apptStats[r.id] || { cancelled: 0, past: 0 };
+        const fell = st.cancelled + st.past;
+        r._goback_reason = fell > 0
+          ? `${fell} PA appointment${fell === 1 ? "" : "s"} didn't go through — needs to be rebooked.`
+          : "No PA appointment booked yet — set the PA visit.";
+      }
     }
     // No-Damage list: once handled — certificate sent or referral declined
     // (inspections.referral_outcome set) — it drops off the rep's list.
@@ -110,6 +125,7 @@ export const handler = async (event) => {
         mobile: r.mobile, email: r.email, jn_job_id: r.jn_job_id, latitude: r.latitude, longitude: r.longitude,
         distance_mi: dist, result: r.result, result_at: r.result_at, pa_id: r.pa_id, review_availability: r.review_availability, result_task_at: r.result_task_at,
         pa_notes_log: Array.isArray(r.pa_notes_log) ? r.pa_notes_log : null,
+        goback_reason: r._goback_reason || null,
       };
     });
     deals.sort((a, b) => ((a.distance_mi ?? 1e9) - (b.distance_mi ?? 1e9)) || (a.client_name || "").localeCompare(b.client_name || ""));

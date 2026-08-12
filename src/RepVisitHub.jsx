@@ -590,6 +590,7 @@ function DealList({ type, deals, onBack, onPick }) {
               <span style={{ display: "block", fontWeight: 700 }}>{d.client_name}</span>
               <span style={{ display: "block", fontSize: 12.5, color: "#6b7280", fontWeight: 400 }}>{[d.address, d.city].filter(Boolean).join(", ")}</span>
               <span style={{ display: "block", fontSize: 11.5, color: "#9ca3af", fontWeight: 700 }}>{d.distance_mi != null ? `${d.distance_mi} mi away` : "distance unknown"}{(d.result_task_at || d.review_availability) ? ` · 🏠 ${goBackDisplay(d)}` : ""}</span>
+              {d.goback_reason && <span style={{ display: "block", fontSize: 11.5, color: "#b45309", fontWeight: 700, marginTop: 3, whiteSpace: "normal" }}>↩︎ {d.goback_reason}</span>}
             </button>
           ))}</div>}
     </div>
@@ -605,6 +606,7 @@ function Panel({ type, deal, rep, api, onBack, onPhotos }) {
       <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, padding: "10px 12px", fontSize: 12.5, color: "#6b7280", marginBottom: 12 }}>
         {[deal.address, deal.city, deal.state].filter(Boolean).join(", ")}
         {(deal.result_task_at || deal.review_availability) && <span style={{ display: "block", marginTop: 4, color: "#166534", fontWeight: 700 }}>🏠 {deal.result_task_at ? "Scheduled" : "Best time to come by"}: {goBackDisplay(deal)}</span>}
+        {deal.goback_reason && <span style={{ display: "block", marginTop: 6, color: "#b45309", fontWeight: 700 }}>↩︎ Why it's back on your list: {deal.goback_reason}</span>}
         {(() => {
           const log = Array.isArray(deal.pa_notes_log) ? deal.pa_notes_log : [];
           const last = log.length ? (log[log.length - 1].text || log[log.length - 1]) : null;
