@@ -25,6 +25,18 @@ export const handler = async (event) => {
   const address = String(body.address || "").trim();
   if (!address) return cors(400, JSON.stringify({ ok: false, error: "address required" }));
   const county = normCounty(body.county, address);
+  if (body.debug === "hcpa") {
+    try {
+      const where = encodeURIComponent(`FullAddress LIKE '%${streetOf(address)}%'`);
+      const d = await j(`https://gis.hcpafl.org/arcgis/rest/services/Webmaps/HillsboroughFL_WebParcels/MapServer/0/query?where=${where}&outFields=folio,strap,FullAddress&returnGeometry=false&f=json`, { headers: { Referer: "https://gis.hcpafl.org/PropertySearch/" } });
+      const a = (d.features || [])[0]?.attributes;
+      const strap = a && a.strap ? String(a.strap).trim() : null;
+      let bld = null;
+      if (strap) { const pd = await j(`https://gis.hcpafl.org/CommonServices/property/search/ParcelData?pin=${encodeURIComponent(strap)}`, { headers: { Referer: "https://gis.hcpafl.org/PropertySearch/" } }); bld = (pd.buildings || [])[0]; }
+      const b = bld || {};
+      return cors(200, JSON.stringify({ debug: true, strap, matched: a && a.FullAddress, bldKeys: Object.keys(b), bldScalars: Object.fromEntries(Object.entries(b).filter(([k, v]) => typeof v !== "object")), subAreaInfo: b.subAreaInfo }));
+    } catch (e) { return cors(200, JSON.stringify({ debug: true, error: e.message })); }
+  }
   const adapter = ADAPTERS[county];
   if (!adapter) return cors(200, JSON.stringify({ ok: false, unsupported: true, error: `Auto-measure isn't wired for ${body.county || "this county"} yet.`, county }));
 
