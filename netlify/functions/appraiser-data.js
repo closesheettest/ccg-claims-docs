@@ -35,9 +35,13 @@ export const handler = async (event) => {
       if (pin) {
         const r = await fetch(`https://www.pcpao.gov/property-details?s=${encodeURIComponent(pin)}`, { headers: BROWSER_HDRS, redirect: "follow" });
         const html = await r.text();
-        htmlLen = html.length; snippet = html.slice(0, 300); hasTotal = /Total\s*Area\s*S\.?\s*F/i.test(html);
+        htmlLen = html.length; hasTotal = /Total\s*Area\s*S\.?\s*F/i.test(html);
+        const idx = html.search(/Total\s*Area\s*S\.?\s*F/i);
+        snippet = idx >= 0 ? html.slice(idx - 40, idx + 400) : html.slice(0, 400);
+        const apis = [...new Set([...html.matchAll(/["'`](\/?api\/[^"'`\s]+|https?:\/\/[^"'`\s]*(?:api|service|rest)[^"'`\s]*)["'`]/gi)].map(m => m[1]))].slice(0, 12);
+        return cors(200, JSON.stringify({ debug: true, street: streetOf(address), pin, htmlLen, hasTotal, apis, snippet }));
       }
-      return cors(200, JSON.stringify({ debug: true, street: streetOf(address), pin, matched: a && a.FULLADDR, htmlLen, hasTotal, snippet }));
+      return cors(200, JSON.stringify({ debug: true, street: streetOf(address), pin, matched: a && a.FULLADDR, note: "no pin" }));
     } catch (e) { return cors(200, JSON.stringify({ debug: true, error: e.message })); }
   }
   const adapter = ADAPTERS[county];
