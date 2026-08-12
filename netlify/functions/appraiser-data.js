@@ -25,18 +25,6 @@ export const handler = async (event) => {
   const address = String(body.address || "").trim();
   if (!address) return cors(400, JSON.stringify({ ok: false, error: "address required" }));
   const county = normCounty(body.county, address);
-  if (body.debug === "hcpa") {
-    try {
-      const where = encodeURIComponent(`FullAddress LIKE '%${streetOf(address)}%'`);
-      const d = await j(`https://gis.hcpafl.org/arcgis/rest/services/Webmaps/HillsboroughFL_WebParcels/MapServer/0/query?where=${where}&outFields=folio,strap,FullAddress&returnGeometry=false&f=json`, { headers: { Referer: "https://gis.hcpafl.org/PropertySearch/" } });
-      const a = (d.features || [])[0]?.attributes;
-      const strap = a && a.strap ? String(a.strap).trim() : null;
-      let bld = null;
-      if (strap) { const pd = await j(`https://gis.hcpafl.org/CommonServices/property/search/ParcelData?pin=${encodeURIComponent(strap)}`, { headers: { Referer: "https://gis.hcpafl.org/PropertySearch/" } }); bld = (pd.buildings || [])[0]; }
-      const b = bld || {};
-      return cors(200, JSON.stringify({ debug: true, strap, matched: a && a.FullAddress, bldKeys: Object.keys(b), bldScalars: Object.fromEntries(Object.entries(b).filter(([k, v]) => typeof v !== "object")), subAreaInfo: b.subAreaInfo }));
-    } catch (e) { return cors(200, JSON.stringify({ debug: true, error: e.message })); }
-  }
   const adapter = ADAPTERS[county];
   if (!adapter) return cors(200, JSON.stringify({ ok: false, unsupported: true, error: `Auto-measure isn't wired for ${body.county || "this county"} yet.`, county }));
 
@@ -116,7 +104,10 @@ async function palmBeach(address) {
   if (!first) return null;
   const pcn = first.value.replace(/^P:/, "").trim();
   const html = await t(`https://pbcpao.gov/Property/RenderPrintSum?parcelId=${encodeURIComponent(pcn)}&flag=ALL`);
-  const subs = parseSubareaTable(html, /(BAS|FGR|FOP|FSP|FEP|FUS|SFB|UST|FCP|FGD|CAN)\b[^<]*<\/td>\s*<td[^>]*>\s*([\d,]+)/gi);
+  // Capture EVERY code (incl. upper-story/balcony) so the classifier can drop them —
+  // the old list silently ADDED FUS/SFB/UST, inflating two-story homes.
+  const raw = parseSubareaTable(html, /(BAS|BASE|FGR|UGR|FCP|UCP|CAR|FOP|OPF|FEP|EPF|FSP|SPF|SCP|FST|UST|FUS|SFB|USF|UFS|BAL|CAN|TWO|THR|PAT|DCK|FGD)\b[^<]*<\/td>\s*<td[^>]*>\s*([\d,]+)/gi);
+  const subs = raw.map((x) => ({ desc: x.desc, sqft: groundRoofed(x.desc, x.sqft) })).filter((x) => x.sqft > 0);
   const footprint = subs.reduce((s, x) => s + x.sqft, 0); if (!footprint) return null;
   const sketch = await imgB64(`https://pbcpao.gov/Property/GetBuildingSketch?parcelID=${encodeURIComponent(pcn)}&buildingNumber=1`);
   return { footprint_sqft: footprint, subareas: subs, sketch, parcel_id: pcn, matched_address: (first.label || "").trim() };
@@ -130,8 +121,10 @@ async function hillsborough(address) {
   const strap = String(a.strap).trim();
   const pd = await j(`https://gis.hcpafl.org/CommonServices/property/search/ParcelData?pin=${encodeURIComponent(strap)}`, { headers: { Referer: "https://gis.hcpafl.org/PropertySearch/" } });
   const bld = (pd.buildings || [])[0]; if (!bld) return null;
-  const subs = (bld.subAreaInfo || []).map((s) => ({ desc: s.areaType || "area", sqft: Math.round(Number(s.grossArea) || 0) })).filter((s) => s.sqft > 0);
-  const footprint = subs.reduce((s, x) => s + x.sqft, 0) || Math.round(Number(bld.grossArea) || 0);
+  // grossArea DOUBLES two-story sections (TWO) and includes upper stories (FUS) +
+  // balconies (BAL) — count only the ground under-roof projection.
+  const subs = (bld.subAreaInfo || []).map((s) => ({ desc: s.areaType || "area", sqft: groundRoofed(s.areaType, s.grossArea) })).filter((s) => s.sqft > 0);
+  const footprint = subs.reduce((s, x) => s + x.sqft, 0);
   if (!footprint) return null;
   let sketch = null;
   if (bld.sketch) sketch = await imgB64(`https://gis.hcpafl.org/CommonServices/property/sketch-image/?sketch=${encodeURIComponent(bld.sketch)}`, { headers: { Referer: "https://gis.hcpafl.org/PropertySearch/" } });
@@ -149,19 +142,22 @@ async function pinellas(address) {
   //   <td>Desc (CODE): </td><td>{heated}</td><td>{gross}</td>
   // then a bold "Total Area SF" row with the heated/gross totals. GROSS (the larger
   // of the two cells) is the under-roof number — a carport reads 0 heated / 240 gross.
+  // Each sub-area row's rightmost number is GROSS (under-roof). Classify by its (CODE)
+  // and count only ground-level under-roof — NOT the "Total Area SF" grand total, which
+  // sums upper stories too (a two-story home would read ~double the roof footprint).
   const cellsOf = (row) => [...row.matchAll(/<td[^>]*>\s*(?:<b>)?\s*([\d,]+)\s*(?:<\/b>)?\s*<\/td>/gi)].map((x) => num(x[1]));
   const subs = [];
   for (const row of html.split(/<\/tr>/i)) {
     const dm = row.match(/<td[^>]*>\s*([A-Za-z][^<(]*?)\s*\(([A-Z]{2,5})\)\s*:?\s*<\/td>/i);
     if (!dm) continue;
     const nums = cellsOf(row);
-    if (nums.length >= 2) { const gross = Math.max(nums[nums.length - 1], nums[nums.length - 2]); if (gross > 0) subs.push({ desc: `${dm[1].trim()} (${dm[2]})`, sqft: gross }); }
+    if (nums.length >= 2) {
+      const gross = Math.max(nums[nums.length - 1], nums[nums.length - 2]);
+      const ground = groundRoofed(dm[2], gross);
+      if (ground > 0) subs.push({ desc: `${dm[1].trim()} (${dm[2]})`, sqft: ground });
+    }
   }
-  // Footprint = the "Total Area SF" GROSS (larger of that row's two number cells).
-  let footprint = 0;
-  const totalRow = html.split(/<\/tr>/i).find((r) => /Total\s*Area\s*S\.?\s*F/i.test(r));
-  if (totalRow) { const nums = cellsOf(totalRow); if (nums.length) footprint = Math.max(...nums); }
-  if (!footprint && subs.length) footprint = subs.reduce((s, x) => s + x.sqft, 0);
+  let footprint = subs.reduce((s, x) => s + x.sqft, 0);
   if (!footprint) return null;
   const sketch = await imgB64(`https://pcpao.gov/dal/blob/getBuilding/${encodeURIComponent(pin)}/1`);
   return { footprint_sqft: footprint, subareas: subs, sketch, parcel_id: pin, matched_address: (a.FULLADDR || "").trim() };
@@ -179,6 +175,26 @@ async function manatee(address) {
 
 // ── shared parsers ──────────────────────────────────────────────────────────
 function num(s) { return Math.round(Number(String(s).replace(/[, ]/g, "")) || 0); }
+
+// The roof covers the GROUND footprint, so from a sub-area breakdown we count only
+// ground-level, under-roof sections at their SINGLE-FLOOR area:
+//  • drop UPPER stories (FUS/USF/etc.) — the roof already covers the floor beneath them;
+//  • drop OPEN areas (balcony, deck, patio, pool cage) — not under a roof;
+//  • for a two/three-story code whose gross counts stacked floors (Hillsborough "TWO"),
+//    divide by the story count to get the ground projection.
+// (Counties that publish a true ground/under-roof field — Sarasota grnd_area, Manatee
+//  BLDGS_SQFT_UNROOF — skip this; their number is already the footprint.)
+const SUBAREA_UPPER = /^(FUS|SFB|USF|UFS|SFU|UUS|UST|U2S|U3S|UPR|UPPER|LOFT|FUD|2ND|3RD|ATT|ATC)/;
+const SUBAREA_OPEN = /^(BAL|BALC|DCK|DECK|PAT|PATIO|OPT|OPP|TER|TERR|WDK|WDECK|POOL|SPA|GAZ|TRELL|COURT|LANAI0)/;
+const SUBAREA_MULT = { TWO: 2, THR: 3, THREE: 3, FOUR: 4, "2ST": 2, "3ST": 3 };
+function subCode(desc) { const m = String(desc || "").match(/\(([A-Za-z0-9]{2,5})\)/); return (m ? m[1] : String(desc || "").trim().split(/\s+/)[0] || "").toUpperCase().replace(/[^A-Z0-9]/g, ""); }
+// → ground-level under-roof sqft for one sub-area (0 = don't count it toward footprint).
+function groundRoofed(code, gross) {
+  const c = subCode(code); const g = Math.round(Number(String(gross).replace(/[, ]/g, "")) || 0);
+  if (!g || SUBAREA_UPPER.test(c) || SUBAREA_OPEN.test(c)) return 0;
+  const m = SUBAREA_MULT[c] || (/^TWO/.test(c) ? 2 : /^THR/.test(c) ? 3 : 1);
+  return Math.round(g / m);
+}
 // Pull {desc, sqft} rows from an HTML sub-area table. `codeFirst` = desc has a
 // (CODE) suffix (Pinellas); otherwise the code leads (Palm Beach).
 function parseSubareaTable(html, re, descFirst) {
