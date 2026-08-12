@@ -25,25 +25,6 @@ export const handler = async (event) => {
   const address = String(body.address || "").trim();
   if (!address) return cors(400, JSON.stringify({ ok: false, error: "address required" }));
   const county = normCounty(body.county, address);
-  if (body.debug === "pinellas") {
-    try {
-      const where = encodeURIComponent(`FULLADDR LIKE '%${streetOf(address)}%'`);
-      const d = await j(`https://egis.pinellas.gov/gis/rest/services/PublicWebGIS/Parcels/MapServer/0/query?where=${where}&outFields=FULLADDR,PIN_NUM&returnGeometry=false&f=json`);
-      const a = (d.features || [])[0]?.attributes;
-      const pin = a && a.PIN_NUM ? String(a.PIN_NUM).trim() : null;
-      let htmlLen = 0, snippet = "", hasTotal = false;
-      if (pin) {
-        const r = await fetch(`https://www.pcpao.gov/property-details?s=${encodeURIComponent(pin)}`, { headers: BROWSER_HDRS, redirect: "follow" });
-        const html = await r.text();
-        htmlLen = html.length; hasTotal = /Total\s*Area\s*S\.?\s*F/i.test(html);
-        const idx = html.search(/Total\s*Area\s*S\.?\s*F/i);
-        snippet = idx >= 0 ? html.slice(idx - 1400, idx + 60).replace(/\s+/g, " ") : html.slice(0, 400);
-        const apis = [...new Set([...html.matchAll(/["'`](\/?api\/[^"'`\s]+|https?:\/\/[^"'`\s]*(?:api|service|rest)[^"'`\s]*)["'`]/gi)].map(m => m[1]))].slice(0, 12);
-        return cors(200, JSON.stringify({ debug: true, street: streetOf(address), pin, htmlLen, hasTotal, apis, snippet }));
-      }
-      return cors(200, JSON.stringify({ debug: true, street: streetOf(address), pin, matched: a && a.FULLADDR, note: "no pin" }));
-    } catch (e) { return cors(200, JSON.stringify({ debug: true, error: e.message })); }
-  }
   const adapter = ADAPTERS[county];
   if (!adapter) return cors(200, JSON.stringify({ ok: false, unsupported: true, error: `Auto-measure isn't wired for ${body.county || "this county"} yet.`, county }));
 
@@ -147,17 +128,22 @@ async function pinellas(address) {
   const a = (d.features || [])[0]?.attributes; if (!a || !a.PIN_NUM) return null;
   const pin = String(a.PIN_NUM).trim();
   const html = await t(`https://www.pcpao.gov/property-details?s=${encodeURIComponent(pin)}`);
-  // Each sub-area row: "Desc (CODE): </td><td>{heated}</td><td>{gross}</td>". The
-  // GROSS (under-roof) is the larger of the two — a carport reads 0 heated / 240 gross.
+  // The building-area table is server-rendered as one <tr> per sub-area:
+  //   <td>Desc (CODE): </td><td>{heated}</td><td>{gross}</td>
+  // then a bold "Total Area SF" row with the heated/gross totals. GROSS (the larger
+  // of the two cells) is the under-roof number — a carport reads 0 heated / 240 gross.
+  const cellsOf = (row) => [...row.matchAll(/<td[^>]*>\s*(?:<b>)?\s*([\d,]+)\s*(?:<\/b>)?\s*<\/td>/gi)].map((x) => num(x[1]));
   const subs = [];
-  for (const m of html.matchAll(/([A-Za-z][A-Za-z .\/()&-]{2,40}?)\s*\(([A-Z]{2,4})\)\s*:?\s*<\/td>\s*<td[^>]*>\s*<?\/?b?>?\s*([\d,]+)[\s\S]{0,30}?<td[^>]*>\s*<?\/?b?>?\s*([\d,]+)/gi)) {
-    const gross = Math.max(num(m[3]), num(m[4]));
-    if (gross > 0) subs.push({ desc: `${m[1].trim()} (${m[2]})`, sqft: gross });
+  for (const row of html.split(/<\/tr>/i)) {
+    const dm = row.match(/<td[^>]*>\s*([A-Za-z][^<(]*?)\s*\(([A-Z]{2,5})\)\s*:?\s*<\/td>/i);
+    if (!dm) continue;
+    const nums = cellsOf(row);
+    if (nums.length >= 2) { const gross = Math.max(nums[nums.length - 1], nums[nums.length - 2]); if (gross > 0) subs.push({ desc: `${dm[1].trim()} (${dm[2]})`, sqft: gross }); }
   }
-  // Footprint = the "Total Area SF" GROSS (the larger of the two totals on that row).
+  // Footprint = the "Total Area SF" GROSS (larger of that row's two number cells).
   let footprint = 0;
-  const tm = html.match(/Total\s*Area\s*S\.?\s*F[\s\S]{0,180}?<\/tr>/i);
-  if (tm) { const nums = [...tm[0].replace(/<[^>]+>/g, " ").matchAll(/[\d,]{2,7}/g)].map((x) => num(x[0])).filter((n) => n > 80); if (nums.length) footprint = Math.max(...nums); }
+  const totalRow = html.split(/<\/tr>/i).find((r) => /Total\s*Area\s*S\.?\s*F/i.test(r));
+  if (totalRow) { const nums = cellsOf(totalRow); if (nums.length) footprint = Math.max(...nums); }
   if (!footprint && subs.length) footprint = subs.reduce((s, x) => s + x.sqft, 0);
   if (!footprint) return null;
   const sketch = await imgB64(`https://pcpao.gov/dal/blob/getBuilding/${encodeURIComponent(pin)}/1`);
