@@ -369,7 +369,7 @@ async function roadClusterOrder(start, pins, size) {
 // WINDOW_MIN = assumed time AT an appt for the INITIAL plan (60 min). Kept modest so
 // the gap between appts actually fills with doors; the live "Appt done" re-plan uses
 // the REAL clock, so a longer appt just trims the next leg and a shorter one adds.
-const APLAN = { MIN_PER_DOOR: 8, SPEED_MPH: 30, BUFFER_MIN: 10, WINDOW_MIN: 60, MAX_DETOUR_MI: 6, TAIL_CAP: 100, TAIL_RADIUS_MI: 8 };
+const APLAN = { MIN_PER_DOOR: 8, SPEED_MPH: 30, BUFFER_MIN: 10, WINDOW_MIN: 60, MAX_DETOUR_MI: 6, TAIL_CAP: 100, TAIL_RADIUS_MI: 8, BEYOND_CAP_MI: 20 };
 function apptAnchor(a) {
   return { id: `appt_${a.jn_job_id}`, latitude: a.lat, longitude: a.lng, name: a.name, address: a.address, status: "appt_anchor", isAppt: true, _appt: { at_ms: a.at_ms, jn_job_id: a.jn_job_id } };
 }
@@ -437,6 +437,12 @@ function buildApptPlan(start, nowMs, endMs, appts, pool, endPt) {
       if (p._required) continue;
       const pc = { lat: p.latitude, lng: p.longitude };
       const dTarget = feetBetween(pc, target);
+      // HARD CAP: never pull a door more than BEYOND_CAP_MI from where the rep is
+      // headed. Without this, when the local zone runs out the "work outward" fallback
+      // below would grab the nearest pins in the pool at ANY distance — which, with a
+      // statewide pin sample loaded, wove Orlando/Tampa/Punta Gorda doors into a SE-FL
+      // day. A short day beats a cross-state one.
+      if (dTarget / 5280 > APLAN.BEYOND_CAP_MI) continue;
       const inZone = toPos
         // On-the-way filter: don't grab doors that would be a big detour from from→appt.
         ? (feetBetween(from, pc) + dTarget - base) / 5280 <= APLAN.MAX_DETOUR_MI
