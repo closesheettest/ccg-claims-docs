@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>No Code? Easy Fixes</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root{
+    --navy:#0f2a44; --ink:#1c2733; --mut:#5b6b7a;
+    --green:#16a34a; --blue:#2563eb; --bluebg:#eaf1fe;
+    --red:#dc2626; --redbg:#fef2f2; --redbd:#f6b6b6;
+    --amber:#d97706; --amberbg:#fff7ec; --amberbd:#f4cd8f;
+    --line:#e4e2dc;
+  }
+  body{ font-family:-apple-system,'Segoe UI',Helvetica,Arial,sans-serif; color:var(--ink); line-height:1.38; background:#f4f6f8; padding:16px 14px 44px; -webkit-text-size-adjust:100%; }
+  .wrap{ max-width:640px; margin:0 auto; }
+
+  .head{ text-align:center; border-bottom:4px solid var(--navy); padding-bottom:11px; margin-bottom:15px; }
+  .head .kick{ font-size:12px; font-weight:800; letter-spacing:.12em; text-transform:uppercase; color:var(--amber); }
+  .head h1{ font-size:31px; font-weight:900; color:var(--navy); line-height:1.04; margin-top:4px; }
+  .head .sub{ font-size:16px; color:var(--mut); font-weight:800; margin-top:5px; }
+
+  .top{ background:var(--navy); color:#fff; border-radius:16px; padding:16px 17px; margin-bottom:16px; text-align:center; }
+  .top .lbl{ font-size:12px; font-weight:900; letter-spacing:.1em; text-transform:uppercase; color:#ffd08a; }
+  .top .big{ font-size:20px; font-weight:900; margin:5px 0 7px; line-height:1.2; }
+  .top .fix{ font-size:16px; font-weight:800; color:#dfeaf5; }
+  .top .fix b{ color:#ffd08a; }
+
+  .card{ border:2px solid var(--line); border-radius:16px; padding:15px 17px; margin-bottom:13px; }
+  .card.red{ border-color:var(--redbd); background:var(--redbg); }
+  .card.amber{ border-color:var(--amberbd); background:var(--amberbg); }
+  .card.blue{ border-color:#b3ccf7; background:var(--bluebg); }
+  .p{ font-size:19px; font-weight:900; color:var(--navy); line-height:1.22; }
+  .p .q{ color:var(--red); }
+  .why{ font-size:16px; font-weight:800; color:var(--mut); margin:6px 0 10px; }
+  .fixrow{ display:flex; gap:10px; align-items:flex-start; background:#fff; border-radius:12px; padding:12px 13px; border:1.5px solid var(--line); }
+  .fixrow .tag{ flex:0 0 auto; font-size:15px; font-weight:900; color:var(--green); }
+  .fixrow .txt{ font-size:16px; font-weight:800; color:var(--ink); }
+  .fixrow .txt b{ color:var(--green); }
+
+  .rule{ background:#fff; border:1px solid var(--line); border-radius:14px; padding:14px 16px; text-align:center; }
+  .rule .lbl{ font-size:12px; font-weight:900; letter-spacing:.1em; text-transform:uppercase; color:var(--mut); margin-bottom:6px; }
+  .rule .r{ font-size:16px; font-weight:900; color:var(--navy); line-height:1.5; }
+  .rule .r b{ color:var(--amber); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="head">
+    <div class="kick">Free Roof Inspection</div>
+    <h1>😕 No Code? Easy Fixes.</h1>
+    <div class="sub">Find your problem. Do the fix. 👇</div>
+  </div>
+
+  <div class="top">
+    <div class="lbl">★ This is it, almost every time</div>
+    <div class="big">You tapped “Sign now.” But you are NOT with them.</div>
+    <div class="fix">Start over. Pick <b>“Send for signing — remote.”</b> Now the code goes to THEM.</div>
+  </div>
+
+  <div class="card red">
+    <div class="p">😩 You left. There is no code.</div>
+    <div class="why">The code was only on YOUR phone. You left. It's gone.</div>
+    <div class="fixrow"><span class="tag">✅ FIX</span><span class="txt">Tap <b>“Void &amp; start fresh.”</b> Fill it in again. Pick <b>“Send for signing — remote.”</b></span></div>
+  </div>
+
+  <div class="card amber">
+    <div class="p">🤝 You ARE with them. No code on your screen.</div>
+    <div class="why">They did not open the link yet — or your screen just didn't flip.</div>
+    <div class="fixrow"><span class="tag">✅ FIX</span><span class="txt">Have them <b>tap the link on their phone.</b> No code yet? Tap the button <b>“Didn't switch? Tap to get the code →”</b> Read it out loud.</span></div>
+  </div>
+
+  <div class="card blue">
+    <div class="p">📲 You sent it. They say “no code came.”</div>
+    <div class="why">The code is a SEPARATE message. One text. One email.</div>
+    <div class="fixrow"><span class="tag">✅ FIX</span><span class="txt">Tell them: look in <b>texts AND email</b> (and spam). Still nothing? <b>Fix their number/email and send again.</b></span></div>
+  </div>
+
+  <div class="card">
+    <div class="p"><span style="color:var(--red)">❌</span> It says “wrong code” or “expired.”</div>
+    <div class="why">The code is too old.</div>
+    <div class="fixrow"><span class="tag">✅ FIX</span><span class="txt"><b>Send the link again.</b> Use the <b>newest</b> code.</span></div>
+  </div>
+
+  <div class="rule">
+    <div class="lbl">The only rule</div>
+    <div class="r">🤝 <b>WITH</b> them → Sign now &nbsp;·&nbsp; 📞 <b>NOT</b> with them → Send for signing — remote</div>
+  </div>
+
+</div>
+</body>
+</html>

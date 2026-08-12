@@ -14722,6 +14722,17 @@ if (!hasDamage) {
                 ‹ Back to menu
               </button>
             )}
+            {/* Quick help — open the how-to + the "no code" fixer in a new tab. */}
+            <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+              <button type="button" onClick={() => window.open("/how-to-sign.html", "_blank", "noopener")}
+                style={{ flex: 1, fontFamily: "'Oswald', sans-serif", fontWeight: 800, fontSize: 13.5, letterSpacing: "0.02em", color: "#0f2a44", background: "#eef2f7", border: "1px solid #cbd5e1", borderRadius: 10, padding: "10px 8px", cursor: "pointer" }}>
+                📄 How to use
+              </button>
+              <button type="button" onClick={() => window.open("/no-code-help.html", "_blank", "noopener")}
+                style={{ flex: 1, fontFamily: "'Oswald', sans-serif", fontWeight: 800, fontSize: 13.5, letterSpacing: "0.02em", color: "#8a5a12", background: "#fff7ec", border: "1px solid #f4cd8f", borderRadius: 10, padding: "10px 8px", cursor: "pointer" }}>
+                🔑 Didn't get a code?
+              </button>
+            </div>
             {/* Results-review availability — ask up front (script at the top), so
                 the rep captures when to swing back once the inspection is done. */}
             <div style={{ marginBottom: 16 }}>
