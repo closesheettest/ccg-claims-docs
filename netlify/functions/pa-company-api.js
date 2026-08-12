@@ -112,13 +112,19 @@ exports.handler = async (event) => {
     // pa_company_id gets NULLED once a PA claims/books it, so a scope on
     // pa_company_id alone would miss every already-assigned deal (the bug that
     // made re-assigning silently fail).
-    const insp = (await get(`${SB_URL}/rest/v1/inspections?id=eq.${encodeURIComponent(inspectionId)}&select=id,pa_id,pa_company_id&limit=1`, sb))[0];
+    const insp = (await get(`${SB_URL}/rest/v1/inspections?id=eq.${encodeURIComponent(inspectionId)}&select=id,pa_id,pa_company_id,pa_stage&limit=1`, sb))[0];
     if (!insp) return cors(404, JSON.stringify({ ok: false, error: "Deal not found" }));
     const ours = insp.pa_company_id === company.id || pas.some((p) => p.id === insp.pa_id);
     if (!ours) return cors(403, JSON.stringify({ ok: false, error: "That deal isn't in your company" }));
     const nowIso = new Date().toISOString();
+    // Preserve an already-advanced PA stage: reassigning to another adjuster must NOT
+    // knock a "waiting on documents" (or signed) deal back to "active" — that would
+    // bounce it onto the rep's go-back list even though the PA is still working it.
+    const keepStage = ["waiting_docs", "signed"].includes(insp.pa_stage);
     const patch = paId
-      ? { pa_id: paId, pa_claimed_at: nowIso, pa_stage: "active", pa_stage_at: nowIso }
+      ? (keepStage
+          ? { pa_id: paId, pa_claimed_at: nowIso }
+          : { pa_id: paId, pa_claimed_at: nowIso, pa_stage: "active", pa_stage_at: nowIso })
       : { pa_id: null, pa_claimed_at: null };
     const r = await fetch(
       `${SB_URL}/rest/v1/inspections?id=eq.${encodeURIComponent(inspectionId)}`,

@@ -365,9 +365,16 @@ async function book(body) {
   // 2. Reassign the homeowner to the booked PA (even if assigned elsewhere).
   if (inspectionId) {
     const nowIso = new Date().toISOString();
+    // Don't knock an already-advanced deal (PA collecting docs / signed) back to
+    // "active" — that would bounce it onto the rep's go-back list mid-claim even
+    // though the PA is still working it.
+    const curStage = (await fetch(`${SB_URL}/rest/v1/inspections?id=eq.${encodeURIComponent(inspectionId)}&select=pa_stage`, { headers: sb }).then((r) => (r.ok ? r.json() : [])).catch(() => []))[0]?.pa_stage;
+    const keepStage = ["waiting_docs", "signed"].includes(curStage);
     await fetch(`${SB_URL}/rest/v1/inspections?id=eq.${encodeURIComponent(inspectionId)}`, {
       method: "PATCH", headers: { ...sb, Prefer: "return=minimal" },
-      body: JSON.stringify({ pa_id: paId, pa_company_id: null, pa_claimed_at: nowIso, pa_stage: "active", pa_stage_at: nowIso }),
+      body: JSON.stringify(keepStage
+        ? { pa_id: paId, pa_company_id: null, pa_claimed_at: nowIso }
+        : { pa_id: paId, pa_company_id: null, pa_claimed_at: nowIso, pa_stage: "active", pa_stage_at: nowIso }),
     });
     // 3. Mark the dialer lead handled so it leaves the queue.
     await fetch(`${SB_URL}/rest/v1/call_queue?inspection_id=eq.${encodeURIComponent(inspectionId)}`, {
