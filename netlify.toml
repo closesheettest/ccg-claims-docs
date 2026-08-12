@@ -11,6 +11,14 @@
 [functions."cron-extract-pitch"]
   schedule = "30 8 * * *"
 
+# Scheduled function: SAFETY-NET geocoder. Signing geocodes fire-and-forget from
+# the browser; if that request is cut off, the inspection is left with no lat/lng
+# and drops off the inspector map. This sweeps up any signed inspection with an
+# address but no coordinates every 30 min. (In-file schedule alone did NOT fire —
+# this project's crons register via netlify.toml, so it must be declared here.)
+[functions."cron-geocode-inspections"]
+  schedule = "*/30 * * * *"
+
 # Scheduled function: sync JobNimbus installs into the Install Finder's Supabase
 # (separate project) so the map stays current. Nightly ~3:30 AM ET; add-only,
 # dedups by jnid + address, never touches hand-imported rows.
