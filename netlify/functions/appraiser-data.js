@@ -64,7 +64,9 @@ function normCounty(c, address) {
 // Google geocoder spells them out ("2046 49th Street N") — so a LIKE on the raw
 // geocoded string finds nothing. Abbreviate to match. (Idempotent: already-short
 // forms like "AVE" aren't keys, so they pass through unchanged.)
-const ST_ABBR = { STREET: "ST", AVENUE: "AVE", BOULEVARD: "BLVD", DRIVE: "DR", ROAD: "RD", LANE: "LN", COURT: "CT", PLACE: "PL", CIRCLE: "CIR", TERRACE: "TER", PARKWAY: "PKWY", PLAZA: "PLZ", HIGHWAY: "HWY", TRAIL: "TRL", SQUARE: "SQ", POINT: "PT", POINTE: "PT", CROSSING: "XING", COVE: "CV", HARBOR: "HBR", MANOR: "MNR", GARDENS: "GDNS", HOLLOW: "HOLW", BEND: "BND" };
+const ST_ABBR = { STREET: "ST", AVENUE: "AVE", BOULEVARD: "BLVD", DRIVE: "DR", ROAD: "RD", LANE: "LN", COURT: "CT", PLACE: "PL", CIRCLE: "CIR", TERRACE: "TER", PARKWAY: "PKWY", PLAZA: "PLZ", HIGHWAY: "HWY", TRAIL: "TRL", SQUARE: "SQ", POINT: "PT", POINTE: "PT", CROSSING: "XING", COVE: "CV", HARBOR: "HBR", MANOR: "MNR", GARDENS: "GDNS", HOLLOW: "HOLW", BEND: "BND",
+  // directionals — Google spells them out ("27th Avenue West", "West San Nicholas"), county DBs abbreviate
+  NORTH: "N", SOUTH: "S", EAST: "E", WEST: "W", NORTHEAST: "NE", NORTHWEST: "NW", SOUTHEAST: "SE", SOUTHWEST: "SW" };
 const streetOf = (addr) => addr.split(",")[0].trim().toUpperCase().replace(/'/g, "").replace(/\./g, " ").split(/\s+/).map((w) => ST_ABBR[w] || w).filter(Boolean).join(" ");
 async function j(url, opts) { const r = await fetch(url, { headers: { ...BROWSER_HDRS, ...(opts && opts.headers) }, ...opts }); if (!r.ok) throw new Error(`${url.slice(0, 60)} → ${r.status}`); return r.json(); }
 async function t(url, opts) { const r = await fetch(url, { headers: { ...BROWSER_HDRS, ...(opts && opts.headers) }, redirect: "follow", ...opts }); if (!r.ok) throw new Error(`${url.slice(0, 60)} → ${r.status}`); return r.text(); }

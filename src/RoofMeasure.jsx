@@ -408,6 +408,7 @@ function SketchMeasure({ d, pitch, onUse, active, satSquares }) {
   const [overhang, setOverhang] = useState("1.5");
   const [sections, setSections] = useState([{ l: "", w: "" }]);
   const [manualOpen, setManualOpen] = useState(false);  // auto mode: "measure it myself" escape hatch
+  const [excluded, setExcluded] = useState(() => new Set());  // auto mode: sub-areas the user un-checked
 
   const address = d.geocoded_as || d._addr;
   const county = d.county || d.appraiser?.county || "";
@@ -415,7 +416,7 @@ function SketchMeasure({ d, pitch, onUse, active, satSquares }) {
   useEffect(() => {
     if (!address) { setState("miss"); return; }
     let alive = true;
-    setState("loading"); setData(null); setSketches([]); setMissMsg(""); setManualOpen(false);
+    setState("loading"); setData(null); setSketches([]); setMissMsg(""); setManualOpen(false); setExcluded(new Set());
     // 1) Raw appraiser DATA — footprint by address, zero typing (Batch-1 counties).
     fetch("/.netlify/functions/appraiser-data", {
       method: "POST", headers: { "Content-Type": "application/json" },
@@ -473,10 +474,17 @@ function SketchMeasure({ d, pitch, onUse, active, satSquares }) {
 
   // ── AUTO: county returned the under-roof footprint. Finish the roof, no typing. ──
   if (state === "auto" && data) {
-    const A = Math.round(Number(data.footprint_sqft) || 0);
+    const subs = data.subareas || [];
+    const sumSubs = subs.reduce((s, x) => s + (Number(x.sqft) || 0), 0);
+    const fpFull = Math.round(Number(data.footprint_sqft) || 0);
+    // Are the sub-areas an additive partition of the footprint? (Sarasota lists
+    // total + living, which is NOT additive.) Only then can per-area checkboxes
+    // drive the total — otherwise the chips are informational.
+    const additive = subs.length > 0 && Math.abs(sumSubs - fpFull) <= Math.max(3, 0.02 * fpFull);
+    const A = additive ? subs.reduce((s, x, i) => (excluded.has(i) ? s : s + (Number(x.sqft) || 0)), 0) : fpFull;
     const withOh = A + ohArea(A, oh);
     const autoSquares = withOh > 0 ? Math.round((withOh * sf) / 100 * 100) / 100 : 0;
-    const subs = data.subareas || [];
+    const toggle = (i) => setExcluded((prev) => { const n = new Set(prev); n.has(i) ? n.delete(i) : n.add(i); return n; });
     return (
       <div style={{ ...wrap, background: active ? "#f0fdf4" : "#f8fdf9", borderColor: active ? "#86efac" : "#bbf7d0" }}>
         {head}
@@ -501,14 +509,27 @@ function SketchMeasure({ d, pitch, onUse, active, satSquares }) {
           )}
         </div>
 
-        {/* Section breakdown from the records (the "raw data" scan) */}
+        {/* Section breakdown from the records (the "raw data" scan). When the areas add
+            up to the footprint, each is a checkbox so you can include/exclude it live. */}
         {subs.length > 0 && (
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
-            {subs.map((s, i) => (
-              <span key={i} style={{ fontSize: 11.5, color: "#475569", background: "#fff", border: "1px solid #e5e7eb", borderRadius: 999, padding: "3px 9px" }}>
-                {s.desc} <b style={{ color: "#0f172a" }}>{Number(s.sqft).toLocaleString()}</b>
-              </span>
-            ))}
+          <div style={{ marginBottom: 10 }}>
+            {additive && <div style={{ fontSize: 11.5, color: "#64748b", marginBottom: 6 }}>Tap an area to include / exclude it from the roof total.</div>}
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {subs.map((s, i) => {
+                if (!additive) return (
+                  <span key={i} style={{ fontSize: 11.5, color: "#475569", background: "#fff", border: "1px solid #e5e7eb", borderRadius: 999, padding: "3px 9px" }}>
+                    {s.desc} <b style={{ color: "#0f172a" }}>{Number(s.sqft).toLocaleString()}</b>
+                  </span>
+                );
+                const on = !excluded.has(i);
+                return (
+                  <label key={i} onClick={() => toggle(i)} style={{ cursor: "pointer", userSelect: "none", display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11.5, color: on ? "#475569" : "#cbd5e1", background: on ? "#fff" : "#f8fafc", border: `1px solid ${on ? "#bbf7d0" : "#e5e7eb"}`, borderRadius: 999, padding: "3px 10px", textDecoration: on ? "none" : "line-through" }}>
+                    <input type="checkbox" readOnly checked={on} style={{ pointerEvents: "none", margin: 0, accentColor: "#16a34a" }} />
+                    {s.desc} <b style={{ color: on ? "#0f172a" : "#cbd5e1" }}>{Number(s.sqft).toLocaleString()}</b>
+                  </label>
+                );
+              })}
+            </div>
           </div>
         )}
 
