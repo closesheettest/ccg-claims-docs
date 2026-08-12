@@ -37,7 +37,7 @@ export const handler = async (event) => {
         const html = await r.text();
         htmlLen = html.length; hasTotal = /Total\s*Area\s*S\.?\s*F/i.test(html);
         const idx = html.search(/Total\s*Area\s*S\.?\s*F/i);
-        snippet = idx >= 0 ? html.slice(idx - 40, idx + 400) : html.slice(0, 400);
+        snippet = idx >= 0 ? html.slice(idx - 1400, idx + 60).replace(/\s+/g, " ") : html.slice(0, 400);
         const apis = [...new Set([...html.matchAll(/["'`](\/?api\/[^"'`\s]+|https?:\/\/[^"'`\s]*(?:api|service|rest)[^"'`\s]*)["'`]/gi)].map(m => m[1]))].slice(0, 12);
         return cors(200, JSON.stringify({ debug: true, street: streetOf(address), pin, htmlLen, hasTotal, apis, snippet }));
       }
