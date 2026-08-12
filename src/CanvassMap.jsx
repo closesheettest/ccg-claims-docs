@@ -778,6 +778,13 @@ const ME_ICON = L.divIcon({
   html: `<div style="width:16px;height:16px;border-radius:50%;background:#1d4ed8;border:3px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.25),0 1px 5px rgba(0,0,0,.5)"></div>`,
   iconSize: [16, 16], iconAnchor: [8, 8],
 });
+// 🔍 The bouncing drop-pin that marks the address a rep just searched for.
+const SEARCH_PIN_ICON = L.divIcon({
+  className: "",
+  html: '<div style="font-size:36px;line-height:1;filter:drop-shadow(0 3px 4px rgba(0,0,0,.5));animation:hbounce 1s ease-in-out infinite">📍</div>',
+  iconSize: [36, 36], iconAnchor: [18, 34],
+});
+
 // Rep-generated door — a purple house pin so self-gen leads stand out from the
 // uploaded/synced pins. `pulse` = the pin the rep is placing right now.
 function selfGenIcon(pulse) {
@@ -962,6 +969,30 @@ export default function CanvassMap() {
   const [referralForm, setReferralForm] = useState(null); // { name, phone, referred_by } | null
   const [referralText, setReferralText] = useState("");   // address input text
   const [referralPlace, setReferralPlace] = useState(null); // geocoded place {lat,lng,address,city,state,zip}
+  // 🔍 Address search — jump the map to a typed address and open the pin that's there.
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchText, setSearchText] = useState("");
+  const [searchTarget, setSearchTarget] = useState(null);   // {lat,lng,place} awaiting a nearby pin to load
+  const [noPinAt, setNoPinAt] = useState(null);             // searched place with no pin → offer to start one
+  const searchMarkerRef = useRef(null);
+  const searchTimer = useRef(null);
+  // Once pins load for the flown-to area, auto-open the one at the searched address.
+  useEffect(() => {
+    if (!searchTarget) return;
+    let best = null, bestD = Infinity;
+    for (const p of prospects) {
+      if (p.latitude == null || p.longitude == null) continue;
+      const d = feetBetween({ lat: searchTarget.lat, lng: searchTarget.lng }, { lat: +p.latitude, lng: +p.longitude });
+      if (d < bestD) { bestD = d; best = p; }
+    }
+    if (best && bestD <= 160) {          // ~half a lot — the pin at that address
+      if (searchTimer.current) clearTimeout(searchTimer.current);
+      openPin(best);
+      setSearchTarget(null);
+      setNoPinAt(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prospects, searchTarget]);
   const [referralPlacing, setReferralPlacing] = useState(false); // armed: next map tap sets the referral's location (fallback when the address dropdown fails)
   const referralPlacingRef = useRef(false);
   const referralTextRef = useRef("");
@@ -3184,6 +3215,42 @@ export default function CanvassMap() {
   // Arm tap-to-place: the next map tap drops a self-gen pin there.
   function startAddHouse() { setSelected(null); setSelectedInstall(null); setNewPin(null); setOwnerOverride(false); setOverridePhone(""); setAdding(true); }
   function cancelAdd() { setAdding(false); setNewPin(null); setOwnerOverride(false); setOverridePhone(""); }
+  // 🔍 Fly the map to a typed address, drop a marker, and auto-open the pin there —
+  // or, if there's no pin, offer to start a signing right at that spot.
+  function goToAddress(pl) {
+    if (!pl || typeof pl.lat !== "number" || typeof pl.lng !== "number") return; // needs a dropdown pick
+    const m = map.current; if (!m) return;
+    setNoPinAt(null); setSearchOpen(false); setSearchText(pl.formatted || pl.address || "");
+    m.flyTo([pl.lat, pl.lng], 19, { duration: 0.8 });
+    try { if (searchMarkerRef.current) m.removeLayer(searchMarkerRef.current); } catch { /* ignore */ }
+    searchMarkerRef.current = L.marker([pl.lat, pl.lng], { icon: SEARCH_PIN_ICON, zIndexOffset: 3200, interactive: false }).addTo(m);
+    setSearchTarget({ lat: pl.lat, lng: pl.lng, place: pl });
+    // If no pin at that address loads within a few seconds, offer to start one.
+    if (searchTimer.current) clearTimeout(searchTimer.current);
+    searchTimer.current = setTimeout(() => { setSearchTarget((t) => { if (t) setNoPinAt(pl); return null; }); }, 3200);
+  }
+  // No pin at the searched address → drop a self-gen door there and open the signing.
+  async function signAtSearched() {
+    const pl = noPinAt; if (!pl) return;
+    if (spotCheck) { alert("🔍 Spot-check — signing is off."); return; }
+    try {
+      const r = await fetch("/.netlify/functions/harvest-add-pin", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rt: auth.rt, lat: pl.lat, lng: pl.lng, address: pl.address || pl.formatted || "", city: pl.city || "", state: pl.state || "FL", zip: pl.zip || "" }),
+      });
+      const d = await r.json();
+      if (d.duplicate && d.existing) { // a pin already exists in the DB (just wasn't loaded) → open it
+        setNoPinAt(null);
+        const found = prospects.find((p) => p.id === d.existing.id);
+        openPin(found || { ...d.existing, latitude: pl.lat, longitude: pl.lng });
+        return;
+      }
+      if (!d.ok || !d.pin) { alert(d.error || "Couldn't start here — try again."); return; }
+      setProspects((list) => [...list, d.pin]);
+      setNoPinAt(null);
+      signInspection(d.pin, { selfGen: true });
+    } catch { alert("Couldn't start here — try again."); }
+  }
   function openReferral() { setSelected(null); setSelectedInstall(null); setAdding(false); setReferralText(""); setReferralPlace(null); setReferralForm({ name: "", phone: "", referred_by: "", mode: "referral" }); }
   // Self-generated RETAIL appointment: same drop-a-pin form (retail mode), then straight
   // into the BTR appointment modal → books a retail appt in JN + logs to_status "appt"
@@ -3649,7 +3716,7 @@ export default function CanvassMap() {
       {/* Map */}
       <div style={{ position: "relative", flex: 1 }}>
         <div ref={mapEl} style={{ position: "absolute", inset: 0, right: isDesktop ? 300 : 0 }} />
-        <style>{`@keyframes hpulse{0%{box-shadow:0 1px 5px rgba(0,0,0,.5),0 0 0 0 rgba(124,58,237,.5)}70%{box-shadow:0 1px 5px rgba(0,0,0,.5),0 0 0 14px rgba(124,58,237,0)}100%{box-shadow:0 1px 5px rgba(0,0,0,.5),0 0 0 0 rgba(124,58,237,0)}}@keyframes hpulse2{0%{box-shadow:0 1px 4px rgba(0,0,0,.5),0 0 0 0 rgba(249,115,22,.55)}70%{box-shadow:0 1px 4px rgba(0,0,0,.5),0 0 0 16px rgba(249,115,22,0)}100%{box-shadow:0 1px 4px rgba(0,0,0,.5),0 0 0 0 rgba(249,115,22,0)}}`}</style>
+        <style>{`@keyframes hpulse{0%{box-shadow:0 1px 5px rgba(0,0,0,.5),0 0 0 0 rgba(124,58,237,.5)}70%{box-shadow:0 1px 5px rgba(0,0,0,.5),0 0 0 14px rgba(124,58,237,0)}100%{box-shadow:0 1px 5px rgba(0,0,0,.5),0 0 0 0 rgba(124,58,237,0)}}@keyframes hpulse2{0%{box-shadow:0 1px 4px rgba(0,0,0,.5),0 0 0 0 rgba(249,115,22,.55)}70%{box-shadow:0 1px 4px rgba(0,0,0,.5),0 0 0 16px rgba(249,115,22,0)}100%{box-shadow:0 1px 4px rgba(0,0,0,.5),0 0 0 0 rgba(249,115,22,0)}}@keyframes hbounce{0%,100%{transform:translateY(0)}50%{transform:translateY(-7px)}}`}</style>
 
         {/* ── Web (desktop) right column: status cards + upload / JN sync ── */}
         {isDesktop && (
@@ -3833,6 +3900,34 @@ export default function CanvassMap() {
               </button>
               {apptGateErr ? <div style={{ marginTop: 10, color: "#b91c1c", fontSize: 12.5, fontWeight: 600, lineHeight: 1.35 }}>{apptGateErr}</div> : null}
               {apptGateBusy ? <div style={{ marginTop: 8, color: "#64748b", fontSize: 12.5 }}>Saving…</div> : null}
+            </div>
+          </div>
+        )}
+        {/* 🔍 Find an address — jump the map to a house the rep was at and open/sign it. */}
+        {!selecting && !referralForm && !newPin && !adding && !searchOpen && !noPinAt && (auth.rt || testMode) && (
+          <button type="button" onClick={() => { setSearchOpen(true); setSearchText(""); }}
+            style={{ position: "absolute", top: 12, left: 12, zIndex: 640, background: "#fff", color: "#0f172a", border: "1px solid #e5e7eb", borderRadius: 999, padding: "10px 15px", fontSize: 13.5, fontWeight: 800, fontFamily: "'Oswald', sans-serif", boxShadow: "0 3px 12px rgba(0,0,0,.22)", cursor: "pointer" }}>
+            🔍 Find address
+          </button>
+        )}
+        {searchOpen && (
+          <div style={{ position: "absolute", top: 10, left: 10, right: 10, zIndex: 720, maxWidth: 460, margin: "0 auto", background: "#fff", borderRadius: 14, boxShadow: "0 4px 20px rgba(0,0,0,.28)", padding: 10, display: "flex", gap: 8, alignItems: "center" }}>
+            <span style={{ fontSize: 18, paddingLeft: 2 }}>🔍</span>
+            <div style={{ flex: 1 }}>
+              <AddressAutocomplete value={searchText} onChange={setSearchText}
+                onPlaceSelected={(pl) => goToAddress(pl)}
+                placeholder="Type the address you were at…" />
+            </div>
+            <button type="button" onClick={() => setSearchOpen(false)} style={{ border: "none", background: "#f1f5f9", borderRadius: 10, padding: "9px 13px", fontSize: 15, fontWeight: 700, cursor: "pointer" }}>✕</button>
+          </div>
+        )}
+        {noPinAt && (
+          <div style={{ position: "absolute", top: 12, left: 10, right: 10, zIndex: 720, maxWidth: 460, margin: "0 auto", background: "#fff", borderRadius: 14, boxShadow: "0 4px 20px rgba(0,0,0,.28)", padding: "12px 14px" }}>
+            <div style={{ fontSize: 13.5, fontWeight: 800, color: "#0f172a" }}>No pin here yet</div>
+            <div style={{ fontSize: 12.5, color: "#64748b", margin: "2px 0 10px" }}>{noPinAt.formatted || noPinAt.address}</div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button type="button" onClick={signAtSearched} style={{ flex: 1, background: "#16a34a", color: "#fff", border: "none", borderRadius: 10, padding: "11px 0", fontSize: 14, fontWeight: 800, fontFamily: "'Oswald', sans-serif", cursor: "pointer" }}>✍️ Sign inspection here</button>
+              <button type="button" onClick={() => setNoPinAt(null)} style={{ background: "#f1f5f9", color: "#475569", border: "none", borderRadius: 10, padding: "11px 14px", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>Close</button>
             </div>
           </div>
         )}
