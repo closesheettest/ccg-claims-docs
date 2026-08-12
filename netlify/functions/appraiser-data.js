@@ -12,7 +12,10 @@
 //
 // Env: none (public county GIS/records).
 
-const UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36";
+const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
+// Some appraiser sites (pcpao.gov) sit behind a WAF that wants a full browser
+// fingerprint, not just any UA — send Accept/Accept-Language too.
+const BROWSER_HDRS = { "User-Agent": UA, "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8", "Accept-Language": "en-US,en;q=0.9" };
 
 export const handler = async (event) => {
   if (event.httpMethod === "OPTIONS") return cors(200, "");
@@ -58,11 +61,11 @@ function normCounty(c, address) {
 
 // ── helpers ───────────────────────────────────────────────────────────────
 const streetOf = (addr) => addr.split(",")[0].trim().toUpperCase().replace(/'/g, "");
-async function j(url, opts) { const r = await fetch(url, { headers: { "User-Agent": UA, ...(opts && opts.headers) }, ...opts }); if (!r.ok) throw new Error(`${url.slice(0, 60)} → ${r.status}`); return r.json(); }
-async function t(url, opts) { const r = await fetch(url, { headers: { "User-Agent": UA, ...(opts && opts.headers) }, redirect: "follow", ...opts }); if (!r.ok) throw new Error(`${url.slice(0, 60)} → ${r.status}`); return r.text(); }
+async function j(url, opts) { const r = await fetch(url, { headers: { ...BROWSER_HDRS, ...(opts && opts.headers) }, ...opts }); if (!r.ok) throw new Error(`${url.slice(0, 60)} → ${r.status}`); return r.json(); }
+async function t(url, opts) { const r = await fetch(url, { headers: { ...BROWSER_HDRS, ...(opts && opts.headers) }, redirect: "follow", ...opts }); if (!r.ok) throw new Error(`${url.slice(0, 60)} → ${r.status}`); return r.text(); }
 async function imgB64(url, opts) {
   try {
-    const r = await fetch(url, { headers: { "User-Agent": UA, ...(opts && opts.headers) }, redirect: "follow" });
+    const r = await fetch(url, { headers: { ...BROWSER_HDRS, ...(opts && opts.headers) }, redirect: "follow" });
     if (!r.ok) return null;
     const ct = r.headers.get("content-type") || "";
     if (!/image\//.test(ct)) return null;
@@ -91,7 +94,8 @@ async function sarasota(address) {
 // ── PALM BEACH — autocomplete → sub-area table → sketch PNG ──────────────────
 async function palmBeach(address) {
   const ac = await j(`https://pbcpao.gov/Property/AutoComplete?term=${encodeURIComponent(streetOf(address))}`);
-  const first = (Array.isArray(ac) ? ac : []).find((x) => /^P:/.test(x.value || ""));
+  const list = (ac && Array.isArray(ac.result)) ? ac.result : (Array.isArray(ac) ? ac : []);
+  const first = list.find((x) => /^P:/.test(x.value || ""));
   if (!first) return null;
   const pcn = first.value.replace(/^P:/, "").trim();
   const html = await t(`https://pbcpao.gov/Property/RenderPrintSum?parcelId=${encodeURIComponent(pcn)}&flag=ALL`);
@@ -124,9 +128,18 @@ async function pinellas(address) {
   const a = (d.features || [])[0]?.attributes; if (!a || !a.PIN_NUM) return null;
   const pin = String(a.PIN_NUM).trim();
   const html = await t(`https://www.pcpao.gov/property-details?s=${encodeURIComponent(pin)}`);
-  const subs = parseSubareaTable(html, />\s*([A-Za-z][A-Za-z .\/()-]{2,40}?)\s*\(([A-Z]{2,4})\)\s*<\/td>\s*<td[^>]*>\s*([\d,]+)/gi, true);
-  let footprint = subs.reduce((s, x) => s + x.sqft, 0);
-  if (!footprint) { const m = html.match(/Total\s*Area\s*S?\.?F[^<]*<\/td>\s*<td[^>]*>\s*([\d,]+)/i); if (m) footprint = num(m[1]); }
+  // Each sub-area row: "Desc (CODE): </td><td>{heated}</td><td>{gross}</td>". The
+  // GROSS (under-roof) is the larger of the two — a carport reads 0 heated / 240 gross.
+  const subs = [];
+  for (const m of html.matchAll(/([A-Za-z][A-Za-z .\/()&-]{2,40}?)\s*\(([A-Z]{2,4})\)\s*:?\s*<\/td>\s*<td[^>]*>\s*<?\/?b?>?\s*([\d,]+)[\s\S]{0,30}?<td[^>]*>\s*<?\/?b?>?\s*([\d,]+)/gi)) {
+    const gross = Math.max(num(m[3]), num(m[4]));
+    if (gross > 0) subs.push({ desc: `${m[1].trim()} (${m[2]})`, sqft: gross });
+  }
+  // Footprint = the "Total Area SF" GROSS (the larger of the two totals on that row).
+  let footprint = 0;
+  const tm = html.match(/Total\s*Area\s*S\.?\s*F[\s\S]{0,180}?<\/tr>/i);
+  if (tm) { const nums = [...tm[0].replace(/<[^>]+>/g, " ").matchAll(/[\d,]{2,7}/g)].map((x) => num(x[0])).filter((n) => n > 80); if (nums.length) footprint = Math.max(...nums); }
+  if (!footprint && subs.length) footprint = subs.reduce((s, x) => s + x.sqft, 0);
   if (!footprint) return null;
   const sketch = await imgB64(`https://pcpao.gov/dal/blob/getBuilding/${encodeURIComponent(pin)}/1`);
   return { footprint_sqft: footprint, subareas: subs, sketch, parcel_id: pin, matched_address: (a.FULLADDR || "").trim() };
