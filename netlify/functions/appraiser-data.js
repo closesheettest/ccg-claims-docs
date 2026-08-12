@@ -25,6 +25,21 @@ export const handler = async (event) => {
   const address = String(body.address || "").trim();
   if (!address) return cors(400, JSON.stringify({ ok: false, error: "address required" }));
   const county = normCounty(body.county, address);
+  if (body.debug === "pinellas") {
+    try {
+      const where = encodeURIComponent(`FULLADDR LIKE '%${streetOf(address)}%'`);
+      const d = await j(`https://egis.pinellas.gov/gis/rest/services/PublicWebGIS/Parcels/MapServer/0/query?where=${where}&outFields=FULLADDR,PIN_NUM&returnGeometry=false&f=json`);
+      const a = (d.features || [])[0]?.attributes;
+      const pin = a && a.PIN_NUM ? String(a.PIN_NUM).trim() : null;
+      let htmlLen = 0, snippet = "", hasTotal = false;
+      if (pin) {
+        const r = await fetch(`https://www.pcpao.gov/property-details?s=${encodeURIComponent(pin)}`, { headers: BROWSER_HDRS, redirect: "follow" });
+        const html = await r.text();
+        htmlLen = html.length; snippet = html.slice(0, 300); hasTotal = /Total\s*Area\s*S\.?\s*F/i.test(html);
+      }
+      return cors(200, JSON.stringify({ debug: true, street: streetOf(address), pin, matched: a && a.FULLADDR, htmlLen, hasTotal, snippet }));
+    } catch (e) { return cors(200, JSON.stringify({ debug: true, error: e.message })); }
+  }
   const adapter = ADAPTERS[county];
   if (!adapter) return cors(200, JSON.stringify({ ok: false, unsupported: true, error: `Auto-measure isn't wired for ${body.county || "this county"} yet.`, county }));
 
