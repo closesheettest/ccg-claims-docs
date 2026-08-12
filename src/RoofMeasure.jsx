@@ -523,8 +523,8 @@ function SketchMeasure({ d, pitch, onUse, active, satSquares }) {
                 );
                 const on = !excluded.has(i);
                 return (
-                  <label key={i} onClick={() => toggle(i)} style={{ cursor: "pointer", userSelect: "none", display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11.5, color: on ? "#475569" : "#cbd5e1", background: on ? "#fff" : "#f8fafc", border: `1px solid ${on ? "#bbf7d0" : "#e5e7eb"}`, borderRadius: 999, padding: "3px 10px", textDecoration: on ? "none" : "line-through" }}>
-                    <input type="checkbox" readOnly checked={on} style={{ pointerEvents: "none", margin: 0, accentColor: "#16a34a" }} />
+                  <label key={i} style={{ cursor: "pointer", userSelect: "none", display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11.5, color: on ? "#475569" : "#cbd5e1", background: on ? "#fff" : "#f8fafc", border: `1px solid ${on ? "#bbf7d0" : "#e5e7eb"}`, borderRadius: 999, padding: "3px 10px", textDecoration: on ? "none" : "line-through" }}>
+                    <input type="checkbox" checked={on} onChange={() => toggle(i)} style={{ margin: 0, accentColor: "#16a34a", cursor: "pointer" }} />
                     {s.desc} <b style={{ color: on ? "#0f172a" : "#cbd5e1" }}>{Number(s.sqft).toLocaleString()}</b>
                   </label>
                 );
