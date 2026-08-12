@@ -85,7 +85,7 @@ async function imgB64(url, opts) {
 // ── SARASOTA — grnd_area IS the footprint (one ArcGIS call) + sketch GIF ─────
 async function sarasota(address) {
   const street = streetOf(address);
-  const where = encodeURIComponent(`fulladdress LIKE '%${street}%'`);
+  const where = encodeURIComponent(`fulladdress LIKE '${street}%'`);
   const d = await j(`https://ags3.scgov.net/server/rest/services/Hosted/ParcelProperty/FeatureServer/0/query?where=${where}&outFields=account,id,fulladdress,grnd_area,living&returnGeometry=false&f=json`);
   const a = (d.features || [])[0]?.attributes; if (!a) return null;
   const account = String(a.account || a.id || "").trim();
@@ -117,7 +117,7 @@ async function palmBeach(address) {
 
 // ── HILLSBOROUGH — ArcGIS strap → ParcelData JSON → sketch PNG ───────────────
 async function hillsborough(address) {
-  const where = encodeURIComponent(`FullAddress LIKE '%${streetOf(address)}%'`);
+  const where = encodeURIComponent(`FullAddress LIKE '${streetOf(address)}%'`);
   const d = await j(`https://gis.hcpafl.org/arcgis/rest/services/Webmaps/HillsboroughFL_WebParcels/MapServer/0/query?where=${where}&outFields=folio,strap,FullAddress&returnGeometry=false&f=json`, { headers: { Referer: "https://gis.hcpafl.org/PropertySearch/" } });
   const a = (d.features || [])[0]?.attributes; if (!a || !a.strap) return null;
   const strap = String(a.strap).trim();
@@ -135,7 +135,7 @@ async function hillsborough(address) {
 
 // ── PINELLAS — ArcGIS PIN → property-details HTML → sketch blob ──────────────
 async function pinellas(address) {
-  const where = encodeURIComponent(`FULLADDR LIKE '%${streetOf(address)}%'`);
+  const where = encodeURIComponent(`FULLADDR LIKE '${streetOf(address)}%'`);
   const d = await j(`https://egis.pinellas.gov/gis/rest/services/PublicWebGIS/Parcels/MapServer/0/query?where=${where}&outFields=FULLADDR,PIN_NUM&returnGeometry=false&f=json`);
   const a = (d.features || [])[0]?.attributes; if (!a || !a.PIN_NUM) return null;
   const pin = String(a.PIN_NUM).trim();
@@ -167,7 +167,7 @@ async function pinellas(address) {
 
 // ── MANATEE — one ArcGIS call (under-roof + porch sqft; sketch gated) ────────
 async function manatee(address) {
-  const where = encodeURIComponent(`UPPER(SITUS_ADDRESS) LIKE '%${streetOf(address)}%'`);
+  const where = encodeURIComponent(`UPPER(SITUS_ADDRESS) LIKE '${streetOf(address)}%'`);
   const d = await j(`https://gis.manateepao.gov/arcgis/rest/services/Website/WebLayers/MapServer/0/query?where=${where}&outFields=PARID,SITUS_ADDRESS,BLDGS_SQFT_UNROOF,BLDGS_SQFT_LIVING,FEATS_SQFT_UNROOF&returnGeometry=false&f=json`);
   const a = (d.features || [])[0]?.attributes; if (!a) return null;
   const bld = Math.round(Number(a.BLDGS_SQFT_UNROOF) || 0), feat = Math.round(Number(a.FEATS_SQFT_UNROOF) || 0);
