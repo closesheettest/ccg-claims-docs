@@ -420,9 +420,14 @@ function SketchMeasure({ d, pitch, onUse, active, satSquares }) {
   const oh = Math.max(0, parseFloat(overhang) || 0);
   const p = (pitch ?? 6) / 12;
   const sf = Math.sqrt(1 + p * p);
-  const footprint = sections.reduce((s, sec) => {
+  // Overhang belongs on the OUTER edge of the roof, so add it to the MAIN outline
+  // only (section 0). The extra sections are protrusions that butt against the house
+  // — adding +oh to every side of a small jog balloons it and double-counts the seam
+  // where it meets the main (that's what pushed Hollybrook to 42.7 vs Roofr's 39.6).
+  const footprint = sections.reduce((s, sec, i) => {
     const l = parseFloat(sec.l), w = parseFloat(sec.w);
-    return (l > 0 && w > 0) ? s + (l + 2 * oh) * (w + 2 * oh) : s;
+    if (!(l > 0 && w > 0)) return s;
+    return s + (i === 0 ? (l + 2 * oh) * (w + 2 * oh) : l * w);
   }, 0);
   const squares = footprint > 0 ? Math.round((footprint * sf) / 100 * 100) / 100 : 0;
   const setSec = (i, patch) => setSections((ss) => ss.map((s, j) => (j === i ? { ...s, ...patch } : s)));
@@ -443,7 +448,7 @@ function SketchMeasure({ d, pitch, onUse, active, satSquares }) {
     <div style={{ ...wrap, background: active ? "#f0fdf4" : "#fafafa", borderColor: active ? "#bbf7d0" : "#e5e7eb" }}>
       {head}
       <div style={{ fontSize: 12.5, color: "#64748b", marginBottom: 10 }}>
-        Read each roofed section's <b>length × width</b> off the sketch and type them. Overhang is added automatically; pitch comes from the satellite ({pitch != null ? `${pitch}/12` : "—"}). No drawing needed.
+        Read each roofed section's <b>length × width</b> off the sketch and type them — the <b>Main</b> first, then each jog/garage/porch. Overhang is added to the main outline; pitch comes from the satellite ({pitch != null ? `${pitch}/12` : "—"}). No drawing needed.
       </div>
 
       {sketches.map((s, i) => (
@@ -465,7 +470,7 @@ function SketchMeasure({ d, pitch, onUse, active, satSquares }) {
             <input value={sec.l} onChange={(e) => setSec(i, { l: e.target.value })} inputMode="decimal" placeholder="length" style={input} />
             <span style={{ color: "#94a3b8" }}>×</span>
             <input value={sec.w} onChange={(e) => setSec(i, { w: e.target.value })} inputMode="decimal" placeholder="width" style={input} />
-            <span style={{ fontSize: 11.5, color: "#94a3b8" }}>ft {parseFloat(sec.l) > 0 && parseFloat(sec.w) > 0 ? `→ +${oh}ft = ${Math.round((parseFloat(sec.l) + 2 * oh) * (parseFloat(sec.w) + 2 * oh))} sqft` : ""}</span>
+            <span style={{ fontSize: 11.5, color: "#94a3b8" }}>ft {parseFloat(sec.l) > 0 && parseFloat(sec.w) > 0 ? (i === 0 ? `→ +${oh}ft = ${Math.round((parseFloat(sec.l) + 2 * oh) * (parseFloat(sec.w) + 2 * oh))} sqft` : `= ${Math.round(parseFloat(sec.l) * parseFloat(sec.w))} sqft`) : ""}</span>
             {sections.length > 1 && <button type="button" onClick={() => setSections((ss) => ss.filter((_, j) => j !== i))} style={{ border: "none", background: "none", color: "#cbd5e1", cursor: "pointer", fontSize: 16 }}>✕</button>}
           </div>
         ))}
