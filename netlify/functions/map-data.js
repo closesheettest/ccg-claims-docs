@@ -49,6 +49,20 @@ export const handler = async (event) => {
       return json(200, { ok: true, connected: true, columns: cols, sample_redacted: safe });
     }
 
+    if (mode === "pins") {
+      // Live map layer: David's EVER-MAILED homes inside the viewport. Only mailed
+      // homes go on the map so the rep's "we mailed you about your roof" pitch always
+      // holds. Returns lightweight pins; our worked-status overlay is applied client-side.
+      const n = num(p.n), s = num(p.s), e = num(p.e), w = num(p.w);
+      if ([n, s, e, w].some((v) => v == null) || !(n > s && e > w)) return json(400, { ok: false, error: "viewport bounds n>s, e>w required" });
+      const box = `&lat=gte.${s}&lat=lte.${n}&long=gte.${w}&long=lte.${e}`;
+      const cap = Math.min(4000, Math.max(200, parseInt(p.max || "3000", 10) || 3000));
+      const r = await fetch(`${DAVID_URL}/rest/v1/map_properties?last_mailed_date=not.is.null${box}&select=akey,lat,long,address,city,zip5,roof_age,last_roof_year,roof_cover,qualifies&limit=${cap}`, { headers: dH });
+      if (!r.ok) return json(200, { ok: false, error: (await r.text()).slice(0, 200) });
+      const pins = await r.json();
+      return json(200, { ok: true, count: pins.length, capped: pins.length >= cap, pins });
+    }
+
     if (mode === "reconcile") {
       // One SLICE of our inspection-needed pins, matched against David's live prospects.
       // A pin SURVIVES if David still flags it (qualifies=true) OR we've visited it
@@ -159,6 +173,7 @@ async function countOf(url, headers, kind = "exact") {
   const n = cr.includes("/") ? parseInt(cr.split("/")[1], 10) : NaN;
   return Number.isFinite(n) ? n : null;
 }
+function num(v) { const n = parseFloat(v); return Number.isFinite(n) ? n : null; }
 function json(statusCode, obj) {
   return { statusCode, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" }, body: JSON.stringify(obj) };
 }
