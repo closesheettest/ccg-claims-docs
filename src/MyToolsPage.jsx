@@ -45,7 +45,7 @@ const CATALOG = [
   { key: "inspection_map", cat: "Inspections", emoji: "🔍", label: "Inspection Map (office)", desc: "Every roof still needing an inspection — route-my-day + route-lock.", token: "inspect" },
   { key: "inspector_links", cat: "Inspections", emoji: "🔗", label: "Inspector Links", desc: "Each active inspector's personal map link, to hand out.", href: "/?mode=inspectorlinks" },
   { key: "inspect_report", cat: "Inspections", emoji: "📊", label: "Inspector Activity (live)", desc: "Pin-by-pin times + GPS: roofs per day, arrival/finish, real miles.", href: "/?mode=inspectvisitreport" },
-  { key: "master_inspection_report", cat: "Inspections", emoji: "📑", label: "Master Inspection Reports", desc: "The whole free-roof-inspection pipeline on one page.", href: "/?mode=masterinspreport" },
+  { key: "master_inspection_report", cat: "Inspections", emoji: "📑", label: "Sales INSP Report", desc: "The whole free-roof-inspection pipeline on one page.", href: "/?mode=masterinspreport" },
   { key: "goback_schedule", cat: "Inspections", emoji: "🗓️", label: "After-Inspection Self-Scheduling", desc: "The come-back-review text sequence — on/off, timing, message bodies.", href: "/?mode=gobackschedule" },
 
   // ── Public Adjuster ──
@@ -118,7 +118,7 @@ const MODE_TITLES = {
   harvesttrainingadmin: "Tool Training", harvesttraining: "Tool Training", harvestplannedday: "Planned Day",
   harvestnositreport: "No-Sits to Re-book", harvestskiptrace: "Skip-Trace", harvesthowtoadmin: "How-To Library",
   harvesthowto: "How-To", inspectmap: "Inspection Map", inspectorlinks: "Inspector Links",
-  inspectvisitreport: "Inspector Activity", masterinspreport: "Master Inspection Reports",
+  inspectvisitreport: "Inspector Activity", masterinspreport: "Sales INSP Report",
   gobackschedule: "After-Inspection Scheduling", pareschedcompose: "Reschedule Composer",
   pareschedule: "Reschedule", installs: "Installs Map", foremanlinks: "Foreman Links",
   contest: "Contest Leaderboard", manager: "Manager Console", setter: "Setter Portal",
@@ -202,6 +202,7 @@ export default function MyToolsPage() {
   const [q, setQ] = useState("");               // typeahead query on the pick screen
   const [name, setName] = useState(() => { try { return localStorage.getItem("ccg_mytools_name") || ""; } catch { return ""; } });
   const [pin, setPin] = useState("");
+  const [confirmPin, setConfirmPin] = useState(""); // first-time "confirm your passcode"
   const [pinSet, setPinSet] = useState(true);
   const [tools, setTools] = useState([]);       // saved keys for this manager
   const [editing, setEditing] = useState(false);
@@ -210,29 +211,37 @@ export default function MyToolsPage() {
   const [busy, setBusy] = useState(false);
   const [adminTok, setAdminTok] = useState(null);
 
-  // On load: learn whether a PIN exists yet, and (if a name+pin are remembered)
-  // jump straight to the dashboard.
+  // On load: if a name+passcode are remembered on this device, look up whether THIS
+  // person has a passcode and jump straight to their dashboard; otherwise go pick a name.
   useEffect(() => {
     let alive = true;
     (async () => {
       let remembered = "";
       try { remembered = localStorage.getItem("ccg_mytools_pin") || ""; } catch { /* private */ }
+      if (!name) { if (alive) setStep("pick"); return; }
       try {
-        const r = await fetch(API);
+        const r = await fetch(`${API}?manager=${encodeURIComponent(name)}`);
         const d = await r.json().catch(() => ({}));
         if (!alive) return;
         setPinSet(!!(d && d.pin_set));
-        if (name && remembered && d && d.pin_set) {
-          setPin(remembered);
-          await loadTools(name, remembered, true);
-          return;
-        }
-      } catch { /* fall through to pick */ }
-      if (alive) setStep(name ? "pin" : "pick");
+        if (remembered && d && d.pin_set) { setPin(remembered); await loadTools(name, remembered, true); return; }
+      } catch { /* fall through */ }
+      if (alive) setStep("pin");
     })();
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Pick a name → look up whether they've set a passcode yet, then show set/enter.
+  async function pickName(nm) {
+    setName(nm); setErr(""); setPin(""); setConfirmPin("");
+    try {
+      const r = await fetch(`${API}?manager=${encodeURIComponent(nm)}`);
+      const d = await r.json().catch(() => ({}));
+      setPinSet(!!(d && d.pin_set));
+    } catch { setPinSet(false); }
+    setStep("pin");
+  }
 
   // Load the JN user list once we land on the name-pick screen (for the typeahead).
   useEffect(() => {
@@ -261,10 +270,10 @@ export default function MyToolsPage() {
     if (!silent) setBusy(true);
     setErr("");
     try {
-      // Validate the PIN (also sets it the very first time) via a lightweight auth.
-      const a = await fetch(API, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "auth", pin: thePin }) });
+      // Validate this person's passcode (also sets it the very first time).
+      const a = await fetch(API, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "auth", manager: mgr, pin: thePin }) });
       const ad = await a.json().catch(() => ({}));
-      if (!a.ok || !ad.ok) { setBusy(false); setErr(ad.error || "Incorrect PIN."); setStep("pin"); return false; }
+      if (!a.ok || !ad.ok) { setBusy(false); setErr(ad.error || "Incorrect passcode."); setStep("pin"); return false; }
       const r = await fetch(`${API}?manager=${encodeURIComponent(mgr)}`);
       const d = await r.json().catch(() => ({}));
       const keys = Array.isArray(d.tools) ? d.tools.filter((k) => byKey[k]) : [];
@@ -316,7 +325,7 @@ export default function MyToolsPage() {
             style={{ width: "100%", boxSizing: "border-box", fontSize: 16, padding: "12px 14px", border: `1.5px solid ${LINE}`, borderRadius: 12, outline: "none" }} />
           <div style={{ display: "grid", gap: 8, marginTop: 10 }}>
             {matches.map((u) => (
-              <button key={u.jobnimbus_id} onClick={() => { setName(u.name); setErr(""); setStep("pin"); }} style={pickBtn}>
+              <button key={u.jobnimbus_id} onClick={() => pickName(u.name)} style={pickBtn}>
                 <span style={{ fontWeight: 800, color: NAVY, fontSize: 15.5 }}>{u.name}</span>
                 {u.email ? <span style={{ fontSize: 12, color: MUTE, marginTop: 2 }}>{u.email}</span> : null}
               </button>
@@ -332,22 +341,37 @@ export default function MyToolsPage() {
 
   if (step === "pin") {
     const first = !pinSet;
+    const canSubmit = first ? (pin.length >= 4 && confirmPin.length >= 4) : pin.length >= 4;
+    const submit = () => {
+      if (busy) return;
+      if (first) {
+        if (pin.length < 4) { setErr("Pick a 4–8 digit passcode."); return; }
+        if (pin !== confirmPin) { setErr("The two passcodes don't match — try again."); return; }
+      }
+      loadTools(name, pin);
+    };
     return (
       <Shell>
         <Header sub={<>Signing in as <b style={{ color: NAVY }}>{name}</b>. <button onClick={() => setStep("pick")} style={linkBtn}>change</button></>} />
         <div style={{ marginTop: 20, maxWidth: 340 }}>
-          <div style={{ fontWeight: 800, color: NAVY, marginBottom: 6 }}>{first ? "Set the manager PIN" : "Enter the manager PIN"}</div>
+          <div style={{ fontWeight: 800, color: NAVY, marginBottom: 6 }}>{first ? "Create your passcode" : "Enter your passcode"}</div>
           <div style={{ fontSize: 12.5, color: MUTE, marginBottom: 12 }}>
-            {first ? "No PIN yet — the first one entered becomes the shared manager PIN for the team." : "The shared manager PIN."}
+            {first ? "This is YOUR passcode to get into your dashboard. Pick 4–8 digits and confirm it." : "Your personal passcode."}
           </div>
           <input value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 8))}
-            inputMode="numeric" type="password" placeholder="••••" autoFocus
-            onKeyDown={(e) => { if (e.key === "Enter" && pin.length >= 4) loadTools(name, pin); }}
+            inputMode="numeric" type="password" placeholder={first ? "New passcode" : "••••"} autoFocus
+            onKeyDown={(e) => { if (e.key === "Enter" && !first && pin.length >= 4) submit(); }}
             style={pinInput} />
+          {first ? (
+            <input value={confirmPin} onChange={(e) => setConfirmPin(e.target.value.replace(/\D/g, "").slice(0, 8))}
+              inputMode="numeric" type="password" placeholder="Confirm passcode"
+              onKeyDown={(e) => { if (e.key === "Enter" && canSubmit) submit(); }}
+              style={{ ...pinInput, marginTop: 10 }} />
+          ) : null}
           {err ? <div style={{ color: RED, fontSize: 13, marginTop: 8 }}>{err}</div> : null}
-          <button disabled={busy || pin.length < 4} onClick={() => loadTools(name, pin)}
-            style={{ ...primaryBtn, marginTop: 14, opacity: busy || pin.length < 4 ? 0.5 : 1 }}>
-            {busy ? "Checking…" : first ? "Set PIN & continue" : "Open my dashboard"}
+          <button disabled={busy || !canSubmit} onClick={submit}
+            style={{ ...primaryBtn, marginTop: 14, opacity: busy || !canSubmit ? 0.5 : 1 }}>
+            {busy ? "Checking…" : first ? "Set passcode & continue" : "Open my dashboard"}
           </button>
         </div>
       </Shell>

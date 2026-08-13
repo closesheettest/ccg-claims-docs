@@ -130,10 +130,10 @@
     css(pop, { position: "fixed", left: "12px", bottom: "58px", zIndex: "2147483001", background: "#fff", border: "1px solid #e2e8f0", borderRadius: "14px", boxShadow: "0 10px 34px rgba(0,0,0,.28)", padding: "14px", width: "270px", fontFamily: '-apple-system,"Segoe UI",Helvetica,Arial,sans-serif' });
     pop.innerHTML =
       '<div style="font-weight:800;color:' + NAVY + ';font-size:14.5px;margin-bottom:2px">Add to your dashboard</div>' +
-      '<div style="font-size:12px;color:#64748b;margin-bottom:9px">Use the same name + PIN as your My Tools launcher.</div>' +
+      '<div style="font-size:12px;color:#64748b;margin-bottom:9px">Use the same name + passcode as your My Tools launcher.</div>' +
       '<input id="uss-atd-name" list="uss-atd-users" placeholder="Your name" autocomplete="off" style="width:100%;box-sizing:border-box;font-size:14px;padding:9px 10px;border:1px solid #cbd5e1;border-radius:9px;margin-bottom:7px" />' +
       '<datalist id="uss-atd-users"></datalist>' +
-      '<input id="uss-atd-pin" type="password" inputmode="numeric" placeholder="PIN" style="width:100%;box-sizing:border-box;font-size:14px;padding:9px 10px;border:1px solid #cbd5e1;border-radius:9px;margin-bottom:9px" />' +
+      '<input id="uss-atd-pin" type="password" inputmode="numeric" placeholder="Passcode" style="width:100%;box-sizing:border-box;font-size:14px;padding:9px 10px;border:1px solid #cbd5e1;border-radius:9px;margin-bottom:9px" />' +
       '<div id="uss-atd-err" style="color:#dc2626;font-size:12px;margin-bottom:7px;display:none"></div>' +
       '<div style="display:flex;gap:8px"><button id="uss-atd-cancel" style="flex:0 0 auto;font-size:13px;font-weight:700;padding:9px 12px;border-radius:9px;border:1px solid #e2e8f0;background:#fff;color:#64748b;cursor:pointer">Cancel</button>' +
       '<button id="uss-atd-go" style="flex:1;font-size:14px;font-weight:800;padding:9px 12px;border-radius:9px;border:none;background:' + NAVY + ';color:#fff;cursor:pointer">Save name & add</button></div>';
@@ -150,7 +150,7 @@
       var err = document.getElementById("uss-atd-err");
       if (!name || pin.length < 4) { err.textContent = "Enter your name and a 4–8 digit PIN."; err.style.display = "block"; return; }
       this.textContent = "Checking…"; this.disabled = true;
-      fetch(API, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "auth", pin: pin }) })
+      fetch(API, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "auth", manager: name, pin: pin }) })
         .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
         .then(function (res) {
           if (!res.ok || !res.d.ok) { err.textContent = res.d && res.d.error ? res.d.error : "Incorrect PIN."; err.style.display = "block"; document.getElementById("uss-atd-go").textContent = "Save name & add"; document.getElementById("uss-atd-go").disabled = false; return; }

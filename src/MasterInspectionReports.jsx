@@ -119,7 +119,7 @@ export default function MasterInspectionReports() {
   return (
     <div style={{ maxWidth: 1000, margin: "0 auto", padding: "20px 16px 80px", fontFamily: FONT }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
-        <div style={{ fontSize: 25, fontWeight: 900, fontFamily: OSWALD }}>📑 Master Inspection Reports</div>
+        <div style={{ fontSize: 25, fontWeight: 900, fontFamily: OSWALD }}>📑 Sales INSP Report</div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <a href="/?mode=pareschedcompose" style={{ ...btn("#7c3aed"), textDecoration: "none" }}>✉️ Message for PA Appointment</a>
           <button onClick={load} style={btn("#0f172a")}>↻ Refresh</button>

@@ -1,23 +1,25 @@
 // netlify/functions/manager-dashboard.js
 //
-// Backend for the "My Tools" launcher (?mode=mytools): a shared manager PIN gates
-// entry, then each manager picks their name and keeps their OWN curated set of tool
-// tiles — so they build a dashboard of just what they use instead of scrolling the
-// whole catalog.
+// Backend for the "My Tools" launcher (?mode=mytools). Each person has their OWN
+// passcode (not a shared PIN): the first time they pick their name they SET a passcode
+// (the UI asks them to confirm it), and after that it validates against theirs. Each
+// person keeps their own curated set of tool tiles.
 //
-//   GET  ?manager=<name>          → { ok, tools:[keys], pin_set }
-//   POST { action:"auth", pin }   → { ok } | 401   (validate the shared PIN)
-//   POST { action:"save", pin, manager, tools:[keys] } → { ok }  (PIN-checked)
+//   GET  ?manager=<name>              → { ok, tools:[keys], pin_set }   (pin_set = does THIS person have a passcode yet)
+//   POST { action:"auth", manager, pin }              → { ok }   (first time: sets it; after: validates)
+//   POST { action:"save", manager, pin, tools:[keys] } → { ok }  (passcode-checked)
 //
-// Storage (no migration): the shared PIN lives in app_settings.manager_pin; each
-// manager's picks under app_settings key  mgrdash_<slug>.
+// Storage (no migration): each person's passcode in app_settings key  mgrpin_<slug>;
+// their tool picks in  mgrdash_<slug>.
 //
 // Env: VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY.
 
 const SB_URL = process.env.VITE_SUPABASE_URL;
 const SB_KEY = process.env.VITE_SUPABASE_ANON_KEY;
 const H = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, "Content-Type": "application/json" };
-const slug = (name) => "mgrdash_" + String(name || "").toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+const bareSlug = (name) => String(name || "").toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+const pinKey = (name) => "mgrpin_" + bareSlug(name);
+const toolsKey = (name) => "mgrdash_" + bareSlug(name);
 
 export const handler = async (event) => {
   if (event.httpMethod === "OPTIONS") return cors(200, "");
@@ -25,9 +27,9 @@ export const handler = async (event) => {
   try {
     if (event.httpMethod === "GET") {
       const manager = (event.queryStringParameters || {}).manager || "";
-      const pinSet = await getSetting("manager_pin");
-      if (!manager) return cors(200, JSON.stringify({ ok: true, pin_set: !!pinSet }));
-      const raw = await getSetting(slug(manager));
+      if (!manager) return cors(200, JSON.stringify({ ok: true }));
+      const pinSet = await getSetting(pinKey(manager));
+      const raw = await getSetting(toolsKey(manager));
       let tools = [];
       try { tools = raw ? JSON.parse(raw) : []; } catch { tools = []; }
       return cors(200, JSON.stringify({ ok: true, tools: Array.isArray(tools) ? tools : [], pin_set: !!pinSet }));
@@ -36,21 +38,23 @@ export const handler = async (event) => {
     if (event.httpMethod === "POST") {
       const body = JSON.parse(event.body || "{}");
       const action = body.action || "auth";
-      const stored = await getSetting("manager_pin");
+      const manager = String(body.manager || "").trim();
       const pin = String(body.pin || "").trim();
-      // First-ever use: no PIN on file → whatever is typed BECOMES the shared PIN.
+      if (!manager) return cors(400, JSON.stringify({ ok: false, error: "Pick your name first." }));
+
+      const stored = await getSetting(pinKey(manager));
+      // First time for THIS person: whatever they enter becomes their own passcode.
       if (!stored) {
-        if (!/^\d{4,8}$/.test(pin)) return cors(400, JSON.stringify({ ok: false, error: "Set a 4–8 digit PIN." }));
-        await setSetting("manager_pin", pin);
+        if (!/^\d{4,8}$/.test(pin)) return cors(400, JSON.stringify({ ok: false, error: "Set a 4–8 digit passcode." }));
+        await setSetting(pinKey(manager), pin);
       } else if (pin !== stored) {
-        return cors(401, JSON.stringify({ ok: false, error: "Incorrect PIN." }));
+        return cors(401, JSON.stringify({ ok: false, error: "Incorrect passcode." }));
       }
+
       if (action === "auth") return cors(200, JSON.stringify({ ok: true }));
       if (action === "save") {
-        const manager = String(body.manager || "").trim();
-        if (!manager) return cors(400, JSON.stringify({ ok: false, error: "manager required" }));
-        const tools = Array.isArray(body.tools) ? body.tools.filter((t) => typeof t === "string").slice(0, 200) : [];
-        await setSetting(slug(manager), JSON.stringify(tools));
+        const tools = Array.isArray(body.tools) ? body.tools.filter((t) => typeof t === "string").slice(0, 300) : [];
+        await setSetting(toolsKey(manager), JSON.stringify(tools));
         return cors(200, JSON.stringify({ ok: true, tools }));
       }
       return cors(400, JSON.stringify({ ok: false, error: "unknown action" }));
