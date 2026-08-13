@@ -45,7 +45,7 @@ const FALLBACK_TYPES = [
   // "Pending (come back)" — statuses the door but KEEPS it on the go-back list
   // (see KEEP_ROUTABLE); a rep can note "talked to them, come back" without it
   // dropping off their route for the day.
-  { key: "insp_callback", label: "⏳ Pending (come back)", color: "#eab308", outcomes: ["insp_sold", "insp_ni", "insp_callback", "dead", "new_roof"] },
+  { key: "insp_callback", label: "⏳ Pending (come back)", color: "#eab308", outcomes: ["appt", "insp_sold", "insp_ni", "insp_callback", "dead", "new_roof"] },
   { key: "insp_ni", label: "Not Interested", color: "#78716c", outcomes: [], is_terminal: true },
   { key: "insp_pending", label: "Pending signature", color: "#ea580c", outcomes: ["insp_sold", "dead"] },
   { key: "insp_sold", label: "Inspection Sold", color: "#7c3aed", outcomes: [], is_terminal: true },
@@ -3217,7 +3217,7 @@ export default function CanvassMap() {
   function cancelAdd() { setAdding(false); setNewPin(null); setOwnerOverride(false); setOverridePhone(""); }
   // 🔍 Fly the map to a typed address, drop a marker, and auto-open the pin there —
   // or, if there's no pin, offer to start a signing right at that spot.
-  function goToAddress(pl) {
+  async function goToAddress(pl) {
     if (!pl || typeof pl.lat !== "number" || typeof pl.lng !== "number") return; // needs a dropdown pick
     const m = map.current; if (!m) return;
     setNoPinAt(null); setSearchOpen(false); setSearchText(pl.formatted || pl.address || "");
@@ -3227,7 +3227,28 @@ export default function CanvassMap() {
     setSearchTarget({ lat: pl.lat, lng: pl.lng, place: pl });
     // If no pin at that address loads within a few seconds, offer to start one.
     if (searchTimer.current) clearTimeout(searchTimer.current);
-    searchTimer.current = setTimeout(() => { setSearchTarget((t) => { if (t) setNoPinAt(pl); return null; }); }, 3200);
+    searchTimer.current = setTimeout(() => { setSearchTarget((t) => { if (t) setNoPinAt(pl); return null; }); }, 3500);
+    // Look up ANY existing pin at that address straight from the DB — even one that's
+    // been statused OFF the current view (e.g. "Pending — come back"), so a rep can
+    // find it and re-work it (book the appt) here instead of going old-school in JN.
+    try {
+      const dd = 0.0016; // ~±500 ft box
+      const { data } = await supabase.from("canvass_prospects").select(PIN_FIELDS_LITE)
+        .not("latitude", "is", null).neq("status", "insp_retired")
+        .gte("latitude", pl.lat - dd).lte("latitude", pl.lat + dd)
+        .gte("longitude", pl.lng - dd).lte("longitude", pl.lng + dd)
+        .limit(30);
+      if (data && data.length) {
+        let best = null, bestFt = Infinity;
+        for (const p of data) { const ft = feetBetween({ lat: pl.lat, lng: pl.lng }, { lat: +p.latitude, lng: +p.longitude }); if (ft < bestFt) { bestFt = ft; best = p; } }
+        if (best && bestFt <= 300) {
+          if (searchTimer.current) clearTimeout(searchTimer.current);
+          setSearchTarget(null); setNoPinAt(null);
+          setProspects((list) => (list.some((x) => x.id === best.id) ? list : [...list, best])); // render it if the filter had hidden it
+          openPin(best);
+        }
+      }
+    } catch { /* fall back to the loaded-pin effect + "start here" */ }
   }
   // No pin at the searched address → drop a self-gen door there and open the signing.
   async function signAtSearched() {
