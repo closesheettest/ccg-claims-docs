@@ -105,10 +105,32 @@ export const handler = async (event) => {
       // silently failing) actually place on the rep's route.
       if (!geo && j.geo && Number(j.geo.lat) && Number(j.geo.lon)) geo = { lat: Number(j.geo.lat), lng: Number(j.geo.lon) };
       if (!geo && address && GOOGLE_KEY) { geo = await geocode(address); if (geo) { geocache[id] = geo; cacheDirty = true; } }
-      jobInfo[id] = { name, address, geo, status: j.status_name || null };
+      jobInfo[id] = { name, address, geo, status: j.status_name || null, addr1: j.address_line1 || "", zip: j.zip || "" };
     } catch { /* skip this one */ }
   }));
   if (cacheDirty) writeSetting(GEOCACHE_KEY, geocache).catch(() => {});
+
+  // 3.5) Address fallback — the robust one. For any appt we STILL can't place (no pin
+  // matched by jn_job_id, and the JN job had no usable coordinates: geo 0,0 + geocode
+  // miss), borrow coordinates from an already-geocoded map pin at the SAME street+zip.
+  // This rescues company/Instant-Quote-booked appts whose JN job carries no geo and
+  // whose map pin was never linked to the job id (e.g. an IQ-synced pin). Uses our own
+  // pins, so it doesn't depend on the JN geo or Google.
+  const unplaced = jobIds.filter((id) => !pinByJob[id] && !(jobInfo[id] && jobInfo[id].geo));
+  for (const id of unplaced) {
+    const ji = jobInfo[id];
+    const addr1 = (ji && ji.addr1 || "").trim();
+    const zip = (ji && ji.zip || "").trim();
+    if (!addr1) continue;
+    // Anchor the LIKE at the house number so "200 Park Place%" can't match "1200 …";
+    // narrow by zip when we have it. First already-geocoded hit wins.
+    let path = `canvass_prospects?address=ilike.${encodeURIComponent(addr1 + "%")}&latitude=not.is.null&select=name,address,city,state,zip,latitude,longitude&limit=1`;
+    if (zip) path += `&zip=eq.${encodeURIComponent(zip)}`;
+    try {
+      const hits = await sbGet(path);
+      if (hits && hits[0] && typeof hits[0].latitude === "number") pinByJob[id] = hits[0]; // reuse the pin assembly branch
+    } catch { /* best-effort */ }
+  }
 
   // Every appt job's current JN status — the "what happened with this appointment?"
   // accountability gate needs it to tell a still-open "Appointment Scheduled" (must be
