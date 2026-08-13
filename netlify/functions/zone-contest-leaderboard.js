@@ -8,8 +8,10 @@
 //       - book an appointment            (to_status "appt")
 //       - go to an appointment           (kind "appt_done")
 //       - get a free roof inspection SIGNED (to_status "insp_sold")
-//       - do a go-back                   (kind "goback")
-//       - send a Google review           (kind "review_request")
+//       - CONVERT a go-back              (kind "goback" — retail→appt, damage→PA appt,
+//                                         no-damage→referral; a plain go-back scores nothing)
+//       - a manager-VERIFIED Google review (review_verifications: approved, or still
+//                                         pending but sent TODAY = a provisional point)
 //     NOTHING for knocking a door / arriving at a pin.
 //   • DAILY RAMP, per rep, PER ATTRIBUTE TYPE: for each type, the first 2 that day
 //     are worth 1 pt each; the 3rd and every one after (of that same type) are worth
@@ -134,8 +136,9 @@ export const handler = async (event) => {
       if (s === "appt") { type = "booked"; key = `${pin || r.created_at}`; }            // booked an appointment
       else if (k === "appt_done") { type = "went"; key = r.created_at; }                // went to an appointment
       else if (s === "insp_sold") { type = "signed"; key = `${pin || r.created_at}`; }  // free roof inspection signed
-      else if (k === "goback") { type = "goback"; key = r.note || r.created_at; }        // did a go-back
-      else if (k === "review_request") { type = "review"; key = r.note || r.created_at; } // sent a Google review
+      else if (k === "goback") { type = "goback"; key = r.note || r.created_at; }        // did a converting go-back
+      // NOTE: Google reviews are NOT scored from map activity anymore — they go
+      // through manager verification (review_verifications), folded in below.
       if (!type) continue;
       let byDay = attrByRepDay.get(nk);
       if (!byDay) attrByRepDay.set(nk, (byDay = new Map()));
@@ -143,6 +146,44 @@ export const handler = async (event) => {
       if (!dd) byDay.set(day, (dd = { booked: new Set(), went: new Set(), signed: new Set(), goback: new Set(), review: new Set() }));
       dd[type].add(key);
     }
+
+    // Google reviews — manager-verified. The point is earned only when a manager
+    // confirms the review the SAME DAY it was sent. A still-pending review sent TODAY
+    // rides the board as a PROVISIONAL point that falls off on its own tomorrow unless
+    // it's confirmed. Credited to the day it was SENT. Keyed by review id → the per-type
+    // "review" ramp. Best-effort: if the table isn't there yet, reviews = 0.
+    //   One-time TRANSITION: manager verification went live 2026-08-13 mid-contest, so
+    //   reviews sent 08-12 (before it existed) can be confirmed on 08-13 and still count —
+    //   managers got until go-live day. These two grace lines never fire after 08-13.
+    try {
+      const revRows = await sbGetAll(
+        `review_verifications?select=rep_name,status,sent_at,verified_at,id` +
+        `&status=in.(pending,approved)` +
+        `&sent_at=gte.${encodeURIComponent(contestStart.toISOString())}&sent_at=lte.${encodeURIComponent(contestEnd.toISOString())}`
+      );
+      const nowDay = etDayKey(new Date().toISOString());
+      const GRACE_DAY = "2026-08-13", GRACE_SENT = "2026-08-12";
+      for (const rv of revRows) {
+        const rep = (rv.rep_name || "").trim();
+        if (!rep) continue;
+        const sentDay = etDayKey(rv.sent_at);
+        const apprDay = rv.verified_at ? etDayKey(rv.verified_at) : null;
+        let counts = false;
+        if (rv.status === "approved" && apprDay === sentDay) counts = true;              // confirmed same-day → permanent
+        else if (rv.status === "pending" && sentDay === nowDay) counts = true;           // sent today, pending → provisional
+        else if (nowDay === GRACE_DAY && sentDay === GRACE_SENT) {                        // transition grace (08-12 reviews)
+          if (rv.status === "pending") counts = true;                                    //   provisional through the grace day
+          else if (rv.status === "approved" && apprDay === GRACE_DAY) counts = true;     //   confirmed on go-live day → counts
+        }
+        if (!counts) continue;
+        const nk = normalizeName(rep);
+        let byDay = attrByRepDay.get(nk);
+        if (!byDay) attrByRepDay.set(nk, (byDay = new Map()));
+        let dd = byDay.get(sentDay);
+        if (!dd) byDay.set(sentDay, (dd = { booked: new Set(), went: new Set(), signed: new Set(), goback: new Set(), review: new Set() }));
+        dd.review.add(rv.id);
+      }
+    } catch { /* reviews best-effort — keep the other attribute points */ }
     // Ramp points = sum over days of the per-TYPE ramp (each type ramps on its own).
     const rampByNorm = new Map();
     for (const [nk, byDay] of attrByRepDay) {

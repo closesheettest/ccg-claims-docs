@@ -1896,6 +1896,21 @@ export default function CanvassMap() {
     } catch { /* ignore */ }
   }
 
+  // A Google-review ask now goes through manager verification (it doesn't score on
+  // its own anymore). Drop a PENDING review_verifications row — the rep's regional
+  // manager confirms it's really there (same day) to award the contest point.
+  function createPendingReview(name, phone) {
+    if (demoMode || spotCheck) return;
+    try {
+      const repNm = repName || (authInfo.current && authInfo.current.rep && authInfo.current.rep.name) || null;
+      supabase.from("review_verifications").insert({
+        rep_name: repNm, rep_token: auth.rt || null,
+        homeowner_name: (name || "").trim() || null, homeowner_phone: phone || null,
+        status: "pending",
+      }).then(() => {}, () => {});
+    } catch { /* ignore */ }
+  }
+
   // ── Open-map / close-map events ─────────────────────────────────────────
   // Log once when a real rep opens the map, and again when they leave/background
   // it (phone in pocket). This lets the office report EXPLAIN a quiet stretch —
@@ -3972,7 +3987,7 @@ export default function CanvassMap() {
             homeowner the review link + logs a review_request (counts for the contest). */}
         {!selecting && !referralForm && !newPin && !adding && (auth.rt || testMode) && (
           <ReviewFab disabled={demoMode || spotCheck}
-            onLogged={(phone) => logActivity({ pin_id: null, kind: "review_request", note: phone })} />
+            onLogged={(phone, name) => createPendingReview(name, phone)} />
         )}
         {referralForm && !referralPlacing && (
           <div style={{ position: "absolute", inset: 0, zIndex: 1200, background: "rgba(15,23,42,.45)", display: "flex", alignItems: "flex-end", justifyContent: "center" }} onClick={closeReferral}>
@@ -5222,8 +5237,10 @@ function Chip({ active, onClick, color, label, check }) {
 // Desktop right-column filter card — the "chip" for the web view.
 // Collapsible legend section (keeps the long "Pins to show" list tidy).
 // Floating ⭐ on the map: rep types a homeowner's cell → texts them the Google
-// review link (send-review-sms) and logs a `review_request` so it counts for the
-// contest. A rep can't credit their own number — that's a homeowner ask.
+// review link (send-review-sms) and drops a PENDING review for the manager to
+// verify (createPendingReview) — the contest point is provisional until the rep's
+// regional manager confirms the review is really there, same day. A rep can't
+// credit their own number — that's a homeowner ask.
 function ReviewFab({ disabled, onLogged }) {
   const [open, setOpen] = React.useState(false);
   const [phone, setPhone] = React.useState("");
@@ -5242,9 +5259,9 @@ function ReviewFab({ disabled, onLogged }) {
       });
       const o = await r.json().catch(() => ({}));
       if (!r.ok || !o.ok) throw new Error(o.error || "Send failed");
-      try { onLogged && onLogged(digits); } catch { /* ignore */ }
-      setMsg("✓ Review text sent!"); setPhone(""); setName("");
-      setTimeout(() => { setOpen(false); setMsg(""); }, 1600);
+      try { onLogged && onLogged(digits, name.trim()); } catch { /* ignore */ }
+      setMsg("✓ Sent! Your point is pending — your manager verifies the review today."); setPhone(""); setName("");
+      setTimeout(() => { setOpen(false); setMsg(""); }, 2600);
     } catch (e) { setMsg(e.message || "Send failed"); }
     setBusy(false);
   };
