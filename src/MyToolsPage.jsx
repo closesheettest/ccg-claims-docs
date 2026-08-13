@@ -64,16 +64,46 @@ const CATALOG = [
   { key: "rep_intake", cat: "Sales & Settings", emoji: "🏠", label: "Rep Intake Form", desc: "The homeowner sign-up form reps use in the field.", href: "/" },
   { key: "inspector_app", cat: "Sales & Settings", emoji: "📷", label: "Inspector App (admin)", desc: "The inspector mobile app with admin powers (switch user, etc.).", href: "/?mode=inspector&admin=1" },
 
+  // ── Training (TMS) — the Training Management System's admin pages ──
+  { key: "tms_home", cat: "Training (TMS)", emoji: "🎓", label: "Training Dashboard", desc: "The training home — classes and this week's cohort at a glance.", external: "https://trainingmanagementsys.netlify.app/" },
+  { key: "tms_calendar", cat: "Training (TMS)", emoji: "📆", label: "Training Calendar", desc: "The class schedule — training weeks and days.", external: "https://trainingmanagementsys.netlify.app/calendar" },
+  { key: "tms_progress", cat: "Training (TMS)", emoji: "📈", label: "Progress Funnel", desc: "Enrolled → registered → tested funnel per class.", external: "https://trainingmanagementsys.netlify.app/progress" },
+  { key: "tms_attendance", cat: "Training (TMS)", emoji: "✅", label: "Attendance", desc: "Daily kiosk sign-ins per class.", external: "https://trainingmanagementsys.netlify.app/attendance" },
+  { key: "tms_homework", cat: "Training (TMS)", emoji: "📝", label: "Homework Status", desc: "Who's done their homework, who to nudge.", external: "https://trainingmanagementsys.netlify.app/homework" },
+  { key: "tms_provisioning", cat: "Training (TMS)", emoji: "🔧", label: "Provisioning", desc: "IT/HR/VA setup checklist per trainee (emails, RepCard, JN).", external: "https://trainingmanagementsys.netlify.app/provisioning" },
+  { key: "tms_manager", cat: "Training (TMS)", emoji: "🧑‍💼", label: "Hiring Manager", desc: "Add trainees to a week, holding pool, reschedules.", external: "https://trainingmanagementsys.netlify.app/manager" },
+  { key: "tms_active_reps", cat: "Training (TMS)", emoji: "👥", label: "Active Sales Reps", desc: "The durable field roster — the 'all reps' broadcast list.", external: "https://trainingmanagementsys.netlify.app/active-reps" },
+  { key: "tms_regional_mgrs", cat: "Training (TMS)", emoji: "🗺️", label: "Regional Managers", desc: "Zone managers + their tokenized dashboard links.", external: "https://trainingmanagementsys.netlify.app/regional-managers" },
+  { key: "tms_repmap", cat: "Training (TMS)", emoji: "📍", label: "Sales Team Map", desc: "Live map of the whole sales team.", external: "https://trainingmanagementsys.netlify.app/rep-map" },
+  { key: "tms_regions", cat: "Training (TMS)", emoji: "🧭", label: "Zones", desc: "Manage regions/zones + map centers.", external: "https://trainingmanagementsys.netlify.app/regions" },
+  { key: "tms_group_messages", cat: "Training (TMS)", emoji: "📣", label: "Group Messages", desc: "Broadcast SMS/email to a class or all active reps.", external: "https://trainingmanagementsys.netlify.app/group-messages" },
+  { key: "tms_directory_admin", cat: "Training (TMS)", emoji: "📇", label: "Manage Directory", desc: "Edit the public team directory.", external: "https://trainingmanagementsys.netlify.app/manage-directory" },
+  { key: "tms_directory", cat: "Training (TMS)", emoji: "📖", label: "Team Directory (public)", desc: "The public handoff-contact directory.", external: "https://trainingmanagementsys.netlify.app/directory" },
+  { key: "tms_messages", cat: "Training (TMS)", emoji: "💬", label: "Messages", desc: "Every automated trainee/rep message.", external: "https://trainingmanagementsys.netlify.app/messages" },
+  { key: "tms_notifications", cat: "Training (TMS)", emoji: "🔔", label: "Notifications", desc: "Who gets which office notification (SMS/email).", external: "https://trainingmanagementsys.netlify.app/notifications" },
+  { key: "tms_templates", cat: "Training (TMS)", emoji: "🧩", label: "Message Templates", desc: "Edit the saved SMS/email templates.", external: "https://trainingmanagementsys.netlify.app/message-templates" },
+  { key: "tms_handoff", cat: "Training (TMS)", emoji: "🤝", label: "Handoff Contacts", desc: "The vCard contacts new grads receive.", external: "https://trainingmanagementsys.netlify.app/handoff-contacts" },
+  { key: "tms_personas", cat: "Training (TMS)", emoji: "🔐", label: "Personas", desc: "Role-based access — who sees which TMS pages.", external: "https://trainingmanagementsys.netlify.app/personas" },
+  { key: "tms_hosted", cat: "Training (TMS)", emoji: "🌐", label: "Hosted Pages", desc: "Editable public pages.", external: "https://trainingmanagementsys.netlify.app/hosted-pages" },
+  { key: "tms_locations", cat: "Training (TMS)", emoji: "🏫", label: "Locations", desc: "Training locations + photos.", external: "https://trainingmanagementsys.netlify.app/locations" },
+  { key: "tms_hotels", cat: "Training (TMS)", emoji: "🏨", label: "Hotels", desc: "Trainee hotel booking + cancellations.", external: "https://trainingmanagementsys.netlify.app/hotels" },
+  { key: "tms_welcome_links", cat: "Training (TMS)", emoji: "🔗", label: "Welcome Page Links", desc: "Links shown on the trainee welcome page.", external: "https://trainingmanagementsys.netlify.app/welcome-links" },
+  { key: "tms_questions", cat: "Training (TMS)", emoji: "❓", label: "Test Questions", desc: "The final-test question bank.", external: "https://trainingmanagementsys.netlify.app/questions" },
+  { key: "tms_testimonials", cat: "Training (TMS)", emoji: "⭐", label: "Testimonials", desc: "Trainee essay/testimonial answers.", external: "https://trainingmanagementsys.netlify.app/testimonials" },
+  { key: "tms_training_week", cat: "Training (TMS)", emoji: "🗓️", label: "Training Week", desc: "The standard training-week template.", external: "https://trainingmanagementsys.netlify.app/training-week" },
+  { key: "tms_ongoing", cat: "Training (TMS)", emoji: "🔁", label: "Ongoing Training", desc: "Post-grad ongoing training days.", external: "https://trainingmanagementsys.netlify.app/ongoing-training" },
+  { key: "tms_field_trainee", cat: "Training (TMS)", emoji: "🚗", label: "Field Trainee", desc: "The field-training ride-along picker.", external: "https://trainingmanagementsys.netlify.app/field-trainee" },
+  { key: "tms_overview", cat: "Training (TMS)", emoji: "🧾", label: "TMS System Overview", desc: "The whole training system explained on one page.", external: "https://trainingmanagementsys.netlify.app/system-overview.html" },
+
   // ── Other apps ──
   { key: "rep_dashboard", cat: "Other Apps", emoji: "📋", label: "Rep Dashboard", desc: "Daily schedule, standings, and training links for reps.", external: "https://us-shingle-rep-dashboard.netlify.app" },
-  { key: "training", cat: "Other Apps", emoji: "🎓", label: "Training Management", desc: "Trainee onboarding and the training tracker.", external: "https://trainingmanagementsys.netlify.app" },
   { key: "closesheet", cat: "Other Apps", emoji: "🧮", label: "Close Sheet", desc: "Enter measurements & pricing to generate the close pages.", external: "https://usshinglesalessheet.netlify.app" },
   { key: "forms", cat: "Other Apps", emoji: "📄", label: "U.S. Shingle Forms", desc: "Field forms — deposits, upgrades, and more.", external: "https://us-shingle-forms.netlify.app" },
   { key: "install_finder", cat: "Other Apps", emoji: "🧭", label: "Install Finder", desc: "Find past installs by city, radius, or statewide.", external: "https://golden-banoffee-56e9ef.netlify.app" },
   { key: "system_map", cat: "Other Apps", emoji: "🗺", label: "System Map", desc: "Interactive flow of the whole system — every text, email, JN push.", external: "/system-map.html" },
 ];
 
-const CATS = ["Door-Knocking", "Inspections", "Public Adjuster", "Installs", "Sales & Settings", "Other Apps"];
+const CATS = ["Door-Knocking", "Inspections", "Public Adjuster", "Installs", "Sales & Settings", "Training (TMS)", "Other Apps"];
 const byKey = Object.fromEntries(CATALOG.map((t) => [t.key, t]));
 
 // palette
