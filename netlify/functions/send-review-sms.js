@@ -42,6 +42,11 @@ export const handler = async (event) => {
     });
     const o = await r.json().catch(() => ({}));
     if (!r.ok || o.success === false) return cors(502, JSON.stringify({ ok: false, error: o.error || "Text failed to send." }));
+    // GHL returns success:true but SKIPS the send when the number is opted out of texts
+    // (they replied STOP → DND). Don't report that as "Sent" — the homeowner never gets it.
+    if (o.skipped || o.reason === "opted_out") {
+      return cors(409, JSON.stringify({ ok: false, opted_out: true, error: "This number opted out of our texts (replied STOP), so the review link can't be delivered. They'd have to text START to turn texts back on — or share the review link another way." }));
+    }
     return cors(200, JSON.stringify({ ok: true, to: digits }));
   } catch (e) {
     return cors(500, JSON.stringify({ ok: false, error: e.message || "send error" }));
