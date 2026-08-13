@@ -63,6 +63,16 @@ export const handler = async (event) => {
       return json(200, { ok: true, mailed_not_qualifying: { no_roof_data: noData, has_roof_data: hasData, has_a_permit: hasPermit, roof_10yr_or_newer: youngRoof }, sample });
     }
 
+    if (mode === "mailedpage") {
+      // Paginated bulk pull of David's EVER-MAILED homes (for the one-shot import into
+      // our own DB). offset in rows; returns up to 1000 per call.
+      const offset = Math.max(0, parseInt(p.offset || "0", 10) || 0);
+      const r = await fetch(`${DAVID_URL}/rest/v1/map_properties?last_mailed_date=not.is.null&select=akey,lat,long,address,city,zip5,roof_age,qualifies&order=akey.asc`, { headers: { ...dH, Range: `${offset}-${offset + 999}` } });
+      if (!r.ok) return json(200, { ok: false, error: (await r.text()).slice(0, 200) });
+      const pins = await r.json();
+      return json(200, { ok: true, offset, count: pins.length, done: pins.length < 1000, pins });
+    }
+
     if (mode === "pins") {
       // Live map layer: David's EVER-MAILED homes inside the viewport. Only mailed
       // homes go on the map so the rep's "we mailed you about your roof" pitch always
