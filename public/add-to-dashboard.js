@@ -58,8 +58,28 @@
     "/system-overview.html": ["tms_overview", "TMS System Overview"]
   };
 
+  // CCG main-app tools, matched by ?mode. Kept in sync with MyToolsPage CATALOG.
+  var CCG = {
+    harvest: ["harvest_map", "DoorDispatcher"], harvestreport: ["harvest_report", "Rep Activity"],
+    harvestplannedday: ["harvest_plannedday", "Planned Day"], harvestnositreport: ["harvest_nosit", "No-Sits to Re-book"],
+    harvestlinks: ["harvest_links", "Rep Links & Access"], harvestupload: ["harvest_upload", "Load Leads"],
+    harvestadmin: ["harvest_types", "Pin Types"], scheduleadmin: ["appt_schedule", "Appointment Scheduler"],
+    harvestjnsync: ["harvest_jnsync", "JN Sync"], harvestskiptrace: ["harvest_skiptrace", "Skip-Trace"],
+    harvesttrainingadmin: ["harvest_training", "Tool Training"], harvesthowtoadmin: ["harvest_howto", "How-To Library"],
+    inspectmap: ["inspection_map", "Inspection Map"], inspectorlinks: ["inspector_links", "Inspector Links"],
+    inspectvisitreport: ["inspect_report", "Inspector Activity"], masterinspreport: ["master_inspection_report", "Sales INSP Report"],
+    gobackschedule: ["goback_schedule", "After-Inspection Self-Scheduling"], pareschedcompose: ["pa_resched_compose", "Reschedule Text Composer"],
+    pa: ["pa_portal", "PA Portal"], installs: ["installs_map", "Installs Map"], foremanlinks: ["foreman_links", "Foreman Links"],
+    contest: ["contest", "Contest Leaderboard"], manager: ["manager_console", "Manager Console"],
+    setter: ["setter", "Setter Portal"], crews: ["crews", "Crew Onboarding"], inspector: ["inspector_app", "Inspector App"]
+  };
+
   function currentTool() {
     var h = location.hostname;
+    if (h.indexOf("free-roof-inspections") >= 0 || h === "localhost") {
+      var mode = ""; try { mode = new URLSearchParams(location.search).get("mode") || ""; } catch (e) {}
+      return CCG[mode] || null;
+    }
     if (h.indexOf("trainingmanagementsys") >= 0) {
       var p = location.pathname.replace(/\/+$/, "") || "/";
       // token/public pages (register/confirm/test/kiosk/regional-manager/etc.) aren't tools
@@ -165,8 +185,9 @@
   function evaluate() {
     var t = currentTool();
     if (t) { try { document.title = t[1] + " · U.S. Shingle"; } catch (e) {} }
-    // rep-token pages are field-facing — never bug a rep with an admin button
-    if (t && location.search.indexOf("rt=") >= 0) t = null;
+    // field/portal-token pages (rep rt / PA pa / inspector it) aren't the admin — never
+    // show them an admin "add to dashboard" button.
+    if (t && /[?&](rt|pa|it)=/.test(location.search)) t = null;
     var changed = !tool || !t || tool[0] !== t[0];
     tool = t;
     if (!tool) { if (root) root.style.display = "none"; return; }

@@ -211,6 +211,8 @@ export default function MyToolsPage() {
   const [busy, setBusy] = useState(false);
   const [adminTok, setAdminTok] = useState(null);
 
+  useEffect(() => { try { document.title = "My Tools · U.S. Shingle"; } catch { /* ignore */ } }, []);
+
   // On load: if a name+passcode are remembered on this device, look up whether THIS
   // person has a passcode and jump straight to their dashboard; otherwise go pick a name.
   useEffect(() => {
