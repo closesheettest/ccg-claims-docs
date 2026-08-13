@@ -2000,6 +2000,17 @@ export function InspectorMobileApp() {
     } catch { /* ignore */ }
     return null;
   }, []);
+  // The MAP is now the only way into an inspection. When a real inspector lands on the
+  // old list/claim portal — and they're NOT deep-linked here from the map to work a job —
+  // bounce them straight to THEIR inspection map. The classic list stays for admin preview.
+  const cameFromMap = useMemo(() => {
+    try { const q = new URLSearchParams(window.location.search); return q.get("from") === "map" || !!q.get("job"); } catch { return false; }
+  }, []);
+  function goToMyMap(insp) {
+    if (adminView || cameFromMap) return false;          // admin preview / working a job from the map → stay
+    if (!insp || !insp.map_token) return false;          // no token → fall back (shouldn't happen; all have one)
+    try { window.location.replace(window.location.origin + "/?mode=inspectmap&it=" + encodeURIComponent(insp.map_token)); return true; } catch { return false; }
+  }
   const [stage, setStage] = useState("pick"); // pick | list | detail | inactive
   const [inspectors, setInspectors] = useState([]);
   const [me, setMe] = useState(null);
@@ -2033,7 +2044,9 @@ export function InspectorMobileApp() {
         // Deep-link from the Inspection Map's pin card: ?job=<inspection id> jumps
         // straight into that roof's inspection instead of the list.
         let jobParam = null; try { jobParam = new URLSearchParams(window.location.search).get("job"); } catch { /* ignore */ }
-        setStage(jobParam ? { kind: "detail", jobId: jobParam } : "list");
+        if (jobParam) { setStage({ kind: "detail", jobId: jobParam }); return; }
+        if (goToMyMap(found)) return; // map is the only way in — send real inspectors there
+        setStage("list"); // admin preview only
         return;
       }
       // Stored ID is NOT in the active+setup-done list. Look up the
@@ -2079,6 +2092,7 @@ export function InspectorMobileApp() {
   function pickMe(insp) {
     setMe(insp);
     localStorage.setItem("ccg_inspector_id", insp.id);
+    if (goToMyMap(insp)) return; // map is the only way in — bounce to their map after they pick their name
     setStage("list");
   }
 
