@@ -49,6 +49,45 @@ export const handler = async (event) => {
       return json(200, { ok: true, connected: true, columns: cols, sample_redacted: safe });
     }
 
+    if (mode === "reconcile") {
+      // One SLICE of our inspection-needed pins, matched against David's live prospects.
+      // A pin SURVIVES if David still flags it (qualifies=true) OR we've visited it
+      // (activity history worth keeping). Everything else is a removal candidate.
+      const offset = Math.max(0, parseInt(p.offset || "0", 10) || 0);
+      const limit = Math.min(8000, Math.max(1000, parseInt(p.limit || "6000", 10) || 6000));
+      const pins = [];
+      for (let f = offset; f < offset + limit; f += 1000) {
+        const r = await fetch(`${OUR_URL}/rest/v1/canvass_prospects?status=eq.insp&select=id,address,zip&order=id.asc`, { headers: { apikey: OUR_KEY, Authorization: `Bearer ${OUR_KEY}`, Range: `${f}-${f + 999}` } });
+        if (!r.ok) break;
+        const d = await r.json().catch(() => []);
+        pins.push(...d);
+        if (d.length < 1000) break;
+      }
+      let noAkey = 0;
+      const keyById = new Map();
+      for (const pn of pins) { const k = akeyOf(pn.address, pn.zip); if (!k) noAkey++; else keyById.set(pn.id, k); }
+      // David match: which akeys are still prospects?
+      const uniq = [...new Set(keyById.values())];
+      const prospect = new Set();
+      for (let i = 0; i < uniq.length; i += 240) {
+        const chunk = uniq.slice(i, i + 240).map((a) => `"${a.replace(/"/g, "")}"`).join(",");
+        const r = await fetch(`${DAVID_URL}/rest/v1/map_properties?akey=in.(${encodeURIComponent(chunk)})&qualifies=eq.true&select=akey`, { headers: dH });
+        if (r.ok) for (const x of await r.json()) prospect.add(x.akey);
+      }
+      // Of the pins that DON'T match David, which were visited (keep for history)?
+      const removeCandidateIds = [];
+      let matchKeep = 0;
+      for (const [id, k] of keyById) { if (prospect.has(k)) matchKeep++; else removeCandidateIds.push(id); }
+      let visitedKeep = 0;
+      for (let i = 0; i < removeCandidateIds.length; i += 150) {
+        const ids = removeCandidateIds.slice(i, i + 150).map((x) => `"${x}"`).join(",");
+        const r = await fetch(`${OUR_URL}/rest/v1/canvass_activity?pin_id=in.(${encodeURIComponent(ids)})&select=pin_id`, { headers: { apikey: OUR_KEY, Authorization: `Bearer ${OUR_KEY}` } });
+        if (r.ok) { const seen = new Set((await r.json()).map((x) => x.pin_id)); visitedKeep += seen.size; }
+      }
+      const remove = removeCandidateIds.length - visitedKeep + noAkey; // no-akey can't be matched → removal candidate too
+      return json(200, { ok: true, offset, got: pins.length, match_keep: matchKeep, visited_keep: visitedKeep, no_akey: noAkey, remove, done: pins.length < limit });
+    }
+
     if (mode === "analyze") {
       // OUR "new roof" homes (reps marked new_roof) — they carry address + zip in the
       // same UPPER/abbreviated style as David's akey, so we can match directly.
@@ -57,13 +96,13 @@ export const handler = async (event) => {
       for (const r of nr) { const k = akeyOf(r.address, r.zip); if (k) set.set(k, true); }
       const akeys = [...set.keys()];
       // Look each up in David's data (chunked by the PK akey — fast, indexed).
-      let matched = 0, stillProspect = 0; const roofAges = []; const sampleMatched = [];
+      let matched = 0, stillProspect = 0; const discrepancies = [];
       for (let i = 0; i < akeys.length; i += 100) {
         const chunk = akeys.slice(i, i + 100).map((a) => `"${a.replace(/"/g, "")}"`).join(",");
-        const r = await fetch(`${DAVID_URL}/rest/v1/map_properties?akey=in.(${encodeURIComponent(chunk)})&select=akey,roof_age,last_roof_year,qualifies`, { headers: dH });
+        const r = await fetch(`${DAVID_URL}/rest/v1/map_properties?akey=in.(${encodeURIComponent(chunk)})&select=akey,city,county,roof_age,last_roof_year,roof_cover,qualifies&limit=200`, { headers: dH });
         if (!r.ok) continue;
         const d = await r.json();
-        for (const x of d) { matched++; if (x.qualifies) stillProspect++; if (x.roof_age != null) roofAges.push(x.roof_age); if (sampleMatched.length < 10) sampleMatched.push(x); }
+        for (const x of d) { matched++; if (x.qualifies) { stillProspect++; discrepancies.push({ akey: x.akey, city: x.city, county: x.county, roof_age: x.roof_age, last_roof_year: x.last_roof_year, roof_cover: x.roof_cover }); } }
       }
       const davidProspects = await countOf(`${DAVID_URL}/rest/v1/map_properties?qualifies=eq.true&select=akey`, dH, "estimated");
       return json(200, {
@@ -73,8 +112,8 @@ export const handler = async (event) => {
         matched_in_davids_data: matched,
         match_rate_pct: set.size ? Math.round((matched / set.size) * 100) : 0,
         david_still_flags_these_as_prospect: stillProspect,
-        note: "matched = our new-roof homes David also has; 'still flags as prospect' = ones his permit data MISSED that our reps caught (the value-add). installs (no zip) matched separately by geo.",
-        sample_matched: sampleMatched,
+        note: "discrepancies = our new-roof homes David STILL lists as prospects (address + what his data says).",
+        discrepancies,
       });
     }
 
