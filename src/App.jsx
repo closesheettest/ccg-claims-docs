@@ -4616,6 +4616,15 @@ function readAdminHandoff() {
   return result;
 }
 
+// SINGLE SIGN-ON: true when this device is signed into the My Tools launcher
+// (?mode=mytools — they entered their personal passcode there). The manager-PIN gates
+// below treat that as already-unlocked, so someone who came in through My Tools never
+// has to re-enter a passcode tool-by-tool. Same device-local trust model as the manager
+// PIN itself (which defaults to 1234).
+function hasMyToolsSession() {
+  try { return !!(localStorage.getItem("ccg_mytools_name") && localStorage.getItem("ccg_mytools_pin")); } catch { return false; }
+}
+
 // ───────────────────────────────────────────────────────────────────
 // Admin Dashboard — standalone "front door" at /?mode=admin.
 // PIN-gated (same PIN as the Manager console). Shows: Smart Q&A box,
@@ -7552,7 +7561,7 @@ const CREW_STATUS = {
 
 function CrewAdminPage() {
   const MGR_PIN = (() => { try { return localStorage.getItem("ccg_mgr_managerPin") || "1234"; } catch { return "1234"; } })();
-  const [unlocked, setUnlocked] = useState(false);
+  const [unlocked, setUnlocked] = useState(hasMyToolsSession);
   const [pin, setPin] = useState("");
   const [token, setToken] = useState("");
   const [crews, setCrews] = useState(null);
@@ -8736,6 +8745,7 @@ function PendingSignaturesCard() {
 
 function AdminDashboard() {
   const [unlocked, setUnlocked] = useState(() => {
+    if (hasMyToolsSession()) return true;
     try { return sessionStorage.getItem("adminHubUnlocked") === "1"; } catch { return false; }
   });
   const [pinEntry, setPinEntry] = useState("");
@@ -10147,7 +10157,7 @@ export default function App() {
   // Deep-link from the Admin hub (opens in a new tab): auto-unlock only when a
   // fresh single-use handoff token is present (readAdminHandoff). A cold-typed
   // /?mode=manager has no token → PIN gate still renders.
-  const [managerUnlocked, setManagerUnlocked] = useState(() => !!readAdminHandoff());
+  const [managerUnlocked, setManagerUnlocked] = useState(() => !!readAdminHandoff() || hasMyToolsSession());
   const [managerTYTab, setManagerTYTab] = useState("post_inspection");
   const [managerSection, setManagerSection] = useState(() => {
     const h = readAdminHandoff();
