@@ -16,14 +16,11 @@ import { supabase } from "./lib/supabase";
 
 const API = "/.netlify/functions/manager-dashboard";
 
-// The managers who get a dashboard. Extra names can be added here anytime.
-const MANAGERS = [
-  { name: "Anthony Alongi", zone: "SQUAD · Zone 1" },
-  { name: "Richard Barnett", zone: "SitSold · Zone 2" },
-  { name: "Chad Griffith", zone: "SHARKS · Zone 3" },
-  { name: "Samuel Bissu", zone: "HURRICANE · Zone 4" },
-  { name: "Office / Admin", zone: "Everything" },
-];
+// Office/admin people identify themselves by typing their name — matches are pulled
+// live from the JobNimbus user list (jobnimbus-users), so anyone with a JN account can
+// build their own dashboard and new hires need no setup. (Zone managers use their own
+// tokenized /regional-manager dashboards — this is NOT for them.)
+const JN_USERS_API = "/.netlify/functions/jobnimbus-users";
 
 // The full tool catalog managers pick from. `href` = same-tab-safe route in this
 // app (opened in a new tab); `token: true` = office map that needs the admin token
@@ -84,7 +81,8 @@ const NAVY = "#0f2a4a", RED = "#c0392b", INK = "#16233b", MUTE = "#5b6b8c", LINE
 
 export default function MyToolsPage() {
   const [step, setStep] = useState("loading"); // loading | pick | pin | dash
-  const [managers] = useState(MANAGERS);
+  const [users, setUsers] = useState(null);     // JN users for the name typeahead (null = not loaded)
+  const [q, setQ] = useState("");               // typeahead query on the pick screen
   const [name, setName] = useState(() => { try { return localStorage.getItem("ccg_mytools_name") || ""; } catch { return ""; } });
   const [pin, setPin] = useState("");
   const [pinSet, setPinSet] = useState(true);
@@ -118,6 +116,18 @@ export default function MyToolsPage() {
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Load the JN user list once we land on the name-pick screen (for the typeahead).
+  useEffect(() => {
+    if (step !== "pick" || users !== null) return;
+    (async () => {
+      try {
+        const r = await fetch(JN_USERS_API);
+        const d = await r.json().catch(() => ({}));
+        setUsers(Array.isArray(d.members) ? d.members : []);
+      } catch { setUsers([]); }
+    })();
+  }, [step, users]);
 
   // The two office-map tools need the harvest admin token. Fetch it once we're in.
   useEffect(() => {
@@ -175,17 +185,29 @@ export default function MyToolsPage() {
   if (step === "loading") return <Shell><div style={{ textAlign: "center", color: MUTE, padding: "60px 0" }}>Loading…</div></Shell>;
 
   if (step === "pick") {
+    const term = q.trim().toLowerCase();
+    const matches = term.length < 2 ? [] : (users || [])
+      .filter((u) => u.name.toLowerCase().includes(term))
+      .slice(0, 8);
     return (
       <Shell>
-        <Header sub="Pick your name to open your dashboard." />
-        <div style={{ display: "grid", gap: 10, marginTop: 18 }}>
-          {managers.map((m) => (
-            <button key={m.name} onClick={() => { setName(m.name); setErr(""); setStep("pin"); }}
-              style={pickBtn}>
-              <span style={{ fontWeight: 800, color: NAVY, fontSize: 16 }}>{m.name}</span>
-              <span style={{ fontSize: 12.5, color: MUTE, marginTop: 2 }}>{m.zone}</span>
-            </button>
-          ))}
+        <Header sub="Type your name and tap it to open your dashboard." />
+        <div style={{ marginTop: 18, maxWidth: 460 }}>
+          <input value={q} onChange={(e) => setQ(e.target.value)} autoFocus
+            placeholder={users === null ? "Loading names…" : "Start typing your name…"}
+            disabled={users === null}
+            style={{ width: "100%", boxSizing: "border-box", fontSize: 16, padding: "12px 14px", border: `1.5px solid ${LINE}`, borderRadius: 12, outline: "none" }} />
+          <div style={{ display: "grid", gap: 8, marginTop: 10 }}>
+            {matches.map((u) => (
+              <button key={u.jobnimbus_id} onClick={() => { setName(u.name); setErr(""); setStep("pin"); }} style={pickBtn}>
+                <span style={{ fontWeight: 800, color: NAVY, fontSize: 15.5 }}>{u.name}</span>
+                {u.email ? <span style={{ fontSize: 12, color: MUTE, marginTop: 2 }}>{u.email}</span> : null}
+              </button>
+            ))}
+            {term.length >= 2 && users && matches.length === 0 ? (
+              <div style={{ fontSize: 13.5, color: MUTE, padding: "8px 2px" }}>No JobNimbus user matches “{q.trim()}”. Check the spelling, or ask the office to confirm your JN account.</div>
+            ) : null}
+          </div>
         </div>
       </Shell>
     );
@@ -323,7 +345,7 @@ function Shell({ children }) {
 function Header({ sub }) {
   return (
     <div>
-      <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: ".09em", textTransform: "uppercase", color: RED }}>U.S. Shingle &amp; Metal · Managers</div>
+      <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: ".09em", textTransform: "uppercase", color: RED }}>U.S. Shingle &amp; Metal · Office / Admin</div>
       <h1 style={{ fontSize: 26, margin: "4px 0 0", color: NAVY }}>My Tools</h1>
       <div style={{ height: 3, width: 60, background: RED, borderRadius: 2, margin: "11px 0 0" }} />
       {sub ? <div style={{ fontSize: 14, color: MUTE, marginTop: 12 }}>{sub}</div> : null}
