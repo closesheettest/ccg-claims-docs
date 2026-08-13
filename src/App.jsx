@@ -30,6 +30,7 @@ import PaReschedCompose from "./PaReschedCompose";
 import InspectionMap from "./InspectionMap";
 import InspectorLinks from "./InspectorLinks";
 import RoofMeasure from "./RoofMeasure";
+import MyToolsPage from "./MyToolsPage";
 import GobackSchedule from "./GobackSchedule";
 import ContestAdmin from "./ContestAdmin";
 import RoofTakeoff from "./RoofTakeoff";
@@ -9574,6 +9575,12 @@ export default function App() {
     }
     if (portalMode === "pa") {
       return <PAMobileApp />;
+    }
+    // ?mode=mytools — the per-manager "My Tools" launcher. Pick your name → the
+    // shared manager PIN (first entry sets it) → your own dashboard of just the
+    // tools you use. Add/remove anytime. Self-contained + server-saved per name.
+    if (portalMode === "mytools") {
+      return <MyToolsPage />;
     }
     // ?mode=admin lands on the standalone Admin Dashboard — the single
     // "front door" that launches every app + tool and answers questions.
