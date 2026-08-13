@@ -2000,14 +2000,6 @@ export default function CanvassMap() {
   }, [me]);
   // Drive the visit-action endpoints with the visit token (same call shape the
   // Rep Visit Hub uses, so the shared panels behave identically).
-  // The go-back OUTCOME endpoints (a rep actually worked the go-back), vs. the
-  // read-only ones (fetching slots/calendars) which don't count. Completing any of
-  // these logs one "goback" attribute for the contest, keyed by inspection so
-  // several actions on the same go-back count once.
-  const GOBACK_DONE_FNS = new Set([
-    "no-damage-send", "damage-to-retail", "retail-task-create", "retail-outcome-set",
-    "referral-decline", "retail-not-interested", "goback-not-home",
-  ]);
   async function visitApi(fn, payload) {
     // Practice mode: never hit real endpoints (no token, nothing to save). Return a benign
     // empty result so the shared go-back panels render their UI (calendars/options show)
@@ -2016,10 +2008,18 @@ export default function CanvassMap() {
     const r = await fetch(`/.netlify/functions/${fn}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: visitToken, ...payload }) });
     const o = await r.json().catch(() => ({}));
     if (!r.ok || !o.ok) { const err = new Error(o.error || "Request failed"); err.body = o; throw err; }
-    // Contest credit: a completed go-back (or a PA appt booked from one) → one attribute.
-    if (GOBACK_DONE_FNS.has(fn) || (fn === "pa-schedule-api" && payload && payload.action === "book")) {
-      logActivity({ pin_id: null, kind: "goback", note: String(payload?.inspection_id || "") });
-    }
+    // Contest credit — a go-back only scores when it CONVERTS to forward motion:
+    //   • retail go-back → an appointment    (retail-task-create; damage-to-retail books a retail appt)
+    //   • damage go-back → a PA appointment   (pa-schedule-api "book")
+    //   • no-damage go-back → a referral      (no-damage-send with ≥1 referral name/phone)
+    // Non-conversions score NOTHING: nobody-home, not-interested, declined referral,
+    // or just recording a retail outcome. Keyed by inspection so re-working the same
+    // go-back counts once. (Matches the contest ruleset the managers approved.)
+    let converted = false;
+    if (fn === "retail-task-create" || fn === "damage-to-retail") converted = true;                       // retail → appt
+    else if (fn === "pa-schedule-api" && payload && payload.action === "book") converted = true;          // damage → PA appt
+    else if (fn === "no-damage-send" && Array.isArray(payload?.referrals) && payload.referrals.length) converted = true; // no-damage → referral
+    if (converted) logActivity({ pin_id: null, kind: "goback", note: String(payload?.inspection_id || "") });
     return o;
   }
   // Close the visit sheet and refresh the list so a just-worked go-back drops off.
