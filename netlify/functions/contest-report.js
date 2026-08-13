@@ -82,12 +82,42 @@ export const handler = async (event) => {
       else if (k === "appt_done") { attr = "went"; key = r.created_at; }
       else if (s === "insp_sold") { attr = "signed"; key = `${pin || r.created_at}`; }
       else if (k === "goback") { attr = "goback"; key = r.note || r.created_at; }
-      else if (k === "review_request") { attr = "review"; key = r.note || r.created_at; }
+      // Reviews now come from review_verifications (manager-verified) — folded in below.
       if (!attr) continue;
       let days = byRep.get(nk); if (!days) byRep.set(nk, (days = new Map()));
       let d = days.get(day); if (!d) days.set(day, (d = { booked: new Set(), went: new Set(), signed: new Set(), goback: new Set(), review: new Set() }));
       d[attr].add(key);
     }
+
+    // Google reviews — manager-verified (same rule as the leaderboard). A review counts
+    // if it was confirmed the SAME DAY it was sent, or is still pending but sent today
+    // (provisional). One-time 08-12 → 08-13 transition grace. Folded into the per-rep/day
+    // "review" attribute so the Review-sent column + points match the board exactly.
+    try {
+      const revRows = await sbGetAll(
+        `review_verifications?select=rep_name,status,sent_at,verified_at,id&status=in.(pending,approved)` +
+        `&sent_at=gte.${encodeURIComponent(start.toISOString())}&sent_at=lte.${encodeURIComponent(end.toISOString())}`
+      );
+      const nowDay = etDayKey(new Date().toISOString());
+      const GRACE_DAY = "2026-08-13", GRACE_SENT = "2026-08-12";
+      for (const rv of revRows) {
+        const rep = (rv.rep_name || "").trim(); if (!rep) continue;
+        const sentDay = etDayKey(rv.sent_at);
+        const apprDay = rv.verified_at ? etDayKey(rv.verified_at) : null;
+        let counts = false;
+        if (rv.status === "approved" && apprDay === sentDay) counts = true;
+        else if (rv.status === "pending" && sentDay === nowDay) counts = true;
+        else if (nowDay === GRACE_DAY && sentDay === GRACE_SENT) {
+          if (rv.status === "pending") counts = true;
+          else if (rv.status === "approved" && apprDay === GRACE_DAY) counts = true;
+        }
+        if (!counts) continue;
+        const nk = normalizeName(rep);
+        let days = byRep.get(nk); if (!days) byRep.set(nk, (days = new Map()));
+        let d = days.get(sentDay); if (!d) days.set(sentDay, (d = { booked: new Set(), went: new Set(), signed: new Set(), goback: new Set(), review: new Set() }));
+        d.review.add(rv.id);
+      }
+    } catch { /* reviews best-effort */ }
 
     // Sales per rep per day (Sold Date in window), best-effort.
     const salesByRepDay = new Map(); // norm → Map(day → count)
