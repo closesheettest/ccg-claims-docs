@@ -10160,9 +10160,22 @@ export default function App() {
   const [managerUnlocked, setManagerUnlocked] = useState(() => !!readAdminHandoff() || hasMyToolsSession());
   const [managerTYTab, setManagerTYTab] = useState("post_inspection");
   const [managerSection, setManagerSection] = useState(() => {
+    // A ?section=<key> in the URL opens the console straight to that inner page (this is
+    // what lets My Tools deep-link a specific console page onto someone's dashboard).
+    try { const s = new URLSearchParams(window.location.search).get("section"); if (s) return s; } catch { /* ignore */ }
     const h = readAdminHandoff();
     return h ? h.section : "home";
   });
+  // Keep the URL in sync with the current inner section, so the page can be bookmarked /
+  // added to a dashboard and reopened right here (mirrors managerSection → ?section=).
+  useEffect(() => {
+    try {
+      const u = new URL(window.location.href);
+      if (managerSection && managerSection !== "home") u.searchParams.set("section", managerSection);
+      else u.searchParams.delete("section");
+      window.history.replaceState({}, "", u);
+    } catch { /* ignore */ }
+  }, [managerSection]);
   // Which side of the manager home the user is browsing: signing / inspections / pa / settings.
   const [managerTab, setManagerTab] = useState("signing");
   const [managerModule, setManagerModule] = useState("sales"); // DoorDispatcher sub-module: sales | installs

@@ -106,6 +106,39 @@ const CATALOG = [
 const CATS = ["Door-Knocking", "Inspections", "Public Adjuster", "Installs", "Sales & Settings", "Training (TMS)", "Other Apps"];
 const byKey = Object.fromEntries(CATALOG.map((t) => [t.key, t]));
 
+// Manager Console INNER pages (?mode=manager&section=<key>) can be added to a dashboard
+// individually via the "Add to my dashboard" button — they're saved as "mgrsec:<key>".
+// This maps each section key → its emoji + label (kept in sync with MANAGER_TILES in App.jsx).
+const MANAGER_SECTION_LABELS = {
+  reps: { emoji: "👥", label: "Sales Rep Manager" }, review: { emoji: "📝", label: "Review Page Text" },
+  thankyou: { emoji: "🎉", label: "Thank You Pages" }, sms: { emoji: "💬", label: "SMS Templates" },
+  report: { emoji: "📊", label: "Weekly Report" }, analytics: { emoji: "📈", label: "Submission Analytics" },
+  browseall: { emoji: "📚", label: "Browse All Records" }, training: { emoji: "🚗", label: "Training Report" },
+  security: { emoji: "⚙️", label: "Security & Notifications" }, autosms: { emoji: "📣", label: "Auto SMS" },
+  post_job: { emoji: "🚿", label: "Post Job" }, team_roles: { emoji: "🧑‍🤝‍🧑", label: "Team Roles" },
+  inspectors: { emoji: "🔍", label: "Inspectors" }, assign_inspections: { emoji: "📋", label: "Assign Inspections" },
+  confirm_results: { emoji: "🔒", label: "Confirm Results" }, inspector_routes: { emoji: "🗺", label: "Inspector Routes" },
+  inspector_reports: { emoji: "📊", label: "Inspector Reports" }, lookup: { emoji: "🔍", label: "Record Lookup & Results" },
+  reinspect: { emoji: "📷", label: "No-photo Re-inspects" }, inspmap: { emoji: "🗺️", label: "Inspections Map" },
+  jnreport: { emoji: "📄", label: "JN Inspection Report" }, bulkreport: { emoji: "📦", label: "Bulk Inspection Reports" },
+  dialer: { emoji: "📞", label: "Power Dialer" }, pamgmt: { emoji: "🔌", label: "PA Management" },
+  public_adjusters: { emoji: "🧑‍⚖️", label: "Public Adjusters" }, pa_handoff: { emoji: "📤", label: "PA Handoff" },
+  pa_report: { emoji: "🤝", label: "PA Report" }, pa_appt_results: { emoji: "📅", label: "PA Appointments & Results" },
+  sit_sold_pa_report: { emoji: "📋", label: "Sit Sold PA" },
+};
+
+// Resolve a saved tool key → a renderable tile. Catalog keys come straight from byKey;
+// dynamic "mgrsec:<section>" keys become a deep-link tile into that Manager Console page.
+function resolveTool(key) {
+  if (byKey[key]) return byKey[key];
+  if (typeof key === "string" && key.indexOf("mgrsec:") === 0) {
+    const sec = key.slice(7);
+    const m = MANAGER_SECTION_LABELS[sec] || { emoji: "🛠️", label: sec.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) };
+    return { key, emoji: m.emoji, label: m.label, desc: "Manager Console · " + m.label, href: `/?mode=manager&section=${encodeURIComponent(sec)}` };
+  }
+  return null;
+}
+
 // palette
 const NAVY = "#0f2a4a", RED = "#c0392b", INK = "#16233b", MUTE = "#5b6b8c", LINE = "#e2e8f2", BG = "#f4f7fb";
 
@@ -278,7 +311,7 @@ export default function MyToolsPage() {
       if (!a.ok || !ad.ok) { setBusy(false); setErr(ad.error || "Incorrect passcode."); setStep("pin"); return false; }
       const r = await fetch(`${API}?manager=${encodeURIComponent(mgr)}`);
       const d = await r.json().catch(() => ({}));
-      const keys = Array.isArray(d.tools) ? d.tools.filter((k) => byKey[k]) : [];
+      const keys = Array.isArray(d.tools) ? d.tools.filter((k) => resolveTool(k)) : [];
       setTools(keys);
       setPinSet(true);
       try { localStorage.setItem("ccg_mytools_name", mgr); localStorage.setItem("ccg_mytools_pin", thePin); } catch { /* private */ }
@@ -381,7 +414,7 @@ export default function MyToolsPage() {
   }
 
   // dashboard
-  const myTools = tools.map((k) => byKey[k]).filter(Boolean);
+  const myTools = tools.map((k) => resolveTool(k)).filter(Boolean);
   return (
     <Shell>
       <div style={{ display: "flex", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
@@ -446,6 +479,29 @@ function Customizer({ draft, setDraft, onClose, onSave }) {
         </div>
         <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search tools…" style={searchInput} />
         <div style={{ overflowY: "auto", marginTop: 12, paddingRight: 4 }}>
+          {(() => {
+            // Console inner pages added via the "Add to my dashboard" button aren't in the
+            // catalog — list them here so they can be removed too.
+            const dyn = draft.filter((k) => !byKey[k] && resolveTool(k));
+            if (!dyn.length) return null;
+            return (
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: 11, fontWeight: 800, textTransform: "uppercase", letterSpacing: ".06em", color: MUTE, margin: "0 0 8px" }}>Your added pages</div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(230px, 1fr))", gap: 8 }}>
+                  {dyn.map((k) => { const t = resolveTool(k); return (
+                    <button key={k} onClick={() => toggle(k)} style={{ ...pickTool, borderColor: "#16a34a", background: "#f0f9f2" }}>
+                      <span style={{ fontSize: 20, flex: "none" }}>{t.emoji}</span>
+                      <span style={{ flex: 1, textAlign: "left" }}>
+                        <span style={{ display: "block", fontWeight: 700, color: NAVY, fontSize: 13.5 }}>{t.label}</span>
+                        <span style={{ display: "block", fontSize: 11.5, color: MUTE, lineHeight: 1.35, marginTop: 1 }}>{t.desc}</span>
+                      </span>
+                      <span style={{ flex: "none", fontSize: 18, color: "#16a34a", fontWeight: 800 }}>✓</span>
+                    </button>
+                  ); })}
+                </div>
+              </div>
+            );
+          })()}
           {CATS.map((cat) => {
             const items = filtered.filter((t) => t.cat === cat);
             if (!items.length) return null;

@@ -74,10 +74,14 @@
     setter: ["setter", "Setter Portal"], crews: ["crews", "Crew Onboarding"], inspector: ["inspector_app", "Inspector App"]
   };
 
+  function prettify(s) { return String(s || "").replace(/_/g, " ").replace(/\b\w/g, function (c) { return c.toUpperCase(); }); }
   function currentTool() {
     var h = location.hostname;
     if (h.indexOf("free-roof-inspections") >= 0 || h === "localhost") {
-      var mode = ""; try { mode = new URLSearchParams(location.search).get("mode") || ""; } catch (e) {}
+      var mode = "", sec = "";
+      try { var sp = new URLSearchParams(location.search); mode = sp.get("mode") || ""; sec = sp.get("section") || ""; } catch (e) {}
+      // Manager Console inner page → add THAT page (deep-links back to ?mode=manager&section=…)
+      if (mode === "manager" && sec && sec !== "home") return ["mgrsec:" + sec, prettify(sec)];
       return CCG[mode] || null;
     }
     if (h.indexOf("trainingmanagementsys") >= 0) {
