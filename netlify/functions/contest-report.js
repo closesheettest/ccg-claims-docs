@@ -89,28 +89,21 @@ export const handler = async (event) => {
       d[attr].add(key);
     }
 
-    // Google reviews — manager-verified (same rule as the leaderboard). A review counts
-    // if it was confirmed the SAME DAY it was sent, or is still pending but sent today
-    // (provisional). One-time 08-12 → 08-13 transition grace. Folded into the per-rep/day
-    // "review" attribute so the Review-sent column + points match the board exactly.
+    // Google reviews — manager-verified (same rule as the leaderboard). NO point until a
+    // manager CONFIRMS it: pending reviews score nothing. A review counts once APPROVED
+    // and confirmed the SAME DAY it was sent. One-time 08-12 → 08-13 transition grace.
+    // Folded into the per-rep/day "review" attribute so the column + points match the board.
     try {
       const revRows = await sbGetAll(
-        `review_verifications?select=rep_name,status,sent_at,verified_at,id&status=in.(pending,approved)` +
+        `review_verifications?select=rep_name,status,sent_at,verified_at,id&status=eq.approved` +
         `&sent_at=gte.${encodeURIComponent(start.toISOString())}&sent_at=lte.${encodeURIComponent(end.toISOString())}`
       );
-      const nowDay = etDayKey(new Date().toISOString());
       const GRACE_DAY = "2026-08-13", GRACE_SENT = "2026-08-12";
       for (const rv of revRows) {
         const rep = (rv.rep_name || "").trim(); if (!rep) continue;
         const sentDay = etDayKey(rv.sent_at);
         const apprDay = rv.verified_at ? etDayKey(rv.verified_at) : null;
-        let counts = false;
-        if (rv.status === "approved" && apprDay === sentDay) counts = true;
-        else if (rv.status === "pending" && sentDay === nowDay) counts = true;
-        else if (nowDay === GRACE_DAY && sentDay === GRACE_SENT) {
-          if (rv.status === "pending") counts = true;
-          else if (rv.status === "approved" && apprDay === GRACE_DAY) counts = true;
-        }
+        const counts = apprDay === sentDay || (sentDay === GRACE_SENT && apprDay === GRACE_DAY);
         if (!counts) continue;
         const nk = normalizeName(rep);
         let days = byRep.get(nk); if (!days) byRep.set(nk, (days = new Map()));

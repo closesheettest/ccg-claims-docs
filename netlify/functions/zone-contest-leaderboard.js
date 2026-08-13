@@ -147,34 +147,27 @@ export const handler = async (event) => {
       dd[type].add(key);
     }
 
-    // Google reviews — manager-verified. The point is earned only when a manager
-    // confirms the review the SAME DAY it was sent. A still-pending review sent TODAY
-    // rides the board as a PROVISIONAL point that falls off on its own tomorrow unless
-    // it's confirmed. Credited to the day it was SENT. Keyed by review id → the per-type
-    // "review" ramp. Best-effort: if the table isn't there yet, reviews = 0.
-    //   One-time TRANSITION: manager verification went live 2026-08-13 mid-contest, so
-    //   reviews sent 08-12 (before it existed) can be confirmed on 08-13 and still count —
-    //   managers got until go-live day. These two grace lines never fire after 08-13.
+    // Google reviews — manager-verified. NO point until a manager CONFIRMS it: pending
+    // reviews score nothing (they don't ride the board provisionally). A review counts
+    // once it's APPROVED and confirmed the SAME DAY it was sent. Credited to the day it
+    // was SENT. Keyed by review id → the per-type "review" ramp. Best-effort: if the
+    // table isn't there yet, reviews = 0.
+    //   One-time TRANSITION: manager verification went live 2026-08-13 mid-contest, so a
+    //   review sent 08-12 (before it existed) confirmed on 08-13 still counts. That grace
+    //   line never fires after 08-13.
     try {
       const revRows = await sbGetAll(
         `review_verifications?select=rep_name,status,sent_at,verified_at,id` +
-        `&status=in.(pending,approved)` +
+        `&status=eq.approved` +
         `&sent_at=gte.${encodeURIComponent(contestStart.toISOString())}&sent_at=lte.${encodeURIComponent(contestEnd.toISOString())}`
       );
-      const nowDay = etDayKey(new Date().toISOString());
       const GRACE_DAY = "2026-08-13", GRACE_SENT = "2026-08-12";
       for (const rv of revRows) {
         const rep = (rv.rep_name || "").trim();
         if (!rep) continue;
         const sentDay = etDayKey(rv.sent_at);
         const apprDay = rv.verified_at ? etDayKey(rv.verified_at) : null;
-        let counts = false;
-        if (rv.status === "approved" && apprDay === sentDay) counts = true;              // confirmed same-day → permanent
-        else if (rv.status === "pending" && sentDay === nowDay) counts = true;           // sent today, pending → provisional
-        else if (nowDay === GRACE_DAY && sentDay === GRACE_SENT) {                        // transition grace (08-12 reviews)
-          if (rv.status === "pending") counts = true;                                    //   provisional through the grace day
-          else if (rv.status === "approved" && apprDay === GRACE_DAY) counts = true;     //   confirmed on go-live day → counts
-        }
+        const counts = apprDay === sentDay || (sentDay === GRACE_SENT && apprDay === GRACE_DAY);
         if (!counts) continue;
         const nk = normalizeName(rep);
         let byDay = attrByRepDay.get(nk);
