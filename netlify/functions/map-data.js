@@ -117,13 +117,15 @@ export const handler = async (event) => {
       });
     }
 
-    // probe — connection + the two headline counts + a redacted sample
+    // probe — connection + headline counts + a redacted sample
     const total = await countOf(`${DAVID_URL}/rest/v1/map_properties?select=akey`, dH);
     const qualifies = await countOf(`${DAVID_URL}/rest/v1/map_properties?qualifies=eq.true&select=akey`, dH, "estimated");
+    const mailed = await countOf(`${DAVID_URL}/rest/v1/map_properties?last_mailed_date=not.is.null&select=akey`, dH, "estimated");
+    const qualifiedAndMailed = await countOf(`${DAVID_URL}/rest/v1/map_properties?qualifies=eq.true&last_mailed_date=not.is.null&select=akey`, dH, "estimated");
     const sampRes = await fetch(`${DAVID_URL}/rest/v1/map_properties?select=akey,address,city,zip5,county,roof_age,last_roof_year,roof_cover,owner_occupied,qualifies&limit=4`, { headers: dH });
     const connected = sampRes.ok;
     const sample = sampRes.ok ? await sampRes.json() : (await sampRes.text()).slice(0, 400);
-    return json(200, { ok: true, connected, http: sampRes.status, counts: { total, qualifies }, sample });
+    return json(200, { ok: true, connected, http: sampRes.status, counts: { total, qualifies, mailed, qualified_and_mailed: qualifiedAndMailed }, sample });
   } catch (e) {
     return json(500, { ok: false, error: e.message || "map-data error" });
   }
