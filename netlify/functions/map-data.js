@@ -49,6 +49,20 @@ export const handler = async (event) => {
       return json(200, { ok: true, connected: true, columns: cols, sample_redacted: safe });
     }
 
+    if (mode === "maildiag") {
+      // Test Neal's hypothesis: are mailed-but-not-qualifying homes MISSING roof data
+      // (nothing to compute qualifies from), or do they HAVE data and just don't qualify
+      // now (already re-roofed / other criteria)?
+      const base = `${DAVID_URL}/rest/v1/map_properties?last_mailed_date=not.is.null&qualifies=eq.false`;
+      const noData = await countOf(`${base}&roof_age=is.null&select=akey`, dH, "estimated");
+      const hasData = await countOf(`${base}&roof_age=not.is.null&select=akey`, dH, "estimated");
+      const hasPermit = await countOf(`${base}&roof_permit_count=gt.0&select=akey`, dH, "estimated");
+      const youngRoof = await countOf(`${base}&roof_age=lte.10&select=akey`, dH, "estimated"); // re-roofed since mail
+      const sampRes = await fetch(`${base}&select=akey,roof_age,last_roof_year,last_mailed_date,roof_permit_count,roof_contractor,owner_occupied,roof_cover&limit=12`, { headers: dH });
+      const sample = sampRes.ok ? await sampRes.json() : (await sampRes.text()).slice(0, 300);
+      return json(200, { ok: true, mailed_not_qualifying: { no_roof_data: noData, has_roof_data: hasData, has_a_permit: hasPermit, roof_10yr_or_newer: youngRoof }, sample });
+    }
+
     if (mode === "pins") {
       // Live map layer: David's EVER-MAILED homes inside the viewport. Only mailed
       // homes go on the map so the rep's "we mailed you about your roof" pitch always
