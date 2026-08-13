@@ -1,9 +1,13 @@
+const CORS = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, OPTIONS", "Access-Control-Allow-Headers": "Content-Type" };
+
 exports.handler = async (event) => {
+  if (event.httpMethod === "OPTIONS") return { statusCode: 200, headers: CORS, body: "" };
   const apiKey = process.env.JOBNIMBUS_API_KEY;
 
   if (!apiKey) {
     return {
       statusCode: 500,
+      headers: CORS,
       body: JSON.stringify({ error: "JOBNIMBUS_API_KEY not set" }),
     };
   }
@@ -24,6 +28,7 @@ exports.handler = async (event) => {
       console.error("JN error response:", text);
       return {
         statusCode: response.status,
+        headers: CORS,
         body: JSON.stringify({ error: `JN API returned ${response.status}`, detail: text }),
       };
     }
@@ -34,6 +39,7 @@ exports.handler = async (event) => {
     if (!data.users || !Array.isArray(data.users)) {
       return {
         statusCode: 200,
+        headers: CORS,
         body: JSON.stringify({ members: [] }),
       };
     }
@@ -53,13 +59,14 @@ exports.handler = async (event) => {
 
     return {
       statusCode: 200,
-      headers: { "Content-Type": "application/json" },
+      headers: { ...CORS, "Content-Type": "application/json" },
       body: JSON.stringify({ members }),
     };
   } catch (err) {
     console.error("jobnimbus-users error:", err);
     return {
       statusCode: 500,
+      headers: CORS,
       body: JSON.stringify({ error: err.message }),
     };
   }
