@@ -74,6 +74,7 @@ export const handler = async (event) => {
     // never exist without them. Cleared once archived; cron-heal-signed-pdfs recovers.
     pending_pdf_b64: { insp: { filename: "Free-Roof-Inspection-Agreement.pdf", base64: pdfBase64 } },
     ...(p.review_availability ? { review_availability: p.review_availability } : {}),
+    ...(p.inspector_notes ? { inspector_notes: p.inspector_notes } : {}),   // rep's heads-up for the inspector
     ...(classifyResult ? { result: classifyResult, result_at: signedAt } : {}),
   };
   const insRes = await fetch(`${SB_URL}/rest/v1/inspections`, {
@@ -81,9 +82,9 @@ export const handler = async (event) => {
   });
   if (!insRes.ok) {
     const t = await insRes.text();
-    // Tolerate the review_availability column not existing — retry without it.
-    if (/review_availability/.test(t)) {
-      delete row.review_availability;
+    // Tolerate an optional column not existing (review_availability / inspector_notes) — drop + retry.
+    if (/review_availability|inspector_notes/.test(t)) {
+      delete row.review_availability; delete row.inspector_notes;
       const retry = await fetch(`${SB_URL}/rest/v1/inspections`, { method: "POST", headers: { ...sb, Prefer: "return=representation" }, body: JSON.stringify(row) });
       if (!retry.ok) return json(500, { ok: false, error: `insert failed: ${(await retry.text()).slice(0, 200)}` });
       var inserted = (await retry.json().catch(() => []))[0];

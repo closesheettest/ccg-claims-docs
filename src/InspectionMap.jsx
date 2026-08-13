@@ -277,6 +277,11 @@ export default function InspectionMap() {
               <div style={{ fontSize: 18, fontWeight: 900, fontFamily: OSWALD, color: "#0f172a" }}>{selected.client_name || "Homeowner"}</div>
               <div style={{ fontSize: 13.5, color: "#64748b" }}>{[selected.address, selected.city].filter(Boolean).join(", ")}</div>
               {selected.sales_rep_name && <div style={{ fontSize: 12.5, color: "#94a3b8", marginTop: 2 }}>Signed by {selected.sales_rep_name}</div>}
+              {selected.inspector_notes && (
+                <div style={{ fontSize: 13, color: "#92400e", background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 8, padding: "8px 11px", marginTop: 8, fontWeight: 600 }}>
+                  📝 {selected.inspector_notes}
+                </div>
+              )}
             </div>
             <button onClick={() => setSelected(null)} style={{ background: "none", border: "none", fontSize: 22, color: "#cbd5e1", cursor: "pointer", lineHeight: 1 }}>×</button>
           </div>

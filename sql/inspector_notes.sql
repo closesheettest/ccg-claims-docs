@@ -10,3 +10,8 @@ alter table public.inspections
 
 comment on column public.inspections.inspector_notes is
   'Free-text note entered by the rep at signing for the inspector (heads-up info: access, dog, best time, referral source). Shown on the inspector map pin.';
+
+-- The remote-signing flow carries the note through pending_signings → inspection,
+-- so it needs the same column (finalize-remote-signing copies it across).
+alter table public.pending_signings
+  add column if not exists inspector_notes text;

@@ -9957,6 +9957,7 @@ export default function App() {
     roof_type: "Shingle",   // "Shingle" | "Tile" — picked at intake (no metal)
     obviousDamage: false,   // rep saw clear damage/tarp at the door (default No)
     hasInsurance: "",       // "" | "yes" | "no" — only asked when obviousDamage
+    inspectorNotes: "",     // rep's heads-up for the inspector (Anthony's ask)
   };
   const [inspData, setInspData] = useState(() => {
     // Referrals "Sign them up" AND the Harvesting-Map "Sign Inspection" button land
@@ -12270,6 +12271,7 @@ const renderSmsTemplate = (key, vars) => {
           sales_rep_name: data.salesRepName || "", sales_rep_id: data.salesRepId || "", sales_rep_email: data.salesRepEmail || "",
           obvious_damage: obviousDamage, has_insurance: obviousDamage ? hasInsurance : "",
           review_availability: reviewAvail || "", document_version: "insp-v1",
+          inspector_notes: (inspData.inspectorNotes || "").trim(),
         } }),
       });
       const j = await r.json().catch(() => ({}));
@@ -14739,6 +14741,19 @@ if (!hasDamage) {
                 the rep captures when to swing back once the inspection is done. */}
             <div style={{ marginBottom: 16 }}>
               <ReviewApptPicker value={reviewAvail} onChange={setReviewAvail} invalid={inspSubmitAttempted && !reviewComplete} />
+            </div>
+            {/* Anthony's ask: a heads-up the rep can leave for the inspector at signing. */}
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: "block", fontSize: 13.5, fontWeight: 700, color: "#334155", marginBottom: 6 }}>
+                📝 Notes for the inspector <span style={{ fontWeight: 400, color: "#94a3b8" }}>(optional)</span>
+              </label>
+              <textarea
+                value={inspData.inspectorNotes || ""}
+                onChange={(e) => updateInsp("inspectorNotes", e.target.value)}
+                placeholder="Anything the inspector should know — e.g. probably won't be home before 5, dog in the yard, gate code 1234, referred by the neighbor at 123 Main."
+                rows={2}
+                style={{ width: "100%", fontFamily: "inherit", fontSize: 14, padding: "9px 11px", border: "1px solid #cbd5e1", borderRadius: 10, resize: "vertical", boxSizing: "border-box" }}
+              />
             </div>
             <CardHeader>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>

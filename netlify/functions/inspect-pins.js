@@ -16,7 +16,7 @@ const SB_KEY = process.env.VITE_SUPABASE_ANON_KEY;
 const sbH = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` };
 const CLAIM_MS = 30 * 60 * 1000; // a route claim older than 30 min is stale → reopens
 const isUuid = (s) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
-const PIN_FIELDS = "id,client_name,address,city,state,zip,latitude,longitude,result,inspector_id,cancel_review_pending,sales_rep_name,mobile,email,jn_job_id,signed_at,route_claim_by,route_claim_by_jn,route_claim_at";
+const PIN_FIELDS = "id,client_name,address,city,state,zip,latitude,longitude,result,inspector_id,cancel_review_pending,sales_rep_name,mobile,email,jn_job_id,signed_at,route_claim_by,route_claim_by_jn,route_claim_at,inspector_notes";
 
 export const handler = async (event) => {
   if (event.httpMethod === "OPTIONS") return cors(200, "");

@@ -89,6 +89,11 @@ export const handler = async (event) => {
   // signing is never blocked before sql/pending_signings_harvest_pin.sql is run.
   const harvestPin = (d.harvest_pin || "").trim() || null;
   if (harvestPin) row.harvest_pin = harvestPin;
+  // Rep's heads-up note for the inspector (Anthony's ask: "won't be home", "referred
+  // by the neighbor", access notes). Rides through to the inspection on finalize.
+  // Optional column — the retry below drops it if sql/inspector_notes.sql hasn't run.
+  const inspectorNotes = (d.inspector_notes || "").trim() || null;
+  if (inspectorNotes) row.inspector_notes = inspectorNotes;
 
   const doInsert = (r) => fetch(`${SB_URL}/rest/v1/pending_signings`, {
     method: "POST", headers: { ...sb, Prefer: "return=representation" }, body: JSON.stringify(r),
@@ -96,8 +101,8 @@ export const handler = async (event) => {
   let ins = await doInsert(row);
   if (!ins.ok) {
     const t = await ins.text();
-    if (harvestPin && /harvest_pin/.test(t)) {
-      const { harvest_pin, ...rest } = row; // column missing → drop it and retry
+    if (/harvest_pin|inspector_notes/.test(t)) {
+      const { harvest_pin, inspector_notes, ...rest } = row; // optional column(s) missing → drop + retry
       ins = await doInsert(rest);
       if (!ins.ok) return json(500, { ok: false, error: `Insert failed: ${(await ins.text()).slice(0, 200)}` });
     } else {
