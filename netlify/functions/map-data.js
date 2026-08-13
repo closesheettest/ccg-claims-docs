@@ -64,13 +64,15 @@ export const handler = async (event) => {
     }
 
     if (mode === "mailedpage") {
-      // Paginated bulk pull of David's EVER-MAILED homes (for the one-shot import into
-      // our own DB). offset in rows; returns up to 1000 per call.
-      const offset = Math.max(0, parseInt(p.offset || "0", 10) || 0);
-      const r = await fetch(`${DAVID_URL}/rest/v1/map_properties?last_mailed_date=not.is.null&select=akey,lat,long,address,city,zip5,roof_age,qualifies&order=akey.asc`, { headers: { ...dH, Range: `${offset}-${offset + 999}` } });
+      // Bulk pull of David's EVER-MAILED homes via KEYSET pagination on akey (the PK,
+      // indexed) — walk by ?after=<last akey>. Deep OFFSET times out his DB; keyset
+      // is an index seek, fast at any depth.
+      const after = String(p.after || "");
+      const afterClause = after ? `&akey=gt.${encodeURIComponent(after)}` : "";
+      const r = await fetch(`${DAVID_URL}/rest/v1/map_properties?last_mailed_date=not.is.null${afterClause}&select=akey,lat,long,address,city,zip5,roof_age,qualifies&order=akey.asc&limit=1000`, { headers: dH });
       if (!r.ok) return json(200, { ok: false, error: (await r.text()).slice(0, 200) });
       const pins = await r.json();
-      return json(200, { ok: true, offset, count: pins.length, done: pins.length < 1000, pins });
+      return json(200, { ok: true, count: pins.length, done: pins.length < 1000, last: pins.length ? pins[pins.length - 1].akey : after, pins });
     }
 
     if (mode === "pins") {
