@@ -2,6 +2,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
 import InstallPrompt from "./InstallPrompt";
+import { MyToolsOverlay } from "./MyToolsPage";
 
 // Remember where THIS user belongs so the installed app icon opens straight to
 // their tools (their personal link carries their token). Reps open ?rt=…, the
@@ -33,5 +34,6 @@ ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>
     <App />
     <InstallPrompt />
+    <MyToolsOverlay />
   </React.StrictMode>
 );

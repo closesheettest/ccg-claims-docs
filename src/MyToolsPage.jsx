@@ -109,6 +109,93 @@ const byKey = Object.fromEntries(CATALOG.map((t) => [t.key, t]));
 // palette
 const NAVY = "#0f2a4a", RED = "#c0392b", INK = "#16233b", MUTE = "#5b6b8c", LINE = "#e2e8f2", BG = "#f4f7fb";
 
+// ── Browser-tab names per ?mode (so a DoorDispatcher tab reads "DoorDispatcher", etc.).
+// The office tools + rep-facing modes both get a name; anything unlisted keeps the default.
+const MODE_TITLES = {
+  mytools: "My Tools", harvest: "DoorDispatcher", canvass: "DoorDispatcher",
+  harvestadmin: "Pin Types", harvestlinks: "Rep Links & Access", harvestreport: "Rep Activity",
+  harvestupload: "Load Leads", scheduleadmin: "Appointment Scheduler", harvestjnsync: "JN Sync",
+  harvesttrainingadmin: "Tool Training", harvesttraining: "Tool Training", harvestplannedday: "Planned Day",
+  harvestnositreport: "No-Sits to Re-book", harvestskiptrace: "Skip-Trace", harvesthowtoadmin: "How-To Library",
+  harvesthowto: "How-To", inspectmap: "Inspection Map", inspectorlinks: "Inspector Links",
+  inspectvisitreport: "Inspector Activity", masterinspreport: "Master Inspection Reports",
+  gobackschedule: "After-Inspection Scheduling", pareschedcompose: "Reschedule Composer",
+  pareschedule: "Reschedule", installs: "Installs Map", foremanlinks: "Foreman Links",
+  contest: "Contest Leaderboard", manager: "Manager Console", setter: "Setter Portal",
+  crews: "Crew Onboarding", pa: "PA Portal", inspector: "Inspector App", admin: "Admin",
+  roofmeasure: "Roof Measurement", rooftakeoff: "Roof Takeoff", masterinspreport2: "Reports",
+};
+
+// The catalog entry whose destination matches the page we're on now (matched by ?mode),
+// so the floating "Add to my dashboard" button knows which tile to add.
+function entryModeOf(t) {
+  if (t.token === "harvest") return "harvest";
+  if (t.token === "inspect") return "inspectmap";
+  if (t.href && t.href.indexOf("/?mode=") === 0) { try { return new URLSearchParams(t.href.slice(1)).get("mode"); } catch { return null; } }
+  return null;
+}
+function catalogEntryForCurrentUrl() {
+  let mode = "";
+  try { mode = new URLSearchParams(window.location.search).get("mode") || ""; } catch { return null; }
+  if (!mode) return null;
+  return CATALOG.find((t) => entryModeOf(t) === mode) || null;
+}
+
+// Root-level overlay (mounted next to <App/>): names the browser tab after the current
+// tool, and — for an office/admin person already signed into My Tools on this device —
+// shows a floating "➕ Add to my dashboard" button on any CCG tool page, so they can build
+// their dashboard just by visiting a tool and tapping the button.
+export function MyToolsOverlay() {
+  const [me, setMe] = useState(null);          // { name, pin }
+  const [entry, setEntry] = useState(null);    // matched catalog entry
+  const [tools, setTools] = useState(null);    // their current saved keys
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    // 1) Tab title.
+    try {
+      const mode = new URLSearchParams(window.location.search).get("mode") || "";
+      const title = MODE_TITLES[mode];
+      if (title) document.title = `${title} · U.S. Shingle`;
+    } catch { /* ignore */ }
+    // 2) Add-to-dashboard eligibility: signed into My Tools + current page is a catalog tool.
+    let name = "", pin = "";
+    try { name = localStorage.getItem("ccg_mytools_name") || ""; pin = localStorage.getItem("ccg_mytools_pin") || ""; } catch { /* private */ }
+    if (!name || !pin) return;
+    const e = catalogEntryForCurrentUrl();
+    if (!e) return;
+    setMe({ name, pin }); setEntry(e);
+    fetch(`${API}?manager=${encodeURIComponent(name)}`).then((r) => r.json()).then((d) => {
+      setTools(Array.isArray(d.tools) ? d.tools : []);
+    }).catch(() => setTools([]));
+  }, []);
+
+  if (!me || !entry || tools === null) return null;
+  const added = tools.includes(entry.key);
+  const add = async () => {
+    if (added || saving) return;
+    setSaving(true);
+    const next = [...new Set([...tools, entry.key])];
+    try {
+      await fetch(API, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "save", pin: me.pin, manager: me.name, tools: next }) });
+      setTools(next);
+    } catch { /* leave as-is */ }
+    setSaving(false);
+  };
+  return (
+    <div style={{ position: "fixed", left: 12, bottom: 12, zIndex: 2147483000 }}>
+      <button onClick={add} disabled={added || saving}
+        title={added ? "This tool is on your My Tools dashboard" : `Add ${entry.label} to your My Tools dashboard`}
+        style={{ display: "flex", alignItems: "center", gap: 7, border: "none", borderRadius: 999,
+          padding: "10px 15px", fontSize: 13.5, fontWeight: 800, cursor: added ? "default" : "pointer",
+          fontFamily: '-apple-system, "Segoe UI", Helvetica, Arial, sans-serif',
+          background: added ? "#16a34a" : NAVY, color: "#fff", boxShadow: "0 4px 14px rgba(0,0,0,.28)", opacity: saving ? 0.6 : 1 }}>
+        {added ? "✓ On your dashboard" : (saving ? "Adding…" : "➕ Add to my dashboard")}
+      </button>
+    </div>
+  );
+}
+
 export default function MyToolsPage() {
   const [step, setStep] = useState("loading"); // loading | pick | pin | dash
   const [users, setUsers] = useState(null);     // JN users for the name typeahead (null = not loaded)
