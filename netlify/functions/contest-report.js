@@ -20,6 +20,9 @@ const JN_KEY = process.env.JOBNIMBUS_API_KEY;
 const JN_BASE = "https://app.jobnimbus.com/api1";
 const sb = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` };
 const TMS_REP_ZONES_URL = "https://trainingmanagementsys.netlify.app/.netlify/functions/rep-zones";
+// Reps excluded from the CONTEST only (kept in sync with zone-contest-leaderboard).
+// Dropped from the roster so they don't count for or against their team.
+const CONTEST_EXCLUDE = new Set(["vic sandre", "zach smith"]);
 
 const WEEKS = [
   { label: "Week 1", start: "2026-08-12", end: "2026-08-13" },
@@ -200,7 +203,9 @@ async function fetchZoneResolver() {
   const rosterByZone = {}; const seen = new Set();
   for (const r of reps) {
     if (!r.name || !r.zone || r.active === false) continue;
-    const norm = normalizeName(r.name); if (seen.has(norm)) continue; seen.add(norm);
+    const norm = normalizeName(r.name);
+    if (CONTEST_EXCLUDE.has(norm)) continue; // excluded from the contest — not in the divisor
+    if (seen.has(norm)) continue; seen.add(norm);
     (rosterByZone[r.zone] || (rosterByZone[r.zone] = [])).push({ name: String(r.name).trim(), norm });
   }
   return { rosterByZone };

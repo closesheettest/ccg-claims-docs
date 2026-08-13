@@ -63,6 +63,10 @@ const CONTEST = {
 };
 
 const ZONE_TEAMS = { "Zone 1": "SQUAD", "Zone 2": "SitSold", "Zone 3": "SHARKS", "Zone 4": "HURRICANE" };
+// Reps excluded from the CONTEST only (still active everywhere else). They don't count
+// for OR against their team — dropped from the roster so they never dilute the average.
+// Normalized names (see normalizeName).
+const CONTEST_EXCLUDE = new Set(["vic sandre", "zach smith"]);
 const ZONE_ORDER = ["Zone 1", "Zone 2", "Zone 3", "Zone 4"];
 
 // Sold-stage status names (exact JN spellings, to pull only sold jobs) + a normalized
@@ -305,6 +309,7 @@ async function fetchZoneResolver() {
   for (const r of reps) {
     if (!r.name || !r.zone || r.active === false) continue;
     const norm = normalizeName(r.name);
+    if (CONTEST_EXCLUDE.has(norm)) continue; // excluded from the contest — not in the divisor
     if (seen.has(norm)) continue;
     seen.add(norm);
     (rosterByZone[r.zone] || (rosterByZone[r.zone] = [])).push({ name: String(r.name).trim(), norm });
