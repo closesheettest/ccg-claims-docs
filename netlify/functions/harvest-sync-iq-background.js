@@ -113,11 +113,11 @@ exports.handler = async (event) => {
       // Keying "existing" only on status=iq before was the duplicate bug.
       const existingRaw = {};             // jn_contact_id -> pin id (still raw source status)
       const workedContacts = new Set();   // jn_contact_id whose pin is already worked (leave alone)
-      const pinByContact = {};            // jn_contact_id -> { id, status } (any status; for reverse sync)
-      for (const p of await sbGetAll(`canvass_prospects?list_name=eq.${encodeURIComponent(def.list)}&select=id,extra,status`)) {
+      const pinByContact = {};            // jn_contact_id -> { id, status, ... } (any status; for reverse sync)
+      for (const p of await sbGetAll(`canvass_prospects?list_name=eq.${encodeURIComponent(def.list)}&select=id,extra,status,status_by,status_updated_at,address,zip`)) {
         const cid = p.extra && p.extra.jn_contact_id;
         if (!cid) continue;
-        pinByContact[cid] = { id: p.id, status: p.status };
+        pinByContact[cid] = { id: p.id, status: p.status, status_by: p.status_by, status_updated_at: p.status_updated_at, address: p.address, zip: p.zip };
         if (p.status === def.status) existingRaw[cid] = p.id;
         else workedContacts.add(cid);
       }
@@ -210,19 +210,45 @@ exports.handler = async (event) => {
         const r = await fetch(`${SB_URL}/rest/v1/canvass_prospects`, { method: "POST", headers: { ...sbHeaders, Prefer: "return=minimal" }, body: JSON.stringify(batch) });
         if (r.ok) inserted += batch.length;
       }
+      // A worked sibling pin at the SAME house (rep-statused in the last 7 days). Used
+      // to stop a JN-status re-stamp from lighting up a competing pin next to a door a
+      // rep already handled (the Jessica case: Juan Carlos booked it, but her IQ
+      // contact's job still read "No Sit" so this pin kept coming back as a no-sit).
+      const repWorkedSibling = (pin) => {
+        const sk = streetKey(pin.address); if (!sk) return false;
+        const arr = streetIdx.get(sk); if (!arr) return false;
+        const pz = zip5(pin.zip) || "";
+        return arr.some((s) => s.id !== pin.id && (!s.zip || !pz || s.zip === pz) && !RAW_SET.has(s.status) && repProtected(s));
+      };
+
       // REVERSE SYNC: a mapped lead that gained a job → set its pin to the job's
-      // status (appt / insp_sold / new_roof / no_sit / lost / iq_ni). Overrides raw
-      // AND worked pins — a real JobNimbus job is the heaviest authority.
+      // status (appt / insp_sold / new_roof / no_sit / lost / iq_ni). A real JobNimbus
+      // job is heavy authority — but NOT heavier than a rep who physically worked this
+      // exact door in the last 7 days. Their field call (dead / appt / callback / sold)
+      // sticks; otherwise "Sam marked it dead" gets flipped back to no-sit every run.
       const rev = [];
       for (const [cid, target] of Object.entries(jobStatusByContact)) {
         const pin = pinByContact[cid];
         if (!pin || pin.status === target) continue;
+        if (repProtected(pin)) continue;                                  // rep worked THIS pin recently → keep it
+        if (target === "no_sit_reschedule" && repWorkedSibling(pin)) continue; // a rep worked this house already
         rev.push(fetch(`${SB_URL}/rest/v1/canvass_prospects?id=eq.${pin.id}`, {
           method: "PATCH", headers: { ...sbHeaders, Prefer: "return=minimal" },
           body: JSON.stringify({ status: target, status_by: "JN job status", status_updated_at: nowIso }),
         }).then((r) => r.ok));
       }
       const restatused = (await Promise.all(rev)).filter(Boolean).length;
+
+      // COLLAPSE DUPLICATES: a SYNC-set raw/no-sit pin that sits at the same house as a
+      // rep-worked pin is a stale twin — the rep's pin owns the door. Drop the twin so
+      // the map stops offering a door the rep already handled (Jessica / Kia / Jurgens).
+      const dupDrop = [];
+      for (const pin of Object.values(pinByContact)) {
+        if (!/^JN\b/i.test(String(pin.status_by || ""))) continue;   // only sync-set pins
+        if (!RAW_SET.has(pin.status)) continue;                       // only raw / no-sit twins
+        if (repWorkedSibling(pin)) dupDrop.push(pin.id);
+      }
+      let collapsed = 0; if (dupDrop.length) { if (await del(dupDrop)) collapsed = dupDrop.length; }
 
       // Reconcile only RAW pins (worked pins are never auto-removed — the map owns
       // them). A raw pin whose contact gained a job is left to the reverse sync
@@ -232,7 +258,7 @@ exports.handler = async (event) => {
 
       await writeSetting(`harvest_leadsync_${key}`, {
         ok: true, enabled: true, source: def.source, created_on_or_after: cfg.created_after || null,
-        candidates: cands.length, inserted, updated, removed, preserved_worked: preserved, restatused_from_job: restatused, geocoded, skipped_ungeocoded: skipped, dup_skipped: dupSkipped, converted_from_insp: converted,
+        candidates: cands.length, inserted, updated, removed, preserved_worked: preserved, restatused_from_job: restatused, collapsed_dup_twins: collapsed, geocoded, skipped_ungeocoded: skipped, dup_skipped: dupSkipped, converted_from_insp: converted,
         started, finished: new Date().toISOString(),
       });
       await bumpDailyNew(key, inserted); // rolling per-day new-pin tally for the JN Sync report
@@ -254,14 +280,7 @@ exports.handler = async (event) => {
     // statused this door in the last 7 days, leave it — don't let a (possibly stale or
     // same-street-different-house) JN job overwrite it (the Rayner Carballo case: Sam
     // marked it dead, the old no-sit appt at the address flipped it back to "appt").
-    // Sync-set statuses (status_by "JN …") and anything older stay eligible for override.
-    const REP_PROTECT_MS = 7 * 24 * 60 * 60 * 1000;
-    const repProtected = (p) => {
-      const by = String(p.status_by || "");
-      if (!by || /^JN\b/i.test(by)) return false;             // sync-set or unknown → not a rep
-      const t = Date.parse(p.status_updated_at || "");
-      return Number.isFinite(t) && (Date.now() - t) < REP_PROTECT_MS;
-    };
+    // repProtected() is the shared module helper.
     for (const [sk, arr] of streetIdx) {
       const bucket = jobByAddr[sk]; if (!bucket) continue;
       for (const p of arr) {
@@ -317,6 +336,17 @@ function jobPinStatus(name) {
 // Unworked "lead" statuses — a pin in one of these is still fair game. Anything
 // else (appt / insp_sold / iq_ni / dead / lost / …) is WORKED and owns its house.
 const RAW_SET = new Set(["iq", "fb", "ai", "insp", "no_sit_reschedule"]);
+// A pin a human REP statused recently OWNS its house — a JN-derived re-stamp must
+// never overwrite it (Neal's rule; the "Sam marked it dead, the sync flipped it
+// back to no-sit next run" bug). Sync-set statuses (status_by "JN …") and anything
+// older than the window stay eligible for a JN override.
+const REP_PROTECT_MS = 7 * 24 * 60 * 60 * 1000;
+function repProtected(p) {
+  const by = String((p && p.status_by) || "");
+  if (!by || /^JN\b/i.test(by)) return false;   // sync-set / unknown → not a rep
+  const t = Date.parse((p && p.status_updated_at) || "");
+  return Number.isFinite(t) && (Date.now() - t) < REP_PROTECT_MS;
+}
 // Normalized street key so the same house collapses across sources despite
 // geocode drift + spelling ("12735 NEWTON PL" == "12735 Newton Place").
 const ADDR_SUF = { street: "st", st: "st", avenue: "ave", ave: "ave", av: "ave", place: "pl", pl: "pl", drive: "dr", dr: "dr", lane: "ln", ln: "ln", court: "ct", ct: "ct", terrace: "ter", terr: "ter", ter: "ter", boulevard: "blvd", blvd: "blvd", road: "rd", rd: "rd", circle: "cir", cir: "cir", trail: "trl", trl: "trl", parkway: "pkwy", pkwy: "pkwy", highway: "hwy", hwy: "hwy", cove: "cv", cv: "cv", point: "pt", pt: "pt", square: "sq", sq: "sq" };
