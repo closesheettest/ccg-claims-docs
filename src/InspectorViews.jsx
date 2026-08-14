@@ -5264,9 +5264,9 @@ function InspectorJobDetail({ me, jobId, onBack, mapReturn }) {
             // the result + photos unlinked. The fix: tell them in plain words
             // to keep tapping Submit until they see the green ✅.
             <>
-              <div style={{ fontSize: 18, fontWeight: 800, marginBottom: 6 }}>⚠️ NOT SAVED YET</div>
+              <div style={{ fontSize: 18, fontWeight: 800, marginBottom: 6 }}>⚠️ Not saved yet</div>
               <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 8, lineHeight: 1.4 }}>
-                Tap <span style={{ textDecoration: "underline" }}>Submit</span> again — and keep tapping until you see the green <strong>✅ Saved</strong> message. <strong>Don't leave this screen until you do.</strong> Your photos are safe — nothing was lost.
+                Give it a few seconds, then tap <span style={{ textDecoration: "underline" }}>Submit</span> once more — wait for the green <strong>✅ Inspection submitted</strong> screen. <strong>Don't leave until you see it.</strong> Your photos are safe — nothing was lost.
               </div>
               <div style={{ fontSize: 12, opacity: 0.8 }}>{submitMsg.text}</div>
             </>

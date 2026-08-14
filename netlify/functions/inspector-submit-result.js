@@ -306,31 +306,44 @@ exports.handler = async (event) => {
     }).catch(() => {});
   }
 
-  // 3. Upload each photo to JN (if linked).
-  let jnUploaded = 0;
-  const jnErrors = [];
-  if (insp.jn_job_id) {
-    for (let i = 0; i < photoPaths.length; i++) {
-      const path = photoPaths[i];
-      const label = photoLabels[i] || "Inspector roof photo";
-      const r = await uploadPhotoToJn({
-        sbUrl: SB_URL, sbKey: SB_KEY, jnHeaders,
-        jobId: insp.jn_job_id, path, label,
+  // 3. Upload photos to JN — in the BACKGROUND. Uploading inline (one JN round
+  //    trip per photo) blew past Netlify's ~26s limit on big sets (90–328
+  //    photos), so the phone got a timeout and showed "Try again — NOT SAVED
+  //    YET" even though the result was already saved at step 2 — and the
+  //    inspector then re-submitted. We now fire a *-background function (15-min
+  //    budget) and AWAIT only the trigger, which returns instantly. The daily
+  //    cron-reconcile-jn-photos is the safety net if the background run drops any.
+  const baseUrl = (process.env.URL || process.env.PUBLIC_SITE_URL || "").replace(/\/$/, "");
+  let jnPhotosQueued = false;
+  if (insp.jn_job_id && photoPaths.length > 0 && baseUrl) {
+    try {
+      await fetch(`${baseUrl}/.netlify/functions/push-inspection-photos-background`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jnJobId: insp.jn_job_id, photo_paths: photoPaths, photo_labels: photoLabels, inspectionId }),
       });
-      if (r.success) jnUploaded++;
-      else jnErrors.push({ path, ...r.error });
+      jnPhotosQueued = true;
+    } catch (e) {
+      console.warn("photo background trigger failed:", e.message);
     }
   }
-  // Surface a JN photo-upload shortfall loudly. Historically this step
-  // failed silently — JN returns the presigned URL nested under `data`,
-  // so reading only top-level `url` found nothing and every photo was
-  // skipped while the function still returned ok (the Mark Hamersly
-  // incident, 2026-06). Now the upload reads the right field, retries
-  // transient blips, and any remaining gap is logged + returned.
-  if (insp.jn_job_id && photoPaths.length > 0 && jnUploaded < photoPaths.length) {
-    console.error(
-      `⚠ JN PHOTO SHORTFALL: ${jnUploaded}/${photoPaths.length} uploaded for job ${insp.jn_job_id} ("${insp.client_name}"). Errors: ${JSON.stringify(jnErrors).slice(0, 500)}`,
-    );
+  // Fallback: no base URL (e.g. local dev) → upload inline so photos still land.
+  // Reads the presigned URL from the nested `data` field + retries transient
+  // blips (the Mark Hamersly silent-skip fix, 2026-06).
+  let jnUploaded = 0;
+  const jnErrors = [];
+  if (insp.jn_job_id && photoPaths.length > 0 && !jnPhotosQueued) {
+    for (let i = 0; i < photoPaths.length; i++) {
+      const r = await uploadPhotoToJn({
+        sbUrl: SB_URL, sbKey: SB_KEY, jnHeaders,
+        jobId: insp.jn_job_id, path: photoPaths[i], label: photoLabels[i] || "Inspector roof photo",
+      });
+      if (r.success) jnUploaded++;
+      else jnErrors.push({ path: photoPaths[i], ...r.error });
+    }
+    if (jnUploaded < photoPaths.length) {
+      console.error(`⚠ JN PHOTO SHORTFALL (inline): ${jnUploaded}/${photoPaths.length} for job ${insp.jn_job_id} ("${insp.client_name}"). Errors: ${JSON.stringify(jnErrors).slice(0, 500)}`);
+    }
   }
 
   // 4. Push the result back to JN and trigger the result-specific
@@ -352,7 +365,7 @@ exports.handler = async (event) => {
   //              uploads the cert itself, so we skip the generic
   //              cf_string_34 PUT + cert-upload for retail to avoid
   //              double-firing)
-  const base = process.env.URL || process.env.PUBLIC_SITE_URL || "";
+  const base = baseUrl; // computed above for the photo-upload background trigger
   const RESULT_LABELS = { damage: "Damage", no_damage: "No Damage", retail: "Retail" };
   let paPdnFired = false;
   let retailJnFired = false;
@@ -443,7 +456,8 @@ exports.handler = async (event) => {
     result,
     photos_added: photoPaths.length,
     jn_photos_expected: insp.jn_job_id ? photoPaths.length : 0,
-    jn_photos_uploaded: jnUploaded,
+    jn_photos_queued: jnPhotosQueued, // true = uploading to JN in the background now
+    jn_photos_uploaded: jnUploaded,   // inline fallback count (0 when queued to background)
     jn_errors: jnErrors,
     jn_result_updated: jnResultUpdated,
     cert_upload_fired: certUploadFired,
