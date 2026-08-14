@@ -943,6 +943,11 @@ export default function CanvassMap() {
   const [showNone, setShowNone] = useState(() => {
     try { const q = new URLSearchParams(window.location.search); return !!q.get("admin") && !q.get("rt"); } catch { return false; }
   });
+  // Stable flag: is this the OFFICE/ADMIN all-view? In that view an empty selection
+  // means "show nothing" (never dump every pin on the map). Reps keep empty = All.
+  const officeViewRef = useRef((() => {
+    try { const q = new URLSearchParams(window.location.search); return !!q.get("admin") && !q.get("rt"); } catch { return false; }
+  })());
   const inFilter = (status) => { if (showNone) return false; const k = status === "install_home" ? "clover" : status; return sel.size === 0 || sel.has(k); };
   // A door scheduled for a come-back on a FUTURE day is held out of the route
   // until that day arrives (it still shows on the map, just not routed early).
@@ -952,13 +957,16 @@ export default function CanvassMap() {
   // appointment the homeowner committed to, so it's mandatory like a review go-back.
   const callbackDue = (p) => { const d = cbDateOf(p); return !!(d && p.status === "insp_callback" && d <= ymdPlus(0)); };
   const toggleSel = (key) => setSel((prev) => {
-    setShowNone(false); // touching any type filter exits the office "show nothing" default
     const n = new Set(prev);
     n.has(key) ? n.delete(key) : n.add(key);
     // Each rep level has TWO base statuses that stay on no matter what they add, so
     // toggling other types never accidentally drops their core work.
     if (effLevel === "senior") SENIOR_STATUSES.forEach((k) => n.add(k));
     else if (effLevel === "junior") JUNIOR_STATUSES.forEach((k) => n.add(k));
+    // Office/admin all-view: deselecting the LAST chip returns to "show nothing"
+    // instead of defaulting to every pin. Reps (officeViewRef=false) exit showNone
+    // on any touch, same as before — their base statuses keep the set non-empty.
+    setShowNone(officeViewRef.current && n.size === 0);
     return n;
   });
   const [pinTypes, setPinTypes] = useState(FALLBACK_TYPES);
