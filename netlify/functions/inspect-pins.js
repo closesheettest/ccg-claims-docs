@@ -45,14 +45,16 @@ export const handler = async (event) => {
     return cors(200, JSON.stringify({ ok: true, inspector }));
   }
 
-  // "Roofs Inspected" — this inspector's COMPLETED inspections (result set), most
-  // recent first. Office view (admin) sees everyone's. Powers the map's report.
+  // "Roofs Inspected" — this inspector's COMPLETED inspections (result set) for
+  // THIS WEEK (since Monday, ET), most recent first. Office view (admin) sees
+  // everyone's. Powers the map's report.
   if (/^(1|true|yes)$/i.test((p.done || "").trim())) {
     const who = isAdmin ? "" : `&inspector_id=eq.${encodeURIComponent(inspector.id)}`;
+    const since = weekStartET();
     const done = await sbGet(
-      `inspections?result=not.is.null${who}&select=id,client_name,address,city,state,zip,result,result_at,signed_at,sales_rep_name&order=result_at.desc.nullslast&limit=500`,
+      `inspections?result=not.is.null&result_at=gte.${encodeURIComponent(since)}${who}&select=id,client_name,address,city,state,zip,result,result_at,signed_at,sales_rep_name&order=result_at.desc.nullslast&limit=500`,
     );
-    return cors(200, JSON.stringify({ ok: true, inspector, inspected: done }));
+    return cors(200, JSON.stringify({ ok: true, inspector, inspected: done, since }));
   }
 
   // Load inspections that still need inspecting, within the viewport (or a newest
@@ -77,6 +79,18 @@ export const handler = async (event) => {
 
   return cors(200, JSON.stringify({ ok: true, inspector, pins }));
 };
+
+// Start of the current week (Monday 00:00 America/New_York) as an ISO instant.
+function weekStartET() {
+  const now = new Date();
+  const dtf = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+  const p = {}; for (const part of dtf.formatToParts(now)) p[part.type] = part.value;
+  const back = ({ Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 }[p.weekday] + 6) % 7; // days since Monday
+  const asUTC = Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute, +p.second);
+  const offset = asUTC - now.getTime(); // ET wall-time minus real UTC
+  const mondayMidnight = Date.UTC(+p.year, +p.month - 1, +p.day - back, 0, 0, 0);
+  return new Date(mondayMidnight - offset).toISOString();
+}
 
 function cors(status, body) {
   return { statusCode: status, headers: { "Content-Type": "application/json", "Cache-Control": "no-store", "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, OPTIONS", "Access-Control-Allow-Headers": "Content-Type" }, body };

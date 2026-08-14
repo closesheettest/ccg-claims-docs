@@ -261,7 +261,7 @@ export default function InspectionMap() {
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 18px 10px" }}>
               <div>
                 <div style={{ fontSize: 18, fontWeight: 900, fontFamily: OSWALD, color: "#0f172a" }}>📋 Roofs Inspected</div>
-                <div style={{ fontSize: 12.5, color: "#64748b" }}>{inspected == null ? "Loading…" : `${inspected.length} completed${me.name && me.name !== "Office" ? " by you" : ""}`}</div>
+                <div style={{ fontSize: 12.5, color: "#64748b" }}>{inspected == null ? "Loading…" : `${inspected.length} this week${me.name && me.name !== "Office" ? " · by you" : ""}`}</div>
               </div>
               <button onClick={() => setShowInspected(false)} style={{ background: "none", border: "none", fontSize: 24, color: "#cbd5e1", cursor: "pointer", lineHeight: 1 }}>×</button>
             </div>
@@ -269,7 +269,7 @@ export default function InspectionMap() {
               {inspected == null ? (
                 <div style={{ padding: "30px 0", textAlign: "center", color: "#94a3b8", fontWeight: 700 }}>Loading your inspections…</div>
               ) : inspected.length === 0 ? (
-                <div style={{ padding: "30px 16px", textAlign: "center", color: "#64748b" }}>No completed inspections yet. Finished roofs show up here.</div>
+                <div style={{ padding: "30px 16px", textAlign: "center", color: "#64748b" }}>No inspections completed yet this week. Finished roofs show up here.</div>
               ) : (
                 inspected.map((r) => (
                   <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 8px", borderBottom: "1px solid #eef2f7" }}>
