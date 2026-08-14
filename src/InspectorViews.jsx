@@ -3982,6 +3982,9 @@ function InspectorJobDetail({ me, jobId, onBack, mapReturn }) {
   const [resultChoice, setResultChoice] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [submitMsg, setSubmitMsg] = useState(null);
+  // Set on a successful result submit → shows a clear, dwell-able success screen
+  // the inspector taps out of (instead of a 1.8s toast that flashed away).
+  const [submitted, setSubmitted] = useState(null); // { result, photoCount, paNotified }
   // Live progress shown to the inspector during submit. Without
   // this the button just said "Submitting…" the whole time and on
   // a slow phone connection inspectors thought the app was frozen.
@@ -4362,16 +4365,16 @@ function InspectorJobDetail({ me, jobId, onBack, mapReturn }) {
         return;
       }
       setSubmitProgress(null);
-      setSubmitMsg({
-        kind: "success",
-        text: cancelRequest
-          ? "Sent to the manager — they'll confirm the cancel or send it to Retail."
-          : `Done — inspection saved. ${body.jn_photos_uploaded || 0} of ${uploadedPhotos.length} photos pushed to JN.` +
-            (body.pa_pdn_fired ? " PA Ops Hub notified." : ""),
-      });
-      // Finished this roof → back to the map + advance to the next stop
-      // (or back to the list when not launched from the map).
-      finishBack(true, 1800);
+      if (cancelRequest) {
+        setSubmitMsg({ kind: "success", text: "Sent to the manager — they'll confirm the cancel or send it to Retail." });
+        finishBack(true, 1800);
+      } else {
+        // Full success screen — the inspector taps out when ready. We deliberately do
+        // NOT show a "N of M pushed to JN" count: the photos + report go to JobNimbus on
+        // a background batch a few minutes later, so a "0 of 90" here read as a failure
+        // and made inspectors (Dustin) re-submit. The confirmation screen reassures instead.
+        setSubmitted({ result: resultToSend, photoCount: uploadedPhotos.length, paNotified: !!body.pa_pdn_fired });
+      }
     } catch (e) {
       setSubmitMsg({ kind: "error", text: e.message || "Unknown error" });
       setSubmitProgress(null);
@@ -4461,6 +4464,36 @@ function InspectorJobDetail({ me, jobId, onBack, mapReturn }) {
       </div>
     </div>
   );
+
+  // Clear, dwell-able SUCCESS screen. Replaces the old toast that flashed for 1.8s
+  // then auto-navigated — and which showed "0 of N photos pushed to JN" because the
+  // JN push is a background batch minutes later. That read as a failure and made
+  // inspectors re-submit (the Dustin case). Now they see a confident confirmation
+  // and tap "Next roof →" when ready.
+  if (submitted) {
+    const rlabel = { damage: "Damage", no_damage: "No Damage", retail: "Retail" }[submitted.result] || "Inspection";
+    return (
+      <div style={{ padding: 16 }}>
+        <div style={{ background: "#fff", border: "2px solid #16a34a", borderRadius: 16, padding: "30px 22px", textAlign: "center", boxShadow: "0 6px 18px rgba(16,163,74,.14)" }}>
+          <div style={{ fontSize: 62, marginBottom: 4 }}>✅</div>
+          <div style={{ fontSize: 23, fontWeight: 800, color: "#065f46", fontFamily: "'Oswald', sans-serif" }}>Inspection submitted!</div>
+          <div style={{ fontSize: 15, color: "#334155", marginTop: 8, lineHeight: 1.5 }}>
+            {job.client_name ? <><strong>{job.client_name}</strong> — </> : null}saved as <strong>{rlabel}</strong> with <strong>{submitted.photoCount}</strong> photo{submitted.photoCount === 1 ? "" : "s"}.
+          </div>
+          <div style={{ marginTop: 16, background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 10, padding: "13px 15px", fontSize: 13.5, color: "#1e40af", lineHeight: 1.55, textAlign: "left" }}>
+            📤 Your photos and the report are uploading to <strong>JobNimbus</strong> now — they'll show up on the job within a few minutes.
+            <div style={{ marginTop: 6 }}>You're all done here. <strong>No need to submit again.</strong></div>
+          </div>
+          {submitted.paNotified && (
+            <div style={{ marginTop: 10, fontSize: 12.5, color: "#047857", fontWeight: 700 }}>✔ The PA team has been notified.</div>
+          )}
+          <button type="button" onClick={() => finishBack(true)} style={{ ...primaryBtn, marginTop: 20, width: "100%", padding: "15px", fontSize: 17, borderRadius: 12 }}>
+            {mapReturn ? "Next roof →" : "Done →"}
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   const stagePhotos = currentStagePhotos();
   const progressLabel = stageLabel(stage, slopeCounts, storyCount);
