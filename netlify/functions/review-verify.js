@@ -28,11 +28,10 @@ export const handler = async (event) => {
       const zone = String((event.queryStringParameters || {}).zone || "").trim();
       if (!zone) return cors(400, { ok: false, error: "zone required" });
       const allow = await zoneRepSet(zone);
-      // Pending reviews from the start of YESTERDAY (ET) forward, newest first — then keep
-      // only this team's reps. Yesterday is included so managers can catch a review sent
-      // late in the day / clear the one-time transition backlog; the contest only credits
-      // a same-day (or grace) confirmation, so older ones simply can't earn the point.
-      const since = new Date(new Date(etTodayStartISO()).getTime() - 24 * 60 * 60 * 1000).toISOString();
+      // ONLY today's pending reviews (ET). A review can only earn its point if confirmed
+      // the SAME DAY it was sent — so once the day is over, an unconfirmed review is dead
+      // and drops off this list automatically (no stale rows to accidentally approve).
+      const since = etTodayStartISO();
       const rows = await sbGet(
         `review_verifications?status=eq.pending&sent_at=gte.${encodeURIComponent(since)}` +
         `&select=id,rep_name,homeowner_name,homeowner_phone,sent_at&order=sent_at.desc`
