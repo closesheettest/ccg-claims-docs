@@ -670,6 +670,11 @@ function xIcon(color) {
 // Below this zoom the map shows SERVER-side cluster bubbles (aggregated counts)
 // instead of downloading thousands of individual pins; at/above it, real pins.
 const CLUSTER_ZOOM = 13;
+// Below THIS zoom (state / multi-county view) we load NOTHING — no statewide pin
+// sample, no million-row clustering — and show a "zoom into your area" prompt.
+// With ~1.3M pins, aggregating the whole state is what made the map hang; a rep
+// only ever works a neighborhood, so nothing needs to load until they're close.
+const MIN_LOAD_ZOOM = 11;
 // Seniors work these TWO together — the filter is locked to both (they can't
 // narrow to just one).
 const SENIOR_STATUSES = ["iq", "no_sit_reschedule"];
@@ -1089,6 +1094,7 @@ export default function CanvassMap() {
   const [shownCount, setShownCount] = useState(0);     // pins actually drawn after the category filter
   const [dbCounts, setDbCounts] = useState(null);      // TRUE per-status counts (RPC), so chips are right even when the load is capped
   const [showAll, setShowAll] = useState(false);       // office overview: load every pin, ignore viewport
+  const [zoomToLoad, setZoomToLoad] = useState(false); // zoomed out past MIN_LOAD_ZOOM → show "zoom into your area" prompt, load nothing
   const [region, setRegion] = useState(null);          // scope a huge bucket to a Florida region before loading
   const [needRegion, setNeedRegion] = useState(false); // huge bucket + no region → prompt to pick one
   const regionRef = useRef(null);                      // load() reads region without a stale closure
@@ -1368,6 +1374,18 @@ export default function CanvassMap() {
         setProspects([]); setInstalls([]); setClusters([]); setCapped(false); setLoading(false); return [];
       }
 
+      // No bounds = the initial statewide view. With ~1.3M pins we do NOT pull a
+      // statewide sample or cluster the whole state — that's what hung the map.
+      // Show the "zoom into your area" prompt; pins/clusters load once the rep is
+      // zoomed in (moveend). Office "show all" still loads everything below.
+      if (!bounds && !showAllRef.current) {
+        setProspects([]); setInstalls([]); setWorkedPins([]); setClusters([]); setCapped(false);
+        if (!fitted.current) { fitted.current = true; if (map.current) { try { map.current.invalidateSize(); } catch { /* ignore */ } } }
+        setZoomToLoad((map.current ? map.current.getZoom() : 0) < MIN_LOAD_ZOOM);
+        setLoading(false);
+        return [];
+      }
+
       // 2) Pins + installs, straight from Supabase (range-paginated → no payload cap).
       const showAll = showAllRef.current;
       const CAP = showAll ? 40000 : bounds ? 6000 : 3000;
@@ -1547,8 +1565,14 @@ export default function CanvassMap() {
       if (showAllRef.current || activeDayRef.current || !fitted.current) return;
       clearTimeout(moveTimer.current);
       moveTimer.current = setTimeout(async () => {
-        // Zoomed out → server cluster bubbles (no per-pin download); zoomed in →
-        // individual pins. If the cluster RPC isn't there / fails, fall back to pins.
+        // Too far out (state / multi-county) → load NOTHING, show the "zoom in"
+        // prompt. Aggregating 1.3M rows here is what hung the map.
+        if (m.getZoom() < MIN_LOAD_ZOOM) {
+          setZoomToLoad(true); setProspects([]); setInstalls([]); setWorkedPins([]); setClusters([]); setLoading(false);
+          return;
+        }
+        setZoomToLoad(false);
+        // Zoomed out (but in range) → server cluster bubbles; zoomed in → pins.
         if (m.getZoom() < CLUSTER_ZOOM && loadClustersRef.current) {
           const ok = await loadClustersRef.current(m.getBounds());
           if (ok) return;
@@ -3752,6 +3776,16 @@ export default function CanvassMap() {
       {/* Map */}
       <div style={{ position: "relative", flex: 1 }}>
         <div ref={mapEl} style={{ position: "absolute", inset: 0, right: isDesktop ? 300 : 0 }} />
+        {/* Zoomed out too far — pins load once the rep zooms into their area. */}
+        {zoomToLoad && !showAllRef.current && (
+          <div style={{ position: "absolute", top: 74, left: "50%", transform: "translateX(-50%)", zIndex: 450, pointerEvents: "none",
+            background: "rgba(15,23,42,.9)", color: "#fff", borderRadius: 14, padding: "12px 18px", textAlign: "center",
+            boxShadow: "0 4px 20px rgba(0,0,0,.35)", maxWidth: 340 }}>
+            <div style={{ fontSize: 26, marginBottom: 2 }}>🔍</div>
+            <div style={{ fontWeight: 800, fontSize: 14.5 }}>Zoom into the area you want to work</div>
+            <div style={{ fontSize: 12, color: "#cbd5e1", marginTop: 3, lineHeight: 1.35 }}>The map holds over a million homes — pins load once you're close enough to knock.</div>
+          </div>
+        )}
         <style>{`@keyframes hpulse{0%{box-shadow:0 1px 5px rgba(0,0,0,.5),0 0 0 0 rgba(124,58,237,.5)}70%{box-shadow:0 1px 5px rgba(0,0,0,.5),0 0 0 14px rgba(124,58,237,0)}100%{box-shadow:0 1px 5px rgba(0,0,0,.5),0 0 0 0 rgba(124,58,237,0)}}@keyframes hpulse2{0%{box-shadow:0 1px 4px rgba(0,0,0,.5),0 0 0 0 rgba(249,115,22,.55)}70%{box-shadow:0 1px 4px rgba(0,0,0,.5),0 0 0 16px rgba(249,115,22,0)}100%{box-shadow:0 1px 4px rgba(0,0,0,.5),0 0 0 0 rgba(249,115,22,0)}}@keyframes hbounce{0%,100%{transform:translateY(0)}50%{transform:translateY(-7px)}}`}</style>
 
         {/* ── Web (desktop) right column: status cards + upload / JN sync ── */}
