@@ -136,6 +136,38 @@ exports.handler = async (event) => {
       if (p.jn_job_id) workedByRep.add(p.jn_job_id);
     }
   }
+  // ADDRESS-level worked guard. The jnid match above misses the common case where
+  // the rep's pin has a DIFFERENT jnid (or none) — a same-house twin from another
+  // source (Kia Joseph: rep marked it dead, but this no-sit came in on a different
+  // JN job, so the jnid guard let it re-add every run). Index every pin a rep
+  // statused to a real field outcome in the last 7 days by normalized street; skip
+  // a no-sit whose house is in it, and let the reconcile below drop any stale twin.
+  const REP_PROTECT_MS = 7 * 24 * 60 * 60 * 1000;
+  const workedIdx = new Map(); // streetKey -> [{ zip }]
+  {
+    let off = 0;
+    for (;;) {
+      const page = await sbGet(`canvass_prospects?status=in.(dead,appt,insp_callback,insp_sold,retail,new_roof,lost,no_response,iq_ni,insp_ni)&select=address,zip,status_by,status_updated_at&limit=1000&offset=${off}`);
+      if (!Array.isArray(page) || !page.length) break;
+      for (const p of page) {
+        const by = String(p.status_by || "");
+        if (!by || /^JN\b/i.test(by)) continue;                 // sync-set → not a rep
+        const t = Date.parse(p.status_updated_at || "");
+        if (!(Number.isFinite(t) && (Date.now() - t) < REP_PROTECT_MS)) continue; // stale
+        const k = streetKey(p.address); if (!k) continue;
+        if (!workedIdx.has(k)) workedIdx.set(k, []);
+        workedIdx.get(k).push({ zip: zip5(p.zip) });
+      }
+      if (page.length < 1000) break;
+      off += 1000; if (off > 40000) break;
+    }
+  }
+  const repWorkedAddr = (j) => {
+    const k = streetKey(j.address_line1); if (!k) return false;
+    const arr = workedIdx.get(k); if (!arr) return false;
+    const jz = zip5(j.zip);
+    return arr.some((s) => !s.zip || !jz || s.zip === jz);
+  };
 
   const nowIso = new Date().toISOString();
   const liveIds = new Set();
@@ -147,7 +179,8 @@ exports.handler = async (event) => {
     const jnid = jnidOf(j);
     const geo = geocache[jnid];
     if (!geo) { skipped++; continue; } // not geocoded yet — picks up on a later run
-    if (workedByRep.has(jnid)) { skipped++; continue; } // rep already worked this door — leave their status
+    if (workedByRep.has(jnid)) { skipped++; continue; } // rep already worked this door (same jnid) — leave their status
+    if (repWorkedAddr(j)) { skipped++; continue; }       // rep worked this HOUSE (diff/no jnid) — skip; reconcile drops any stale twin
     liveIds.add(jnid);
     const street = (j.address_line1 || "").split(",")[0].trim();
     const row = {
@@ -284,6 +317,18 @@ async function writeSetting(key, obj) {
     return r.ok;
   } catch { return false; }
 }
+// Normalized street key so the same house collapses across sources despite geocode
+// drift + spelling ("7302 NW 57th Ave" == "7302 N.W. 57th Avenue"). Mirrors the IQ sync.
+const ADDR_SUF = { street: "st", st: "st", avenue: "ave", ave: "ave", av: "ave", place: "pl", pl: "pl", drive: "dr", dr: "dr", lane: "ln", ln: "ln", court: "ct", ct: "ct", terrace: "ter", terr: "ter", ter: "ter", boulevard: "blvd", blvd: "blvd", road: "rd", rd: "rd", circle: "cir", cir: "cir", trail: "trl", trl: "trl", parkway: "pkwy", pkwy: "pkwy", highway: "hwy", hwy: "hwy", cove: "cv", cv: "cv", point: "pt", pt: "pt", square: "sq", sq: "sq" };
+const ADDR_DIR = { north: "n", n: "n", south: "s", s: "s", east: "e", e: "e", west: "w", w: "w", northeast: "ne", ne: "ne", northwest: "nw", nw: "nw", southeast: "se", se: "se", southwest: "sw", sw: "sw" };
+function streetKey(address) {
+  if (!address) return null;
+  const words = String(address).toLowerCase().replace(/[^a-z0-9 ]+/g, " ").split(/\s+/).filter(Boolean);
+  const out = words.map((w) => ADDR_DIR[w] || ADDR_SUF[w] || w);
+  const k = out.join(" ").trim();
+  return k || null;
+}
+function zip5(z) { const m = String(z || "").match(/(\d{5})/); return m ? m[1] : ""; }
 function cors(status, body) {
   return { statusCode: status, headers: { "Content-Type": "application/json", "Cache-Control": "no-store", "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, OPTIONS", "Access-Control-Allow-Headers": "Content-Type" }, body: JSON.stringify(body) };
 }
