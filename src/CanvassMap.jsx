@@ -4804,6 +4804,24 @@ export default function CanvassMap() {
               ) : (
                 <div style={{ fontWeight: 800, fontSize: 14, color: "#94a3b8" }}>🔒 Homeowner &amp; address show once this door is on your route</div>
               )}
+              {/* Roof-permit proof (David/Shovels live data) — legitimizes the pin: this roof
+                  is genuinely aging. A rep can only mark it "new roof" if the HOMEOWNER says so. */}
+              {(() => {
+                const ex = selected.extra || {};
+                if (!ex.last_roof_date && ex.roof_age == null) return null;
+                let permit = "";
+                if (ex.last_roof_date) {
+                  const [y, m] = String(ex.last_roof_date).split("-");
+                  const MO = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+                  permit = `${MO[+m] || ""} ${y}`.trim();
+                } else if (ex.last_roof_year) permit = String(ex.last_roof_year);
+                return (
+                  <div style={{ fontSize: 12.5, color: "#92400e", background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 8, padding: "7px 10px", marginTop: 7, fontWeight: 700 }}>
+                    🏚️ {permit ? <>Last roof permit: <b>{permit}</b></> : "Aging roof"}
+                    {ex.roof_age != null ? <span style={{ color: "#b45309" }}> · ~{ex.roof_age} yr old roof</span> : null}
+                  </div>
+                );
+              })()}
               {selected.status === "no_sit_reschedule" && origApptLabel(selected) && (
                 <div style={{ fontSize: 12.5, fontWeight: 800, color: "#c2410c", marginTop: 4 }}>🔄 No-sit · original appt was {origApptLabel(selected)}</div>
               )}
