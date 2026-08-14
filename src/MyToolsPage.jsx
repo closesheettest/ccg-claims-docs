@@ -11,7 +11,7 @@
 // the device for convenience (same idea as the Manager Console), but every tool
 // selection is saved to the server.
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "./lib/supabase";
 
 const API = "/.netlify/functions/manager-dashboard";
@@ -240,6 +240,8 @@ export default function MyToolsPage() {
   const [tools, setTools] = useState([]);       // saved keys for this manager
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState([]);       // working set while editing
+  const [arranging, setArranging] = useState(false); // drag-to-reorder mode
+  const dragFrom = useRef(null);                // index being dragged
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   const [adminTok, setAdminTok] = useState(null);
@@ -328,6 +330,21 @@ export default function MyToolsPage() {
     try {
       await fetch(API, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "save", pin, manager: name, tools: keys }) });
     } catch { /* keep local copy; retry on next save */ }
+  }
+
+  // Reorder the saved tools (drag-and-drop or the ◀ ▶ move buttons). Saves the
+  // new order immediately so it sticks across devices.
+  function reorderTools(from, to) {
+    if (from == null || to == null || from === to) return;
+    const next = [...tools];
+    const [moved] = next.splice(from, 1);
+    next.splice(to, 0, moved);
+    saveTools(next);
+  }
+  function moveTool(i, dir) {
+    const to = i + dir;
+    if (to < 0 || to >= tools.length) return;
+    reorderTools(i, to);
   }
 
   function openTool(t) {
@@ -423,8 +440,15 @@ export default function MyToolsPage() {
           <h1 style={{ fontSize: 23, margin: "3px 0 0", color: NAVY }}>{name.split(" ")[0]}'s Tools</h1>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
-          <button onClick={() => { setDraft(tools); setEditing(true); }} style={ghostBtn}>⚙️ Customize</button>
-          <button onClick={signOut} style={{ ...ghostBtn, color: MUTE }}>Switch user</button>
+          {arranging ? (
+            <button onClick={() => setArranging(false)} style={{ ...primaryBtn, padding: "8px 14px" }}>✓ Done</button>
+          ) : (
+            <>
+              {tools.length > 1 ? <button onClick={() => setArranging(true)} style={ghostBtn}>⇅ Arrange</button> : null}
+              <button onClick={() => { setDraft(tools); setEditing(true); }} style={ghostBtn}>⚙️ Customize</button>
+              <button onClick={signOut} style={{ ...ghostBtn, color: MUTE }}>Switch user</button>
+            </>
+          )}
         </div>
       </div>
       <div style={{ height: 3, width: 60, background: RED, borderRadius: 2, margin: "12px 0 18px" }} />
@@ -437,15 +461,38 @@ export default function MyToolsPage() {
           <button onClick={() => { setDraft(tools); setEditing(true); }} style={primaryBtn}>➕ Add your tools</button>
         </div>
       ) : (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 12 }}>
-          {myTools.map((t) => (
-            <button key={t.key} onClick={() => openTool(t)} style={toolCard}>
-              <div style={{ fontSize: 26 }}>{t.emoji}</div>
-              <div style={{ fontWeight: 800, color: NAVY, fontSize: 14.5, marginTop: 6 }}>{t.label}</div>
-              <div style={{ fontSize: 12, color: MUTE, marginTop: 3, lineHeight: 1.4 }}>{t.desc}</div>
-            </button>
-          ))}
-        </div>
+        <>
+          {arranging ? (
+            <div style={{ background: "#eef4ff", border: "1px solid #c7d7f5", borderRadius: 10, padding: "9px 13px", fontSize: 12.5, color: NAVY, marginBottom: 12 }}>
+              Drag a card to move it, or use the <b>◀ ▶</b> buttons. Your order saves automatically — tap <b>✓ Done</b> when finished.
+            </div>
+          ) : null}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 12 }}>
+            {myTools.map((t, i) => (
+              <div
+                key={t.key}
+                draggable={arranging}
+                onDragStart={arranging ? () => { dragFrom.current = i; } : undefined}
+                onDragOver={arranging ? (e) => e.preventDefault() : undefined}
+                onDrop={arranging ? (e) => { e.preventDefault(); reorderTools(dragFrom.current, i); dragFrom.current = null; } : undefined}
+                onClick={arranging ? undefined : () => openTool(t)}
+                style={{ ...toolCard, position: "relative", cursor: arranging ? "grab" : "pointer", boxShadow: arranging ? "0 2px 10px rgba(19,41,75,.12)" : toolCard.boxShadow }}
+              >
+                {arranging ? (
+                  <div style={{ position: "absolute", top: 6, right: 6, display: "flex", gap: 4 }}>
+                    <button onClick={(e) => { e.stopPropagation(); moveTool(i, -1); }} disabled={i === 0}
+                      title="Move earlier" style={arrowBtn(i === 0)}>◀</button>
+                    <button onClick={(e) => { e.stopPropagation(); moveTool(i, 1); }} disabled={i === myTools.length - 1}
+                      title="Move later" style={arrowBtn(i === myTools.length - 1)}>▶</button>
+                  </div>
+                ) : null}
+                <div style={{ fontSize: 26 }}>{t.emoji}</div>
+                <div style={{ fontWeight: 800, color: NAVY, fontSize: 14.5, marginTop: 6 }}>{t.label}</div>
+                <div style={{ fontSize: 12, color: MUTE, marginTop: 3, lineHeight: 1.4 }}>{t.desc}</div>
+              </div>
+            ))}
+          </div>
+        </>
       )}
 
       {editing ? (
@@ -559,6 +606,7 @@ const primaryBtn = { background: NAVY, color: "#fff", border: "none", borderRadi
 const ghostBtn = { background: "#fff", color: NAVY, border: `1px solid ${LINE}`, borderRadius: 11, padding: "9px 14px", fontWeight: 700, fontSize: 13.5, cursor: "pointer" };
 const linkBtn = { background: "none", border: "none", color: RED, fontWeight: 700, cursor: "pointer", padding: 0, fontSize: 13.5, textDecoration: "underline" };
 const toolCard = { display: "flex", flexDirection: "column", alignItems: "flex-start", textAlign: "left", background: "#fff", border: `1px solid ${LINE}`, borderRadius: 14, padding: "16px 16px", cursor: "pointer", boxShadow: "0 1px 3px rgba(15,42,74,.06)" };
+const arrowBtn = (disabled) => ({ width: 26, height: 26, borderRadius: 7, border: `1px solid ${LINE}`, background: disabled ? "#f4f5f7" : "#fff", color: disabled ? "#c2c8d0" : NAVY, fontSize: 12, fontWeight: 800, cursor: disabled ? "default" : "pointer", lineHeight: 1, padding: 0 });
 const overlay = { position: "fixed", inset: 0, background: "rgba(15,23,42,.5)", display: "flex", alignItems: "flex-end", justifyContent: "center", zIndex: 50, padding: "0" };
 const sheet = { background: BG, width: "100%", maxWidth: 940, maxHeight: "88vh", borderRadius: "18px 18px 0 0", padding: "18px 18px 26px", display: "flex", flexDirection: "column", boxShadow: "0 -8px 40px rgba(0,0,0,.25)" };
 const pickTool = { display: "flex", alignItems: "flex-start", gap: 9, border: `1.5px solid ${LINE}`, borderRadius: 12, padding: "10px 12px", cursor: "pointer", background: "#fff" };
