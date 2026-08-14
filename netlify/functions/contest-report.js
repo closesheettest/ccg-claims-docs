@@ -156,7 +156,7 @@ export const handler = async (event) => {
           points += dayPoints; sales += sold;
           dayList.push({ day, counts, sold, attrCount, dayPoints });
         }
-        return { name: m.name, points, sales, totals, days: dayList };
+        return { name: m.name, points, sales, totals, days: dayList, isManager: !!m.isManager };
       }).sort((a, b) => b.points - a.points);
       const points = reps.reduce((s, r) => s + r.points, 0);
       const activeReps = roster.length;
@@ -206,7 +206,9 @@ async function fetchZoneResolver() {
     const norm = normalizeName(r.name);
     if (CONTEST_EXCLUDE.has(norm)) continue; // excluded from the contest — not in the divisor
     if (seen.has(norm)) continue; seen.add(norm);
-    (rosterByZone[r.zone] || (rosterByZone[r.zone] = [])).push({ name: String(r.name).trim(), norm });
+    // managed_region set = this person is the zone's MANAGER. Their points count
+    // toward the team average, but they're NOT eligible for the prize split.
+    (rosterByZone[r.zone] || (rosterByZone[r.zone] = [])).push({ name: String(r.name).trim(), norm, isManager: !!r.managed_region });
   }
   return { rosterByZone };
 }
