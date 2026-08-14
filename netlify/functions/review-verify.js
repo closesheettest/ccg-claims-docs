@@ -38,6 +38,9 @@ export const handler = async (event) => {
         `&select=id,rep_name,homeowner_name,homeowner_phone,sent_at&order=sent_at.desc`
       );
       const reviews = rows.filter((r) => allow.has(normalizeName(r.rep_name || "")));
+      // Reps often leave the name blank — fill it from JobNimbus by phone (and cache it
+      // back) so the manager sees a real homeowner name instead of "Homeowner".
+      await enrichNames(reviews);
       return cors(200, { ok: true, zone, reviews });
     }
 
@@ -87,6 +90,39 @@ async function sbGet(path) {
   const r = await fetch(`${SB_URL}/rest/v1/${path}`, { headers: sb });
   if (!r.ok) return [];
   return r.json().catch(() => []);
+}
+
+// Fill any missing homeowner_name from JobNimbus (by phone), mutate the rows in place,
+// and cache the name back so we never look it up twice. Capped + best-effort.
+const JN_KEY = process.env.JOBNIMBUS_API_KEY;
+async function enrichNames(reviews) {
+  const need = reviews.filter((r) => !r.homeowner_name && r.homeowner_phone).slice(0, 25);
+  await Promise.all(need.map(async (r) => {
+    const nm = await jnNameByPhone(r.homeowner_phone);
+    if (!nm) return;
+    r.homeowner_name = nm;
+    fetch(`${SB_URL}/rest/v1/review_verifications?id=eq.${encodeURIComponent(r.id)}`, {
+      method: "PATCH", headers: { ...sb, Prefer: "return=minimal" }, body: JSON.stringify({ homeowner_name: nm }),
+    }).catch(() => {});
+  }));
+}
+async function jnNameByPhone(phone) {
+  if (!JN_KEY) return null;
+  const d = String(phone || "").replace(/\D/g, "").slice(-10);
+  if (d.length !== 10) return null;
+  const fmt = `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`;
+  for (const field of ["mobile_phone", "home_phone"]) {
+    for (const val of [d, fmt]) {
+      try {
+        const flt = encodeURIComponent(JSON.stringify({ must: [{ term: { [field]: val } }] }));
+        const r = await fetch(`https://app.jobnimbus.com/api1/contacts?size=1&filter=${flt}`, { headers: { Authorization: `bearer ${JN_KEY}` } });
+        const j = await r.json().catch(() => ({}));
+        const c = (j.results || [])[0];
+        if (c) { const nm = c.display_name || `${c.first_name || ""} ${c.last_name || ""}`.trim(); if (nm) return nm; }
+      } catch { /* try next */ }
+    }
+  }
+  return null;
 }
 function normalizeName(s) {
   return String(s || "").toLowerCase()
