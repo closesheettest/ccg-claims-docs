@@ -49,6 +49,8 @@ export default function InspectionMap() {
   const [selected, setSelected] = useState(null);
   const [loc, setLoc] = useState(null);
   const [mapReady, setMapReady] = useState(false);
+  const [showInspected, setShowInspected] = useState(false); // "Roofs Inspected" panel
+  const [inspected, setInspected] = useState(null);          // completed inspections (lazy)
   // First-open how-to: play the 52-sec inspection video once, then straight to the
   // map on every open after (flag lives on the inspector's device). No test.
   const [howtoDone, setHowtoDone] = useState(() => { try { return localStorage.getItem("ccg_inspect_howto_v1") === "1"; } catch { return false; } });
@@ -224,6 +226,17 @@ export default function InspectionMap() {
     window.location.href = `/?mode=inspector&job=${encodeURIComponent(p.id)}&from=map`;
   };
 
+  // "Roofs Inspected" — lazy-load this inspector's completed inspections.
+  const openInspected = async () => {
+    setShowInspected(true);
+    if (inspected) return;
+    try {
+      const r = await fetch(`/.netlify/functions/inspect-pins?${qs}&done=1`);
+      const j = await r.json();
+      setInspected(j.ok ? (j.inspected || []) : []);
+    } catch { setInspected([]); }
+  };
+
   if (err) return <Splash msg={err} />;
   if (!me) return <Splash msg="Loading your inspection map…" plain />;
   if (!howtoDone) return <HowToGate onDone={() => { try { localStorage.setItem("ccg_inspect_howto_v1", "1"); } catch { /* ignore */ } setHowtoDone(true); }} />;
@@ -237,7 +250,42 @@ export default function InspectionMap() {
       <div style={{ position: "absolute", top: 10, left: 10, right: 10, zIndex: 500, display: "flex", alignItems: "center", gap: 8, pointerEvents: "none" }}>
         <div style={{ background: "#0f172a", color: "#fff", borderRadius: 12, padding: "8px 14px", fontWeight: 800, fontFamily: OSWALD, boxShadow: "0 2px 8px rgba(0,0,0,.2)" }}>🔍 {me.name}</div>
         <div style={{ background: "#fff", color: "#334155", borderRadius: 12, padding: "8px 12px", fontSize: 12.5, fontWeight: 700, boxShadow: "0 2px 8px rgba(0,0,0,.15)" }}>{dayMode === "active" ? `${stopIdx + 1} / ${route.length}` : `${pins.length} to inspect`}</div>
+        <div style={{ flex: 1 }} />
+        <button onClick={openInspected} style={{ pointerEvents: "auto", background: "#fff", color: "#0f172a", border: "none", borderRadius: 12, padding: "8px 12px", fontSize: 12.5, fontWeight: 800, fontFamily: OSWALD, boxShadow: "0 2px 8px rgba(0,0,0,.15)", cursor: "pointer" }}>📋 Roofs inspected</button>
       </div>
+
+      {/* Roofs Inspected report */}
+      {showInspected && (
+        <div style={{ position: "absolute", inset: 0, zIndex: 700, background: "rgba(15,23,42,.5)", display: "flex", justifyContent: "center", alignItems: "flex-end" }} onClick={() => setShowInspected(false)}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", width: "100%", maxWidth: 520, maxHeight: "86vh", borderRadius: "18px 18px 0 0", display: "flex", flexDirection: "column", boxShadow: "0 -4px 24px rgba(0,0,0,.25)" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 18px 10px" }}>
+              <div>
+                <div style={{ fontSize: 18, fontWeight: 900, fontFamily: OSWALD, color: "#0f172a" }}>📋 Roofs Inspected</div>
+                <div style={{ fontSize: 12.5, color: "#64748b" }}>{inspected == null ? "Loading…" : `${inspected.length} completed${me.name && me.name !== "Office" ? " by you" : ""}`}</div>
+              </div>
+              <button onClick={() => setShowInspected(false)} style={{ background: "none", border: "none", fontSize: 24, color: "#cbd5e1", cursor: "pointer", lineHeight: 1 }}>×</button>
+            </div>
+            <div style={{ overflowY: "auto", padding: "0 12px 18px" }}>
+              {inspected == null ? (
+                <div style={{ padding: "30px 0", textAlign: "center", color: "#94a3b8", fontWeight: 700 }}>Loading your inspections…</div>
+              ) : inspected.length === 0 ? (
+                <div style={{ padding: "30px 16px", textAlign: "center", color: "#64748b" }}>No completed inspections yet. Finished roofs show up here.</div>
+              ) : (
+                inspected.map((r) => (
+                  <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 8px", borderBottom: "1px solid #eef2f7" }}>
+                    <span style={{ flex: "none", fontSize: 11, fontWeight: 800, fontFamily: OSWALD, color: "#fff", background: resultColor(r.result), borderRadius: 6, padding: "3px 7px", whiteSpace: "nowrap" }}>{resultLabel(r.result)}</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 14, fontWeight: 800, color: "#0f172a", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.client_name || "Homeowner"}</div>
+                      <div style={{ fontSize: 12.5, color: "#64748b", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{[r.address, r.city].filter(Boolean).join(", ")}</div>
+                    </div>
+                    <span style={{ flex: "none", fontSize: 12, color: "#94a3b8", fontWeight: 700 }}>{fmtDay(r.result_at || r.signed_at)}</span>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Idle: Route my day */}
       {dayMode === null && !selecting && (
@@ -296,6 +344,25 @@ export default function InspectionMap() {
 
 function btnStyle(bg, size) { return { background: bg, color: "#fff", border: "none", borderRadius: 12, padding: "12px 16px", fontSize: size, fontWeight: 800, fontFamily: OSWALD, cursor: "pointer" }; }
 function btn(bg, size) { return { ...btnStyle(bg, size), boxShadow: "0 3px 12px rgba(0,0,0,.25)" }; }
+// Roofs-inspected report helpers.
+function resultLabel(r) {
+  const s = (r || "").toLowerCase();
+  if (s.includes("no damage")) return "No Dmg";
+  if (s.includes("damage")) return "Damage";
+  if (s.includes("retail")) return "Retail";
+  return r ? String(r).slice(0, 12) : "Done";
+}
+function resultColor(r) {
+  const s = (r || "").toLowerCase();
+  if (s.includes("no damage")) return "#64748b";
+  if (s.includes("damage")) return "#dc2626";
+  if (s.includes("retail")) return "#2563eb";
+  return "#0f172a";
+}
+function fmtDay(iso) {
+  if (!iso) return "";
+  try { return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" }); } catch { return ""; }
+}
 // First-open how-to gate: the 52-sec inspection video plays, then "Continue" lets
 // them onto the map. Watched-flag is set by the caller so it only shows once per
 // device. Fail-open: if the video is missing or errors, never trap the inspector.

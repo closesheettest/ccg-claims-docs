@@ -45,6 +45,16 @@ export const handler = async (event) => {
     return cors(200, JSON.stringify({ ok: true, inspector }));
   }
 
+  // "Roofs Inspected" — this inspector's COMPLETED inspections (result set), most
+  // recent first. Office view (admin) sees everyone's. Powers the map's report.
+  if (/^(1|true|yes)$/i.test((p.done || "").trim())) {
+    const who = isAdmin ? "" : `&inspector_id=eq.${encodeURIComponent(inspector.id)}`;
+    const done = await sbGet(
+      `inspections?result=not.is.null${who}&select=id,client_name,address,city,state,zip,result,result_at,signed_at,sales_rep_name&order=result_at.desc.nullslast&limit=500`,
+    );
+    return cors(200, JSON.stringify({ ok: true, inspector, inspected: done }));
+  }
+
   // Load inspections that still need inspecting, within the viewport (or a newest
   // sample). result IS NULL, not cancelled, geocoded.
   const num = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? n : null; };
