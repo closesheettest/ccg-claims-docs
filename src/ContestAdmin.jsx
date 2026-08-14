@@ -56,7 +56,8 @@ export default function ContestAdmin() {
         <h1 style={{ fontSize: 25, fontWeight: 800, margin: 0, fontFamily: OSWALD }}>Positive-Effort Contest</h1>
       </div>
       <p style={{ color: "#64748b", fontSize: 14, margin: "0 0 18px" }}>
-        Turn the contest leaderboard on or off. While it's off, reps don't see the board — flip it on when you're ready (you can keep it off for Week 1).
+        This is your admin control. The switch below is what every rep sees — flip it on when you're
+        ready (you can keep it off for Week 1). It saves instantly, no one else can change it.
       </p>
 
       {/* Master on/off */}
@@ -75,7 +76,7 @@ export default function ContestAdmin() {
       {/* Standings */}
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 10 }}>
         <div style={{ fontSize: 13, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.05em", color: "#334155" }}>Standings · avg pts / rep</div>
-        <div style={{ fontSize: 12, color: "#94a3b8" }}>{board ? board.week : ""}</div>
+        <div style={{ fontSize: 12, color: "#94a3b8" }}>{enabled ? (board ? board.week : "") : "Sample · last 7 days"}</div>
       </div>
       {boardErr && <div style={{ fontSize: 13, color: "#64748b" }}>Couldn't load the standings right now.</div>}
       {!boardErr && !zones.length && <div style={{ fontSize: 13, color: "#64748b" }}>No points yet.</div>}
@@ -98,7 +99,7 @@ export default function ContestAdmin() {
 
       {!enabled && (
         <div style={{ marginTop: 20, padding: "12px 14px", background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 10, fontSize: 12.5, color: "#1e40af" }}>
-          👀 These standings are a <b>preview</b> (last 7 days of activity) so you can see the board while it's off. Once you switch it on, it scores the live contest days.
+          👀 The numbers above are just a <b>7-day sample of activity</b> so you can see the board's shape while it's off — <b>not</b> the contest score. Flip the switch on and it scores only the live Wed/Thu contest days.
         </div>
       )}
     </div>
