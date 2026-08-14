@@ -113,9 +113,58 @@ export default function GobackSchedule() {
         {saved && <span style={{ color: "#16a34a", fontSize: 14, fontWeight: 800 }}>✓ Saved</span>}
       </div>
 
-      <div style={{ marginTop: 24, padding: "12px 14px", background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 10, fontSize: 12.5, color: "#92400e" }}>
-        ⏳ <b>Not sending yet.</b> This page sets the messages &amp; cadence. Two pieces still to wire before it goes live: the <b>sender</b> (fires each text on schedule after an inspection, and stops once the homeowner books) and the <b>homeowner booking page</b> the <code>{"{link}"}</code> points to. The link shows the <b>assigned rep's</b> availability — so a deal signed by someone who won't run the go-back (e.g. William) must be assigned to a field rep on the manager dashboard first.
+      <div style={{ marginTop: 24, padding: "12px 14px", background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 10, fontSize: 12.5, color: "#166534" }}>
+        ✅ <b>Live.</b> When the toggle above is ON, the sequence fires automatically after each inspection and stops the moment the homeowner books. Texts only go out <b>8 AM–9 PM ET</b>, and only for inspections completed <b>after this went live</b> (it never blasts old ones). The <code>{"{link}"}</code> opens the homeowner's booking page (their rep's come-back times) — booking drops the appointment on the rep's JobNimbus + map and texts the rep.
       </div>
+
+      <GobackReport />
+    </div>
+  );
+}
+
+// The funnel report — who got texted and who self-scheduled. For running numbers.
+function GobackReport() {
+  const [data, setData] = useState(null);
+  useEffect(() => {
+    fetch("/.netlify/functions/goback-report").then((r) => r.json()).then((d) => setData(d && d.ok ? d : { rows: [], summary: { texted: 0, booked: 0, rate: 0 } })).catch(() => setData({ rows: [], summary: { texted: 0, booked: 0, rate: 0 } }));
+  }, []);
+  const when = (iso) => { try { return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" }); } catch { return ""; } };
+  const S = data?.summary || { texted: 0, booked: 0, rate: 0 };
+  return (
+    <div style={{ marginTop: 30 }}>
+      <h2 style={{ fontSize: 19, fontWeight: 800, fontFamily: OSWALD, margin: "0 0 4px", color: "#0f172a" }}>📊 Results — texted vs. self-scheduled</h2>
+      <p style={{ color: "#64748b", fontSize: 13, margin: "0 0 12px" }}>Every homeowner the sequence texted, and whether they booked their own come-back review.</p>
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 14 }}>
+        {[["Texted", S.texted, "#0f2a4a"], ["Self-scheduled", S.booked, "#16a34a"], ["Book rate", `${S.rate}%`, "#c0392b"]].map(([l, v, c]) => (
+          <div key={l} style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, padding: "10px 16px", minWidth: 110 }}>
+            <div style={{ fontSize: 22, fontWeight: 800, color: c }}>{v}</div>
+            <div style={{ fontSize: 10.5, fontWeight: 800, textTransform: "uppercase", letterSpacing: ".04em", color: "#94a3b8" }}>{l}</div>
+          </div>
+        ))}
+      </div>
+      {!data ? <div style={{ color: "#94a3b8", fontSize: 13 }}>Loading…</div>
+        : !data.rows.length ? <div style={{ background: "#f8fafc", border: "1px solid #e5e7eb", borderRadius: 12, padding: 16, color: "#94a3b8", fontSize: 13.5 }}>No texts sent yet — rows appear here after the first inspection triggers the sequence.</div>
+        : (
+          <div style={{ overflowX: "auto", border: "1px solid #e5e7eb", borderRadius: 12 }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+              <thead><tr style={{ background: "#f8fafc", textAlign: "left" }}>
+                {["Homeowner", "Rep", "Texts", "First", "Last", "Booked?"].map((h) => <th key={h} style={{ padding: "9px 12px", fontSize: 11, fontWeight: 800, textTransform: "uppercase", letterSpacing: ".04em", color: "#64748b", whiteSpace: "nowrap" }}>{h}</th>)}
+              </tr></thead>
+              <tbody>
+                {data.rows.map((r, i) => (
+                  <tr key={i} style={{ borderTop: "1px solid #eef2f7", background: r.booked ? "#f0fdf4" : "#fff" }}>
+                    <td style={{ padding: "9px 12px" }}><div style={{ fontWeight: 700, color: "#0f172a" }}>{r.name}</div><div style={{ fontSize: 11.5, color: "#94a3b8" }}>{r.phone}</div></td>
+                    <td style={{ padding: "9px 12px", color: "#475569" }}>{r.rep}</td>
+                    <td style={{ padding: "9px 12px", fontWeight: 700, textAlign: "center" }}>{r.texts}</td>
+                    <td style={{ padding: "9px 12px", color: "#64748b", whiteSpace: "nowrap" }}>{when(r.first_sent)}</td>
+                    <td style={{ padding: "9px 12px", color: "#64748b", whiteSpace: "nowrap" }}>{when(r.last_sent)}</td>
+                    <td style={{ padding: "9px 12px", whiteSpace: "nowrap" }}>{r.booked ? <span style={{ color: "#16a34a", fontWeight: 800 }}>✓ {when(r.review_appt_at)}</span> : <span style={{ color: "#cbd5e1" }}>—</span>}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
     </div>
   );
 }

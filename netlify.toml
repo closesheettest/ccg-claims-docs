@@ -11,6 +11,13 @@
 [functions."cron-extract-pitch"]
   schedule = "30 8 * * *"
 
+# Auto-Schedule After Inspection: the SENDER. Fires the configured come-back-review
+# text sequence to homeowners on schedule (anchored on inspections.result_at), stops
+# once they book (review_appt_at). OFF unless the config's enabled flag is true;
+# self-gated to 8 AM–9 PM ET + a backlog cutoff so it never blasts old inspections.
+[functions."cron-goback-autoschedule"]
+  schedule = "*/15 * * * *"
+
 # Scheduled function: SAFETY-NET geocoder. Signing geocodes fire-and-forget from
 # the browser; if that request is cut off, the inspection is left with no lat/lng
 # and drops off the inspector map. This sweeps up any signed inspection with an

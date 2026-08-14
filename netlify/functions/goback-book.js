@@ -1,0 +1,102 @@
+// netlify/functions/goback-book.js
+//
+// Backend for the homeowner's come-back-review booking page (?mode=gobackbook&t=<token>),
+// the {link} in the Auto-Schedule-After-Inspection texts. Scoped entirely by the
+// inspection's goback_token — the homeowner never sees an internal id.
+//
+//   POST { action:"load",  t }              → { ok, insp:{name,full,address,rep} }
+//   POST { action:"slots", t }              → { ok, slots:[{start_at,label}] }
+//   POST { action:"book",  t, start_at }    → { ok, booked }  (sets review_appt_at, drops a
+//                                              JN appointment on the rep, texts the rep,
+//                                              which stops the text sequence)
+//
+// Env: VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY, JOBNIMBUS_API_KEY, URL
+
+const SB_URL = process.env.VITE_SUPABASE_URL;
+const SB_KEY = process.env.VITE_SUPABASE_ANON_KEY;
+const sb = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, "Content-Type": "application/json" };
+const JN_BASE = "https://app.jobnimbus.com/api1";
+const JN_KEY = process.env.JOBNIMBUS_API_KEY;
+const ORIGIN = (process.env.URL || "https://free-roof-inspections.netlify.app").replace(/\/$/, "");
+// Company come-back hours by ET weekday (0=Sun). Mirrors the map's COMPANY_HOURS.
+const HOURS = { 0: [], 1: [11, 14, 17, 19], 2: [11, 14, 17, 19], 3: [11, 14, 17, 19], 4: [11, 14, 17, 19], 5: [9, 12, 15], 6: [9, 12] };
+
+export const handler = async (event) => {
+  if (event.httpMethod === "OPTIONS") return cors(200, "");
+  if (event.httpMethod !== "POST") return cors(405, JSON.stringify({ ok: false, error: "POST only" }));
+  try {
+    const body = JSON.parse(event.body || "{}");
+    const action = String(body.action || "").trim();
+    const t = String(body.t || "").trim();
+    if (!t) return cors(400, JSON.stringify({ ok: false, error: "This link is missing its code — use the link from your text." }));
+    const insp = (await sbGet(`inspections?goback_token=eq.${encodeURIComponent(t)}&select=id,client_name,address,city,state,zip,mobile,sales_rep_name,sales_rep_id,jn_job_id,review_appt_at&limit=1`))[0];
+    if (!insp) return cors(404, JSON.stringify({ ok: false, error: "We couldn't find your inspection — please contact the office." }));
+
+    if (action === "load") {
+      const first = (insp.client_name || "").trim().split(/\s+/)[0] || "there";
+      return cors(200, JSON.stringify({ ok: true, insp: { name: first, full: insp.client_name || "", address: [insp.address, insp.city].filter(Boolean).join(", "), rep: insp.sales_rep_name || "your rep", booked_at: insp.review_appt_at || null } }));
+    }
+    if (action === "slots") {
+      return cors(200, JSON.stringify({ ok: true, slots: buildSlots() }));
+    }
+    if (action === "book") {
+      const startIso = String(body.start_at || "").trim();
+      const startMs = Date.parse(startIso);
+      if (!startMs || Number.isNaN(startMs)) return cors(400, JSON.stringify({ ok: false, error: "Pick a time first." }));
+      if (insp.review_appt_at) return cors(200, JSON.stringify({ ok: true, already: true, booked: { start_at: insp.review_appt_at } }));
+      // 1) Stamp the review appt — this is what STOPS the text sequence.
+      await sbPatch(`inspections?id=eq.${encodeURIComponent(insp.id)}`, { review_appt_at: new Date(startMs).toISOString() });
+      // 2) Drop a JN Appointment on the rep (best-effort) so it hits their map + JN.
+      try {
+        if (JN_KEY && insp.jn_job_id) {
+          const taskBody = {
+            record_type: 17, record_type_name: "Appointment",
+            title: `Come-Back Review — ${insp.client_name || "homeowner"}`,
+            date_start: Math.floor(startMs / 1000),
+            related: [{ id: insp.jn_job_id, type: "job" }],
+          };
+          if (insp.sales_rep_id) taskBody.owners = [{ id: insp.sales_rep_id }];
+          await fetch(`${JN_BASE}/tasks`, { method: "POST", headers: { Authorization: `bearer ${JN_KEY}`, "Content-Type": "application/json" }, body: JSON.stringify(taskBody) });
+        }
+      } catch { /* best-effort */ }
+      // 3) Text the rep so they know it's on the calendar (best-effort).
+      try {
+        const rep = insp.sales_rep_id ? (await sbGet(`sales_reps?jobnimbus_id=eq.${encodeURIComponent(insp.sales_rep_id)}&select=phone,name&limit=1`))[0] : null;
+        if (rep && rep.phone) {
+          const when = new Date(startMs).toLocaleString("en-US", { timeZone: "America/New_York", weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+          await fetch(`${ORIGIN}/.netlify/functions/ghl-sms`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ to: rep.phone, name: rep.name || "Rep", message: `${insp.client_name || "A homeowner"} booked their come-back review for ${when} — ${[insp.address, insp.city].filter(Boolean).join(", ")}. It's on your JobNimbus + map.` }) });
+        }
+      } catch { /* best-effort */ }
+      return cors(200, JSON.stringify({ ok: true, booked: { start_at: new Date(startMs).toISOString() } }));
+    }
+    return cors(400, JSON.stringify({ ok: false, error: `Unknown action: ${action}` }));
+  } catch (e) {
+    return cors(500, JSON.stringify({ ok: false, error: e.message || "error" }));
+  }
+};
+
+// Next ~10 days of company slots (ET), future only (≥ 2h from now).
+function buildSlots() {
+  const out = [];
+  const now = Date.now(), minMs = now + 2 * 60 * 60 * 1000;
+  for (let d = 0; d < 11 && out.length < 40; d++) {
+    const base = new Date(now + d * 24 * 60 * 60 * 1000);
+    const p = tzParts(base);
+    const wdET = etWeekday(+p.year, +p.month, +p.day);
+    for (const h of HOURS[wdET] || []) {
+      const dt = etWallToUTC(+p.year, +p.month, +p.day, h, 0);
+      if (dt.getTime() < minMs) continue;
+      out.push({ start_at: dt.toISOString(), label: dt.toLocaleString("en-US", { timeZone: "America/New_York", weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) });
+    }
+  }
+  return out;
+}
+
+async function sbGet(path) { const r = await fetch(`${SB_URL}/rest/v1/${path}`, { headers: sb }); if (!r.ok) return []; return r.json().catch(() => []); }
+async function sbPatch(path, obj) { await fetch(`${SB_URL}/rest/v1/${path}`, { method: "PATCH", headers: { ...sb, Prefer: "return=minimal" }, body: JSON.stringify(obj) }); }
+const TZ = "America/New_York";
+function tzParts(date) { const dtf = new Intl.DateTimeFormat("en-US", { timeZone: TZ, hour12: false, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit" }); const p = {}; for (const x of dtf.formatToParts(date)) p[x.type] = x.value; return p; }
+function offsetMs(date) { const p = new Intl.DateTimeFormat("en-US", { timeZone: TZ, hour12: false, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" }).formatToParts(date).reduce((a, x) => (a[x.type] = x.value, a), {}); return Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute, +p.second) - date.getTime(); }
+function etWallToUTC(y, mo, d, h, mi) { const guess = Date.UTC(y, mo - 1, d, h, mi, 0); return new Date(guess - offsetMs(new Date(guess))); }
+function etWeekday(y, mo, d) { return new Date(Date.UTC(y, mo - 1, d, 12, 0, 0)).getUTCDay(); }
+function cors(status, body) { return { statusCode: status, headers: { "Content-Type": "application/json", "Cache-Control": "no-store", "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type" }, body }; }

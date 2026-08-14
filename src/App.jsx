@@ -31,6 +31,7 @@ import InspectionMap from "./InspectionMap";
 import InspectorLinks from "./InspectorLinks";
 import RoofMeasure from "./RoofMeasure";
 import MyToolsPage from "./MyToolsPage";
+import GobackBook from "./GobackBook";
 import GobackSchedule from "./GobackSchedule";
 import ContestAdmin from "./ContestAdmin";
 import RoofTakeoff from "./RoofTakeoff";
@@ -9655,6 +9656,10 @@ export default function App() {
     // ?mode=masterinspreport — the whole inspection pipeline on one page.
     if (portalMode === "masterinspreport") {
       return <MasterInspectionReports />;
+    }
+    // ?mode=gobackbook — homeowner books their come-back review (Auto-Schedule link).
+    if (portalMode === "gobackbook") {
+      return <GobackBook />;
     }
     // ?mode=pareschedule — homeowner self-reschedules a missed PA appointment.
     if (portalMode === "pareschedule") {
