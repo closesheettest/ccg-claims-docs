@@ -48,6 +48,7 @@ exports.handler = async (event) => {
   const withJob = new Set();
   const jobStatusByContact = {};   // jn_contact_id -> mapped pin status (from its job)
   const jobByAddr = {};            // streetKey -> { zip5 -> heaviest pin-status } ("" bucket = job w/ no zip)
+  const jobZips = new Set();       // every ZIP we saw a JN job in — scopes the pin index below
   const noteJob = (cid, name) => {
     if (!cid) return;
     withJob.add(cid);
@@ -75,6 +76,7 @@ exports.handler = async (event) => {
           // company-appointment case). Per-zip buckets keep each location's own
           // heaviest status. "" = job with no zip (drift/manual entries).
           const z = zip5(job.zip) || "";
+          if (z) jobZips.add(z);
           let bucket = jobByAddr[sk]; if (!bucket) { bucket = {}; jobByAddr[sk] = bucket; }
           if (!(z in bucket) || (PIN_RANK[st] || 0) > (PIN_RANK[bucket[z]] || 0)) bucket[z] = st;
         }
@@ -91,15 +93,28 @@ exports.handler = async (event) => {
   //   rawId (another raw JN lead) → SKIPPED (dedupe)
   //   inspId (an unworked RepCard "insp") → the incoming IQ CONVERTS it in place
   //                                          (your "IQ beats inspection-needed")
+  // This index used to load EVERY pin on the map. That was fine at a few thousand
+  // pins; canvass_prospects is now ~1.57M rows, so it meant ~1,570 back-to-back
+  // Supabase reads every 30 minutes — which is what pushed the OTHER dedupe queries
+  // into statement timeouts and set off the double-pin bug in the first place.
+  // Now it loads only the ZIPs we could actually collide in, on demand, and caches
+  // which ZIPs it already has. Same guarantees, a couple of reads instead of 1,570.
   const streetIdx = new Map();    // streetKey -> [{ id, status, zip, status_by, status_updated_at }]
   const claimedKeys = new Set();  // "street|zip" handled this run (converted or freshly inserted)
-  try {
-    for (const p of await sbGetAll(`canvass_prospects?latitude=not.is.null&select=id,address,status,zip,status_by,status_updated_at`)) {
-      const sk = streetKey(p.address); if (!sk) continue;
-      let arr = streetIdx.get(sk); if (!arr) { arr = []; streetIdx.set(sk, arr); }
-      arr.push({ id: p.id, status: p.status, zip: zip5(p.zip), status_by: p.status_by, status_updated_at: p.status_updated_at });
+  const loadedZips = new Set();
+  async function loadZips(zips) {
+    const want = [...new Set([...zips].filter((z) => z && !loadedZips.has(z)))];
+    if (!want.length) return;
+    for (let i = 0; i < want.length; i += 40) {
+      const chunk = want.slice(i, i + 40);
+      for (const p of await sbGetAll(`canvass_prospects?latitude=not.is.null&zip=in.(${chunk.join(",")})&select=id,address,status,zip,status_by,status_updated_at`)) {
+        const sk = streetKey(p.address); if (!sk) continue;
+        let arr = streetIdx.get(sk); if (!arr) { arr = []; streetIdx.set(sk, arr); }
+        arr.push({ id: p.id, status: p.status, zip: zip5(p.zip), status_by: p.status_by, status_updated_at: p.status_updated_at });
+      }
+      chunk.forEach((z) => loadedZips.add(z));
     }
-  } catch { /* if the index can't load, fall back to contact-only dedup (no crash) */ }
+  }
 
   for (const key of keys) {
     const def = SOURCES[key];
@@ -139,6 +154,12 @@ exports.handler = async (event) => {
         if (!(c.address_line1 || "").trim()) return;
         cands.push(c);
       });
+
+      // Pull the existing pins for the ZIPs these candidates live in, so the address
+      // dedupe below can see them. Failure here is non-fatal — the contact-level
+      // dedupe above is the primary guard and it already fails closed.
+      try { await loadZips(cands.map((c) => zip5(c.zip)).filter(Boolean)); }
+      catch (e) { console.warn("address index load failed (non-fatal):", e.message); }
 
       const coordOf = (c) => {
         const g = c.geo || {};
@@ -273,6 +294,9 @@ exports.handler = async (event) => {
   // net that catches deals created manually in JobNimbus and same-house/different-
   // contact name mismatches — which the contact-based sync above cannot reach.
   try {
+    // Only ZIPs that actually have a JN job can be restatused by this pass, so load
+    // exactly those pins (most are already in the index from the candidate load).
+    await loadZips(jobZips);
     const addrRev = [];
     let addrRestatused = 0;
     const nowIso = new Date().toISOString();
@@ -362,13 +386,28 @@ const num = (v) => { const n = parseFloat(v); return Number.isFinite(n) && Math.
 async function del(ids) {
   try { let ok = true; for (let i = 0; i < ids.length; i += 200) { const r = await fetch(`${SB_URL}/rest/v1/canvass_prospects?id=in.(${ids.slice(i, i + 200).join(",")})`, { method: "DELETE", headers: { ...sbHeaders, Prefer: "return=minimal" } }); ok = ok && r.ok; } return ok; } catch { return false; }
 }
+// FAIL-CLOSED, COMPLETE read. Everything this sync uses to decide "does a pin
+// already exist?" comes through here, and every row missing from the result gets
+// INSERTED as a new pin below — so a partial read is a duplicate-pin generator.
+// The old version broke out of the loop on `!r.ok` and returned whatever it had
+// (often nothing), which is how a single statement timeout re-inserted the whole
+// Instant Quote list every 30 minutes on Aug 15. Now: throw on any bad page, and
+// keyset-paginate on id (stable + index-friendly) instead of offset ranges with no
+// ORDER BY, which could skip rows and had a hard 400k cap the table has outgrown.
 async function sbGetAll(path) {
   const out = [];
-  for (let from = 0; from < 400000; from += 1000) {
-    const r = await fetch(`${SB_URL}/rest/v1/${path}`, { headers: { ...sbHeaders, "Range-Unit": "items", Range: `${from}-${from + 999}` } });
-    if (!r.ok) break; const b = await r.json().catch(() => []); if (!Array.isArray(b) || !b.length) break; out.push(...b); if (b.length < 1000) break;
+  let after = "";
+  for (let guard = 0; guard < 5000; guard++) {
+    const url = `${SB_URL}/rest/v1/${path}&order=id.asc&limit=1000${after ? `&id=gt.${after}` : ""}`;
+    const r = await fetch(url, { headers: sbHeaders });
+    if (!r.ok) throw new Error(`Supabase read failed (${r.status}): ${(await r.text().catch(() => "")).slice(0, 180)}`);
+    const b = await r.json();
+    if (!Array.isArray(b)) throw new Error("Supabase read returned a non-array");
+    out.push(...b);
+    if (b.length < 1000) return out;
+    after = b[b.length - 1].id;
   }
-  return out;
+  throw new Error("Supabase read exceeded the page guard");
 }
 async function sharded(base, headers, must, lo, hi, onRow) {
   const filterFor = (gte, lte) => encodeURIComponent(JSON.stringify({ must: [...must, { range: { date_created: { gte, lte } } }] }));

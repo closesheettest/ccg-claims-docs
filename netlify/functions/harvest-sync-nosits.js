@@ -118,9 +118,19 @@ exports.handler = async (event) => {
 
   // Existing JN-sourced no-sit pins (so we can update in place + reconcile away
   // the ones that got re-booked). Keyed by jn_job_id.
+  // MUST be a complete, verified read — every jnid missing from here gets INSERTED
+  // as a new pin below. A failed/partial read used to come back as {} and re-add the
+  // entire no-sit list (the double-pin bug). Abort the run instead: a sync that can't
+  // see what's already on the map must never write to it.
   const existing = {};
-  for (const p of await sbGet(`canvass_prospects?jn_job_id=not.is.null&status=eq.no_sit_reschedule&select=id,jn_job_id`)) {
-    if (p.jn_job_id) existing[p.jn_job_id] = p.id;
+  try {
+    for (const p of await sbGetAllStrict(`canvass_prospects?jn_job_id=not.is.null&status=eq.no_sit_reschedule&select=id,jn_job_id`)) {
+      if (p.jn_job_id) existing[p.jn_job_id] = p.id;
+    }
+  } catch (e) {
+    const msg = `Aborted before writing: could not read existing no-sit pins (${e.message}). Nothing was inserted or deleted.`;
+    await writeSetting("harvest_nosit_sync", { ok: false, aborted: true, error: msg, finished: new Date().toISOString() });
+    return cors(503, { ok: false, error: msg });
   }
   // Jobs whose door a REP already worked to a NON-no-sit outcome (dead / new roof / appt /
   // lost / …). Marking a no-sit on the map doesn't change the JN job's status, so the job
@@ -143,24 +153,25 @@ exports.handler = async (event) => {
   // statused to a real field outcome in the last 7 days by normalized street; skip
   // a no-sit whose house is in it, and let the reconcile below drop any stale twin.
   const REP_PROTECT_MS = 7 * 24 * 60 * 60 * 1000;
+  // Also a fail-closed read: an incomplete worked-index silently re-adds no-sits on
+  // doors reps already handled. `limit/offset` with no ORDER BY could skip rows, and
+  // the old 40k cap truncated it outright once the table grew — keyset-paginate the
+  // whole thing and abort if it can't be read.
   const workedIdx = new Map(); // streetKey -> [{ zip }]
-  {
-    let off = 0;
-    for (;;) {
-      const page = await sbGet(`canvass_prospects?status=in.(dead,appt,insp_callback,insp_sold,retail,new_roof,lost,no_response,iq_ni,insp_ni)&select=address,zip,status_by,status_updated_at&limit=1000&offset=${off}`);
-      if (!Array.isArray(page) || !page.length) break;
-      for (const p of page) {
-        const by = String(p.status_by || "");
-        if (!by || /^JN\b/i.test(by)) continue;                 // sync-set → not a rep
-        const t = Date.parse(p.status_updated_at || "");
-        if (!(Number.isFinite(t) && (Date.now() - t) < REP_PROTECT_MS)) continue; // stale
-        const k = streetKey(p.address); if (!k) continue;
-        if (!workedIdx.has(k)) workedIdx.set(k, []);
-        workedIdx.get(k).push({ zip: zip5(p.zip) });
-      }
-      if (page.length < 1000) break;
-      off += 1000; if (off > 40000) break;
+  try {
+    for (const p of await sbGetAllStrict(`canvass_prospects?status=in.(dead,appt,insp_callback,insp_sold,retail,new_roof,lost,no_response,iq_ni,insp_ni)&select=id,address,zip,status_by,status_updated_at`)) {
+      const by = String(p.status_by || "");
+      if (!by || /^JN\b/i.test(by)) continue;                 // sync-set → not a rep
+      const t = Date.parse(p.status_updated_at || "");
+      if (!(Number.isFinite(t) && (Date.now() - t) < REP_PROTECT_MS)) continue; // stale
+      const k = streetKey(p.address); if (!k) continue;
+      if (!workedIdx.has(k)) workedIdx.set(k, []);
+      workedIdx.get(k).push({ zip: zip5(p.zip) });
     }
+  } catch (e) {
+    const msg = `Aborted before writing: could not read rep-worked pins (${e.message}). Nothing was inserted or deleted.`;
+    await writeSetting("harvest_nosit_sync", { ok: false, aborted: true, error: msg, finished: new Date().toISOString() });
+    return cors(503, { ok: false, error: msg });
   }
   const repWorkedAddr = (j) => {
     const k = streetKey(j.address_line1); if (!k) return false;
@@ -285,6 +296,27 @@ async function sbGet(path) {
     if (!r.ok) return [];
     return await r.json().catch(() => []);
   } catch { return []; }
+}
+// FAIL-CLOSED, COMPLETE read — for anything this sync uses to decide "does a pin
+// already exist?". sbGet() above returns [] on any error, which reads as "nothing
+// exists" and made this sync re-insert the whole no-sit list as new pins every
+// time a query timed out (the Aug-15 double-pin bug, once canvass_prospects hit
+// 1.5M rows). This one THROWS instead, so the caller aborts rather than duplicating,
+// and it keyset-paginates on id so it can't silently stop at PostgREST's 1000-row cap.
+async function sbGetAllStrict(pathBase) {
+  const out = [];
+  let after = "";
+  for (let guard = 0; guard < 5000; guard++) {
+    const url = `${SB_URL}/rest/v1/${pathBase}&order=id.asc&limit=1000${after ? `&id=gt.${after}` : ""}`;
+    const r = await fetch(url, { headers: sbHeaders });
+    if (!r.ok) throw new Error(`Supabase read failed (${r.status}): ${(await r.text().catch(() => "")).slice(0, 180)}`);
+    const rows = await r.json();
+    if (!Array.isArray(rows)) throw new Error("Supabase read returned a non-array");
+    out.push(...rows);
+    if (rows.length < 1000) return out;
+    after = rows[rows.length - 1].id;
+  }
+  throw new Error("Supabase read exceeded the page guard");
 }
 async function readSetting(key) {
   try {

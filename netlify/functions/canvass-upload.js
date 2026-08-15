@@ -139,12 +139,42 @@ export const handler = async (event) => {
   const coordKey = (lat, lng) => `${(+lat).toFixed(4)},${(+lng).toFixed(4)}`; // ~11 m
   const existing = {};   // coordKey -> pin
   const byAddr = {};     // normalized addr -> pin (drift-proof, catches the ~90 m case)
+  // Load the pins we could collide with. This used to be `limit=50000` over the whole
+  // table with `catch { /* just insert all */ }` — at 1.57M pins that read covered ~3%
+  // of the map and silently fell back to "nothing exists", so a re-upload duplicated
+  // every address in it. Now: fetch only the ~2 km cells these rows land in (indexed
+  // on lat/lng, bounded by the batch), and ABORT rather than insert if it can't be read.
+  const CELL = 0.02;
+  const cells = new Set();
+  for (const r of out) {
+    if (r.latitude == null || r.longitude == null) continue;
+    cells.add(`${Math.floor(r.latitude / CELL)},${Math.floor(r.longitude / CELL)}`);
+  }
   try {
-    for (const p of await sbGet(`${SB_URL}/rest/v1/canvass_prospects?select=id,latitude,longitude,status,status_log,address,zip&latitude=not.is.null&limit=50000`, sbH)) {
-      existing[coordKey(p.latitude, p.longitude)] = p;
-      const ak = addrKey(p.address, p.zip); if (ak && !byAddr[ak]) byAddr[ak] = p;
+    for (const c of cells) {
+      const [cy, cx] = c.split(",").map(Number);
+      const lo = { lat: cy * CELL - 0.002, lng: cx * CELL - 0.002 };
+      const hi = { lat: (cy + 1) * CELL + 0.002, lng: (cx + 1) * CELL + 0.002 };
+      let after = "";
+      for (let guard = 0; guard < 200; guard++) {
+        const url = `${SB_URL}/rest/v1/canvass_prospects?select=id,latitude,longitude,status,status_log,address,zip`
+          + `&latitude=gte.${lo.lat}&latitude=lte.${hi.lat}&longitude=gte.${lo.lng}&longitude=lte.${hi.lng}`
+          + `&order=id.asc&limit=1000${after ? `&id=gt.${after}` : ""}`;
+        const r = await fetch(url, { headers: sbH });
+        if (!r.ok) throw new Error(`${r.status} ${(await r.text().catch(() => "")).slice(0, 120)}`);
+        const rows = await r.json();
+        if (!Array.isArray(rows)) throw new Error("non-array response");
+        for (const p of rows) {
+          existing[coordKey(p.latitude, p.longitude)] = p;
+          const ak = addrKey(p.address, p.zip); if (ak && !byAddr[ak]) byAddr[ak] = p;
+        }
+        if (rows.length < 1000) break;
+        after = rows[rows.length - 1].id;
+      }
     }
-  } catch { /* if we can't read, just insert all below */ }
+  } catch (e) {
+    return json(503, { ok: false, error: `Upload stopped before writing: couldn't check which pins already exist (${e.message}). Nothing was added — retry in a moment.` });
+  }
 
   const uploadId = (body.upload_id || "").toString().trim() || randomUUID(); // shared across a chunked upload; else per-call
   const toInsert = [];
