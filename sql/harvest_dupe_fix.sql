@@ -52,6 +52,10 @@ from (
 -- ─────────────────────────────────────────────────────────────────────────────
 -- 1) DELETE THE DUPLICATES
 --
+-- NOTE (Aug 15 2026): these 491 rows were ALREADY removed over the API, so on the
+-- first run these two statements will report 0. They are kept here so the file is
+-- a complete, re-runnable fix. Steps 2 and 3 are the ones that still need running.
+--
 -- Which twin survives, in order:
 --   a) a WORKED pin beats a raw lead pin — never throw away a rep's field call
 --      (raw = iq / fb / ai / insp / no_sit_reschedule; anything else is worked)
@@ -136,6 +140,84 @@ create unique index if not exists canvass_prospects_jn_contact_uniq
 create unique index if not exists canvass_prospects_nosit_job_uniq
   on canvass_prospects (jn_job_id)
   where jn_job_id is not null and list_name = 'JN No-Sits';
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- 5) OPTIONAL — THE SECOND DUPLICATE POPULATION (cross-list, from the upload).
+--
+-- Steps 1-3 fix the SYNC duplicates (same JN contact / same JN job). There is a
+-- separate, smaller set: the SAME HOUSE pinned twice under DIFFERENT lists —
+-- e.g. a "David Qualified" insp pin landing on a house that already had an IQ pin.
+-- Cause: canvass-upload's dedupe read `limit=50000` of a 1.57M-row table during
+-- the Aug-14 upload, so it only checked ~3% of the map before inserting.
+--
+-- Sampling six rep areas on Aug 15: ~2.2% of rep-visible pins (Venice ~5%,
+-- Sarasota ~3.5%, Tampa ~2.9%, Port Charlotte 0%). Real, but nothing like the
+-- every-pin-is-double the sync bug caused.
+--
+-- This is DELETE-heavy and matches on address text, so it is deliberately NOT
+-- automatic. Run 5a, look at the output, and only then decide on 5b.
+-- ─────────────────────────────────────────────────────────────────────────────
+
+-- Normalized street key — mirrors _harvest-dupe.js normAddr() exactly: drop the
+-- street-type words and directionals so "12735 Newton Place" == "12735 NEWTON PL".
+create or replace function harvest_addr_key(addr text, z text)
+returns text language sql immutable as $$
+  select case
+           when s <> '' and s ~ '^[0-9]' then s || '|' || coalesce(substring(coalesce(z,'') from '([0-9]{5})'), '')
+           else null
+         end
+  from (
+    select btrim(regexp_replace(
+      regexp_replace(
+        regexp_replace(lower(split_part(coalesce(addr,''), ',', 1)), '[^a-z0-9 ]', ' ', 'g'),
+        '\y(street|st|avenue|ave|av|road|rd|drive|dr|lane|ln|court|ct|place|pl|boulevard|blvd|circle|cir|terrace|terr|ter|way|highway|hwy|parkway|pkwy|trail|trl|loop|cove|cv|point|pt|square|sq|north|n|south|s|east|e|west|w|ne|nw|se|sw|junior|jr|doctor)\y',
+        ' ', 'g'),
+      '\s+', ' ', 'g')) as s
+  ) t
+$$;
+
+-- 5a) PREVIEW — how many rep-visible houses carry more than one pin, and where.
+--     (Only pin types reps actually see; admin-only types can't cause a "double".)
+with vis as (
+  select id, address, zip, city, status, list_name, status_by, status_updated_at, created_at,
+         harvest_addr_key(address, zip) as k
+  from canvass_prospects
+  where latitude is not null
+    and status in ('damage_observed','install_home','roof_fine','clover','iq','fb','ai',
+                   'no_sit_reschedule','iq_ni','insp','insp_pending','insp_callback')
+), d as (
+  select k, count(*) n from vis where k is not null group by k having count(*) > 1
+)
+select coalesce(v.city,'(no city)') as city,
+       count(distinct v.k)                as doubled_houses,
+       sum(1) - count(distinct v.k)       as surplus_pins
+from vis v join d on d.k = v.k
+group by 1
+order by surplus_pins desc
+limit 40;
+
+-- 5b) THE CLEANUP — one pin per house. Keeps, in order:
+--       a) the WORKED pin over a raw lead pin (never discard a rep's field call)
+--       b) then the most recently statused
+--       c) then the oldest (what reps have had on their map longest)
+--     UNCOMMENT to run. Take a Supabase backup first.
+--
+-- with vis as (
+--   select id, harvest_addr_key(address, zip) as k, status, status_updated_at, created_at
+--   from canvass_prospects
+--   where latitude is not null
+--     and status in ('damage_observed','install_home','roof_fine','clover','iq','fb','ai',
+--                    'no_sit_reschedule','iq_ni','insp','insp_pending','insp_callback')
+-- ), ranked as (
+--   select id, row_number() over (
+--            partition by k
+--            order by (status in ('iq','fb','ai','insp','no_sit_reschedule')) asc,
+--                     status_updated_at desc nulls last,
+--                     created_at asc
+--          ) as rn
+--   from vis where k is not null
+-- )
+-- delete from canvass_prospects p using ranked r where p.id = r.id and r.rn > 1;
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- 4) CONFIRM — both rows should read 0 / 0.
