@@ -808,6 +808,16 @@ function referralIcon() {
     iconSize: [28, 28], iconAnchor: [14, 14],
   });
 }
+// 📅 An appointment THIS rep booked, on the day it's happening. Same teardrop shape
+// as the route's appt marker so the two read as the same thing, in the Appointment
+// green — a plain colored dot gave reps no way to tell it from a regular door.
+function myApptIcon(color) {
+  return L.divIcon({
+    className: "harvest-myappt",
+    html: `<div style="width:28px;height:28px;border-radius:50% 50% 50% 2px;transform:rotate(45deg);background:${color};border:2px solid #fff;box-shadow:0 1px 5px rgba(0,0,0,.5)"><div style="transform:rotate(-45deg);color:#fff;font-size:14px;text-align:center;line-height:25px">📅</div></div>`,
+    iconSize: [28, 28], iconAnchor: [14, 26],
+  });
+}
 // Post-inspection go-back visits — a squared badge (distinct from round door dots
 // and the self-gen house) in the same color/emoji as the Rep Visit Hub buckets.
 const GOBACK_META = {
@@ -1034,6 +1044,13 @@ export default function CanvassMap() {
   const [assignedIds, setAssignedIds] = useState(null); // Enhanced Planned Day: the pin ids the manager assigned this rep today (null = no plan)
   const [hasApptsToday, setHasApptsToday] = useState(false); // rep has ≥1 JN appointment today → they Plan-your-day, not Start-my-day
   const [todayAppts, setTodayAppts] = useState([]);          // today's JN appts (for the auto-detect "you have an appt" banner)
+  // A rep's OWN appointment pins show on the map only on the DAY of the appointment
+  // (Neal: "the only time they were showing before was the day of the appt"). This
+  // holds today's appt job ids so the pin load can gate on them, and the 📅 chip
+  // toggles them like any other pin type.
+  const [showMyAppts, setShowMyAppts] = useState(true);
+  const showMyApptsRef = useRef(true);
+  const myApptJobIdsRef = useRef(new Set());
   const [apptBannerDismissed, setApptBannerDismissed] = useState(false); // rep closed the "you have an appt" prompt this session
   // "What happened?" accountability gate — job ids the rep closed out this session, plus
   // in-flight / error UI state. A PAST appt still "Appointment Scheduled" blocks the start.
@@ -1139,7 +1156,10 @@ export default function CanvassMap() {
   // pin type is off their map (so they can find their own appt without every
   // teammate's appt cluttering the view). Booking writes status_by = the rep's
   // name, so match on that. Office/admin see all appts via the normal filter.
-  const isMyAppt = (p) => !!(p && p.status === "appt" && repName && p.status_by === repName);
+  // An appointment THIS rep booked. It bypasses the status filter (a rep must never
+  // lose an appt they booked) but is gated by its own 📅 chip, and the load only
+  // fetches it on the DAY of the appointment — so it can't accumulate on the map.
+  const isMyAppt = (p) => !!(showMyAppts && p && p.status === "appt" && repName && p.status_by === repName);
   // 🍀 Clover Leaf doors (per Neal): visible + workable by ANY rep — but the
   // FIRST rep to status one OWNS it ("who ever statuses it owns it"), like a
   // self-gen. Everyone still SEES a claimed pin (its color shows the outcome so
@@ -1406,15 +1426,22 @@ export default function CanvassMap() {
       const pins = await sbFetchAll(() => box(
         supabase.from("canvass_prospects").select(PIN_FIELDS_LITE).not("latitude", "is", null).in("status", effStatuses),
       ), CAP);
-      // A rep always sees the appointments THEY booked, even when "Appointment"
-      // is off their map (not in effStatuses). Pull their own appt pins and merge
-      // in — office/admin already load all appts through the normal query.
+      // A rep sees the appointments THEY booked even when "Appointment" is off their
+      // map (not in effStatuses) — but ONLY on the DAY of the appointment, and only
+      // while the 📅 chip is on. Before, this merged in EVERY appt they'd ever booked
+      // with no chip to control them, so a rep collected permanent green dots on doors
+      // that were long done (Sam, Aug 2026). "Today" comes from harvest-today-appts,
+      // i.e. the JN appointment task's own date — the authority on when it is.
       const myName = (authInfo.current.rep && authInfo.current.rep.name) || repName;
-      if (myName && lvl !== "admin" && !effStatuses.includes("appt")) {
+      const todayJobIds = myApptJobIdsRef.current;
+      if (myName && lvl !== "admin" && !effStatuses.includes("appt") && showMyApptsRef.current && todayJobIds.size) {
         const mine = await sbFetchAll(() => box(
           supabase.from("canvass_prospects").select(PIN_FIELDS_LITE).not("latitude", "is", null).eq("status", "appt").eq("status_by", myName),
         ), CAP).catch(() => []);
-        for (const m of mine) if (!pins.some((p) => p.id === m.id)) pins.push(m);
+        for (const m of mine) {
+          if (!todayJobIds.has(m.jn_job_id)) continue;          // not today → off the map
+          if (!pins.some((p) => p.id === m.id)) pins.push({ ...m, _myAppt: true });
+        }
       }
       const installs = await sbFetchAll(() => box(
         supabase.from("installs").select("id,jnid,address_line,city,product_type,color,latitude,longitude").not("latitude", "is", null),
@@ -1481,6 +1508,13 @@ export default function CanvassMap() {
     if (fitted.current && loadRef.current) loadRef.current(map.current ? map.current.getBounds() : null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sel, showNone]);
+
+  // 📅 My appointments chip — mirror to the ref the load reads, then re-load.
+  useEffect(() => {
+    showMyApptsRef.current = showMyAppts;
+    if (fitted.current && loadRef.current) loadRef.current(map.current ? map.current.getBounds() : null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showMyAppts]);
 
   // Zoomed-out view: fetch SERVER-aggregated cluster cells for the current box
   // (one grouped query) instead of downloading thousands of pins. Returns true
@@ -1645,8 +1679,8 @@ export default function CanvassMap() {
       // route builder already skips doors worked today (see shownRef below).
       const color = (S[p.status] || UNKNOWN_TYPE).color;
       const marker = L.marker([p.latitude, p.longitude], {
-        icon: p.status === "referral" ? referralIcon() : p.status === "install_home" ? INSTALL_HOME_ICON : p.status === "non_owner" ? xIcon(color) : isSelfGen ? selfGenIcon(true) : dotIcon(color),
-        ...(p.status === "install_home" ? { zIndexOffset: 900 } : {}),
+        icon: isMyAppt(p) ? myApptIcon(color) : p.status === "referral" ? referralIcon() : p.status === "install_home" ? INSTALL_HOME_ICON : p.status === "non_owner" ? xIcon(color) : isSelfGen ? selfGenIcon(true) : dotIcon(color),
+        ...(p.status === "install_home" ? { zIndexOffset: 900 } : isMyAppt(p) ? { zIndexOffset: 1200 } : {}),
       });
       marker.on("click", () => openPin(p));
       markers.push(marker);
@@ -1666,7 +1700,7 @@ export default function CanvassMap() {
       m.fitBounds(pts, { padding: [40, 40], maxZoom: 15 });
       fitted.current = true;
     }
-  }, [mapped, sel, installs, showInstalls, visKeys]);
+  }, [mapped, sel, installs, showInstalls, visKeys, showMyAppts]);
 
   // Baby-blue "worked today" layer — doors handled today whose status has since
   // moved OFF the active filter (so the main loop no longer draws them). Read-only
@@ -3655,7 +3689,15 @@ export default function CanvassMap() {
     if (!auth.rt) return;
     fetch(`/.netlify/functions/harvest-today-appts?rt=${encodeURIComponent(auth.rt)}`)
       .then((r) => r.json())
-      .then((a) => { const list = (a && Array.isArray(a.appts)) ? a.appts : []; setTodayAppts(list); setHasApptsToday(list.length > 0); })
+      .then((a) => {
+        const list = (a && Array.isArray(a.appts)) ? a.appts : [];
+        setTodayAppts(list); setHasApptsToday(list.length > 0);
+        // Feed the day-of gate below, then re-run the pin load: this fetch races the
+        // first pin load, and without the re-run today's appt pins wouldn't appear
+        // until the rep panned the map.
+        myApptJobIdsRef.current = new Set(list.map((x) => x.jn_job_id).filter(Boolean));
+        if (list.length && fitted.current && loadRef.current) loadRef.current(map.current ? map.current.getBounds() : null);
+      })
       .catch(() => { /* assume none */ });
   }, [auth.rt]);
   // Test link ?test=sr|jr → preview at that rep level.
@@ -3664,6 +3706,12 @@ export default function CanvassMap() {
   const counts = dbCounts || loadedCounts;
   // 🚧 install markers ride with the 🍀 chip — fold their count in.
   const countFor = (k) => (k === "clover" ? (counts.clover || 0) + (counts.install_home || 0) : (counts[k] || 0));
+  // 📅 My appointments chip. Counted from TODAY's appointments (harvest-today-appts),
+  // not from the loaded pins — otherwise switching the chip off would drop the count
+  // to 0, the chip would vanish, and there'd be no way to switch it back on. Reps at
+  // admin level already get "Appointment" as a normal chip, so they don't need this one.
+  const myApptColor = (pinTypes.find((t) => t.key === "appt") || {}).color || "#16a34a";
+  const myApptCount = effLevel === "admin" ? 0 : todayAppts.length;
   const notMapped = prospects.length - mapped.length;
 
   // Rep hasn't passed the tool training yet → send them through it first. (Skips
@@ -3772,6 +3820,9 @@ export default function CanvassMap() {
           {visTypes.map((s) => (
             <Chip key={s.key} active={sel.has(s.key)} check onClick={() => isPinned(s.key) ? null : toggleSel(s.key)} color={s.color} label={`${isPinned(s.key) ? "🔒 " : ""}${s.label} (${countFor(s.key)})`} />
           ))}
+          {myApptCount > 0 && (
+            <Chip active={showMyAppts} onClick={() => setShowMyAppts((v) => !v)} color={myApptColor} label={`📅 My appointments (${myApptCount})`} />
+          )}
           {installs.length > 0 && (
             <Chip active={showInstalls} onClick={() => setShowInstalls((v) => !v)} color={INSTALL_COLOR} label={`⭐ Installs (${installs.length})`} />
           )}
@@ -3837,6 +3888,10 @@ export default function CanvassMap() {
                 </>
               );
             })()}
+            {myApptCount > 0 && (
+              <StatusCard color={myApptColor} label="📅 My appointments" count={myApptCount}
+                active={showMyAppts} onClick={() => setShowMyAppts((v) => !v)} />
+            )}
             {installs.length > 0 && (
               <StatusCard color={INSTALL_COLOR} label="⭐ Installs" count={installs.length}
                 active={showInstalls} onClick={() => setShowInstalls((v) => !v)} />
