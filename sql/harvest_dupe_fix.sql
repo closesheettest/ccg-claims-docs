@@ -158,22 +158,46 @@ create unique index if not exists canvass_prospects_nosit_job_uniq
 -- automatic. Run 5a, look at the output, and only then decide on 5b.
 -- ─────────────────────────────────────────────────────────────────────────────
 
--- Normalized street key — mirrors _harvest-dupe.js normAddr() exactly: drop the
--- street-type words and directionals so "12735 Newton Place" == "12735 NEWTON PL".
+-- Normalized street key. It CANONICALISES street types and directionals — it must
+-- never DROP them.
+--
+-- The first version of this function copied _harvest-dupe.js normAddr(), which
+-- strips both. That is safe in the JS because it is always paired with a ~20m
+-- coordinate check; here there was no such check, and in grid-addressed cities it
+-- merged genuinely different houses:
+--     '3225 40th|33308'  <-  3225 NE 40TH CT  +  3225 NE 40TH ST   (200m apart)
+--     '3300 125th|33323' <-  3300 NW 125TH AVE + ...LN + ...WAY    (3 houses)
+-- It reported ~14.5k "duplicates" statewide, ~21% of them false, concentrated in
+-- Fort Lauderdale / Pompano / Miami / Hialeah / Hollywood. Keeping the tokens drops
+-- Fort Lauderdale from 1,787 doubled houses to 354 and leaves the real ones intact.
+--
+-- Self-test (run it — rows 1/2 must DIFFER, rows 3/4 must MATCH):
+--   select address, harvest_addr_key(address, zip) from (values
+--     ('3225 NE 40TH CT','33308'), ('3225 NE 40TH ST','33308'),
+--     ('12735 Newton Place','34293'), ('12735 NEWTON PL','34293'),
+--     ('9591 N.W. 24th St.','33172')) v(address, zip);
 create or replace function harvest_addr_key(addr text, z text)
 returns text language sql immutable as $$
-  select case
-           when s <> '' and s ~ '^[0-9]' then s || '|' || coalesce(substring(coalesce(z,'') from '([0-9]{5})'), '')
-           else null
-         end
-  from (
-    select btrim(regexp_replace(
-      regexp_replace(
-        regexp_replace(lower(split_part(coalesce(addr,''), ',', 1)), '[^a-z0-9 ]', ' ', 'g'),
-        '\y(street|st|avenue|ave|av|road|rd|drive|dr|lane|ln|court|ct|place|pl|boulevard|blvd|circle|cir|terrace|terr|ter|way|highway|hwy|parkway|pkwy|trail|trl|loop|cove|cv|point|pt|square|sq|north|n|south|s|east|e|west|w|ne|nw|se|sw|junior|jr|doctor)\y',
-        ' ', 'g'),
-      '\s+', ' ', 'g')) as s
-  ) t
+  with t as (
+    select tok, ord from unnest(string_to_array(
+      btrim(regexp_replace(
+        -- strip periods/apostrophes FIRST so "N.W." collapses to "nw" rather than "n w"
+        regexp_replace(regexp_replace(lower(split_part(coalesce(addr,''), ',', 1)), '[.''`]', '', 'g'),
+                       '[^a-z0-9]', ' ', 'g'),
+        '\s+', ' ', 'g')), ' ')) with ordinality as u(tok, ord)
+  ), m as (
+    select t.ord, coalesce(x.canon, t.tok) as tok
+    from t left join (values
+      ('street','st'),('avenue','ave'),('av','ave'),('road','rd'),('drive','dr'),
+      ('lane','ln'),('court','ct'),('place','pl'),('boulevard','blvd'),('circle','cir'),
+      ('terrace','ter'),('terr','ter'),('highway','hwy'),('parkway','pkwy'),('trail','trl'),
+      ('cove','cv'),('point','pt'),('square','sq'),('north','n'),('south','s'),
+      ('east','e'),('west','w'),('northeast','ne'),('northwest','nw'),
+      ('southeast','se'),('southwest','sw'),('junior','jr'),('doctor','dr')
+    ) as x(raw, canon) on x.raw = t.tok
+  ), j as (select string_agg(tok, ' ' order by ord) as k from m)
+  select case when k ~ '^[0-9]' then k || '|' || coalesce(substring(coalesce(z,'') from '([0-9]{5})'), '') end
+  from j
 $$;
 
 -- 5a) PREVIEW — how many rep-visible houses carry more than one pin, and where.
@@ -200,24 +224,38 @@ limit 40;
 --       a) the WORKED pin over a raw lead pin (never discard a rep's field call)
 --       b) then the most recently statused
 --       c) then the oldest (what reps have had on their map longest)
+--     Plus a DISTANCE GUARD: a twin must sit within ~65m of the pin we're keeping.
+--     Spot-checking Jacksonville / Orlando / West Palm found every match to be the
+--     same rooftop (40 of 40 within 65m), so this rejects nothing legitimate — it's
+--     insurance against another normalisation mistake ever reaching a DELETE.
 --     UNCOMMENT to run. Take a Supabase backup first.
 --
+--     What these actually are: two passes of David's data ("David Qualified" vs
+--     "David Mailed") pinning the same houses, because canvass-upload's dedupe was
+--     reading 50,000 of 1.57M rows. That read is fixed; this is the leftover data.
+--
 -- with vis as (
---   select id, harvest_addr_key(address, zip) as k, status, status_updated_at, created_at
+--   select id, harvest_addr_key(address, zip) as k, status, status_updated_at, created_at,
+--          latitude, longitude
 --   from canvass_prospects
 --   where latitude is not null
 --     and status in ('damage_observed','install_home','roof_fine','clover','iq','fb','ai',
 --                    'no_sit_reschedule','iq_ni','insp','insp_pending','insp_callback')
 -- ), ranked as (
---   select id, row_number() over (
---            partition by k
---            order by (status in ('iq','fb','ai','insp','no_sit_reschedule')) asc,
---                     status_updated_at desc nulls last,
---                     created_at asc
---          ) as rn
+--   select id, latitude, longitude,
+--          row_number() over w as rn,
+--          first_value(latitude)  over w as klat,
+--          first_value(longitude) over w as klng
 --   from vis where k is not null
+--   window w as (partition by k
+--                order by (status in ('iq','fb','ai','insp','no_sit_reschedule')) asc,
+--                         status_updated_at desc nulls last,
+--                         created_at asc)
 -- )
--- delete from canvass_prospects p using ranked r where p.id = r.id and r.rn > 1;
+-- delete from canvass_prospects p using ranked r
+-- where p.id = r.id and r.rn > 1
+--   and abs(r.latitude  - r.klat) < 0.0006     -- ~65m N/S
+--   and abs(r.longitude - r.klng) < 0.0007;    -- ~65m E/W at FL latitudes
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- 4) CONFIRM — both rows should read 0 / 0.
