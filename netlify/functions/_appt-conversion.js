@@ -321,7 +321,7 @@ function newRep(rep) {
   // It's an OVERLAY, not a 4th category — a re-sit is still one of harv/comp/btr,
   // so harv+comp+btr still equals appts. resitPct = resitSl ÷ resitAp.
   // creditAp = credit-denied deals (a sale that couldn't finance) → feeds the GROSS %.
-  return { rep, level: "", appts: 0, satAp: 0, harvSat: 0, compSat: 0, btrSat: 0, harvAp: 0, compAp: 0, btrAp: 0, resitAp: 0, pendAp: 0, deadAp: 0, creditAp: 0, sales: 0, harvSl: 0, compSl: 0, btrSl: 0, resitSl: 0, harvAmt: 0, compAmt: 0, btrAmt: 0, amt: 0, rb: 0, ins: 0, details: [] };
+  return { rep, level: "", appts: 0, satAp: 0, harvSat: 0, compSat: 0, btrSat: 0, harvAp: 0, compAp: 0, btrAp: 0, resitAp: 0, pendAp: 0, deadAp: 0, creditAp: 0, sales: 0, harvSl: 0, compSl: 0, btrSl: 0, resitSl: 0, resitAmt: 0, harvAmt: 0, compAmt: 0, btrAmt: 0, amt: 0, rb: 0, ins: 0, details: [] };
 }
 
 // TMS rep_level → short badge. "" when unknown (rep_level not set).
@@ -363,7 +363,7 @@ function tallySold(rec, job) {
   rec[cat + "Sl"]++;          // count (used for the per-bucket conversion %)
   rec[cat + "Amt"] += amt;    // $ value of this bucket's sales
   rec.amt += amt;
-  if (job.__isReset) rec.resitSl++;   // a re-booked sit that closed (no-sit recovered → sold)
+  if (job.__isReset) { rec.resitSl++; rec.resitAmt += amt }   // a re-booked sit that closed (no-sit recovered → sold)
   const F = fieldMap(job);
   if (isYes(F["Radiant Barrier"])) rec.rb++;
   if (isYes(F["Insulation"])) rec.ins++;
@@ -371,6 +371,7 @@ function tallySold(rec, job) {
 }
 
 function pct(n, d) { return d > 0 ? Math.round((n / d) * 100) : 0; }
+function avg(total, count) { return count > 0 ? Math.round(total / count) : 0; }
 function shapeRep(r) {
   return {
     rep: r.rep, level: r.level || "",
@@ -378,6 +379,10 @@ function shapeRep(r) {
     harvSl: r.harvSl, compSl: r.compSl, btrSl: r.btrSl, resitSl: r.resitSl, sales: r.sales,
     harvAmt: Math.round(r.harvAmt), compAmt: Math.round(r.compAmt), btrAmt: Math.round(r.btrAmt),
     harvPct: pct(r.harvSl, r.harvSat), compPct: pct(r.compSl, r.compSat), btrPct: pct(r.btrSl, r.btrSat), resitPct: pct(r.resitSl, r.resitAp),
+    // Average ticket per LEAD SOURCE. Total $ per bucket already showed which
+    // source brings in the most money; this shows what one sale from each is
+    // worth, which is the number that says where a rep's hour is best spent.
+    harvAvg: avg(r.harvAmt, r.harvSl), compAvg: avg(r.compAmt, r.compSl), btrAvg: avg(r.btrAmt, r.btrSl), resitAvg: avg(r.resitAmt, r.resitSl),
     // Closing % is measured against SITS, not appointments — a no-show was never
     // a chance to sell, so it must not drag the rep's close rate down. Appointment
     // counts remain on the row so booked-vs-sat stays visible.
@@ -391,14 +396,15 @@ function shapeRep(r) {
 function sumTotals(reps) {
   const t = reps.reduce((s, r) => ({
     appts: s.appts + r.appts, satAp: s.satAp + r.satAp, harvSat: s.harvSat + r.harvSat, compSat: s.compSat + r.compSat, btrSat: s.btrSat + r.btrSat, harvAp: s.harvAp + r.harvAp, compAp: s.compAp + r.compAp, btrAp: s.btrAp + r.btrAp, resitAp: s.resitAp + r.resitAp, pendAp: s.pendAp + r.pendAp, deadAp: s.deadAp + r.deadAp, creditAp: s.creditAp + r.creditAp,
-    sales: s.sales + r.sales, harvSl: s.harvSl + r.harvSl, compSl: s.compSl + r.compSl, btrSl: s.btrSl + r.btrSl, resitSl: s.resitSl + r.resitSl,
+    sales: s.sales + r.sales, harvSl: s.harvSl + r.harvSl, compSl: s.compSl + r.compSl, btrSl: s.btrSl + r.btrSl, resitSl: s.resitSl + r.resitSl, resitAmt: s.resitAmt + r.resitAmt,
     harvAmt: s.harvAmt + r.harvAmt, compAmt: s.compAmt + r.compAmt, btrAmt: s.btrAmt + r.btrAmt,
     amt: s.amt + r.amt, rb: s.rb + r.rb, ins: s.ins + r.ins,
-  }), { appts: 0, satAp: 0, harvSat: 0, compSat: 0, btrSat: 0, harvAp: 0, compAp: 0, btrAp: 0, resitAp: 0, pendAp: 0, deadAp: 0, creditAp: 0, sales: 0, harvSl: 0, compSl: 0, btrSl: 0, resitSl: 0, harvAmt: 0, compAmt: 0, btrAmt: 0, amt: 0, rb: 0, ins: 0 });
+  }), { appts: 0, satAp: 0, harvSat: 0, compSat: 0, btrSat: 0, harvAp: 0, compAp: 0, btrAp: 0, resitAp: 0, pendAp: 0, deadAp: 0, creditAp: 0, sales: 0, harvSl: 0, compSl: 0, btrSl: 0, resitSl: 0, resitAmt: 0, harvAmt: 0, compAmt: 0, btrAmt: 0, amt: 0, rb: 0, ins: 0 });
   return {
     ...t,
     harvAmt: Math.round(t.harvAmt), compAmt: Math.round(t.compAmt), btrAmt: Math.round(t.btrAmt),
     satAp: t.satAp, satPct: pct(t.satAp, t.appts), harvPct: pct(t.harvSl, t.harvSat), compPct: pct(t.compSl, t.compSat), btrPct: pct(t.btrSl, t.btrSat), resitPct: pct(t.resitSl, t.resitAp),
+    harvAvg: avg(t.harvAmt, t.harvSl), compAvg: avg(t.compAmt, t.compSl), btrAvg: avg(t.btrAmt, t.btrSl), resitAvg: avg(t.resitAmt, t.resitSl),
     pct: pct(t.sales, t.satAp), grossPct: pct(t.sales + t.creditAp, t.satAp), pendPct: pct(t.pendAp, t.satAp),
     amt: Math.round(t.amt),
     avg: t.sales > 0 ? Math.round(t.amt / t.sales) : 0,
