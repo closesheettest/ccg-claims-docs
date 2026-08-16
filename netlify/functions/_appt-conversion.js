@@ -321,7 +321,7 @@ function newRep(rep) {
   // It's an OVERLAY, not a 4th category — a re-sit is still one of harv/comp/btr,
   // so harv+comp+btr still equals appts. resitPct = resitSl ÷ resitAp.
   // creditAp = credit-denied deals (a sale that couldn't finance) → feeds the GROSS %.
-  return { rep, level: "", appts: 0, harvAp: 0, compAp: 0, btrAp: 0, resitAp: 0, pendAp: 0, deadAp: 0, creditAp: 0, sales: 0, harvSl: 0, compSl: 0, btrSl: 0, resitSl: 0, harvAmt: 0, compAmt: 0, btrAmt: 0, amt: 0, rb: 0, ins: 0, details: [] };
+  return { rep, level: "", appts: 0, satAp: 0, harvAp: 0, compAp: 0, btrAp: 0, resitAp: 0, pendAp: 0, deadAp: 0, creditAp: 0, sales: 0, harvSl: 0, compSl: 0, btrSl: 0, resitSl: 0, harvAmt: 0, compAmt: 0, btrAmt: 0, amt: 0, rb: 0, ins: 0, details: [] };
 }
 
 // TMS rep_level → short badge. "" when unknown (rep_level not set).
@@ -336,6 +336,10 @@ function levelLabel(repLevel) {
 function tallyAppt(rec, job) {
   const cat = categoryOf(job);
   rec.appts++;
+  // Did they actually get in front of the homeowner? A counted appointment in a
+  // no-show / no-sit / refused status came due but never became a sit, so the
+  // sit rate is sits ÷ appointments that came due.
+  if (actuallySat(job)) rec.satAp++;
   rec[cat + "Ap"]++;
   if (job.__isReset && actuallySat(job)) rec.resitAp++;   // re-booked sit that ACTUALLY re-sat (not a repeat no-show)
   // Split the UNSOLD appointments so a low close % has context. Sold deals already
@@ -370,7 +374,7 @@ function pct(n, d) { return d > 0 ? Math.round((n / d) * 100) : 0; }
 function shapeRep(r) {
   return {
     rep: r.rep, level: r.level || "",
-    harvAp: r.harvAp, compAp: r.compAp, btrAp: r.btrAp, resitAp: r.resitAp, pendAp: r.pendAp, deadAp: r.deadAp, creditAp: r.creditAp, appts: r.appts,
+    satAp: r.satAp, satPct: pct(r.satAp, r.appts), harvAp: r.harvAp, compAp: r.compAp, btrAp: r.btrAp, resitAp: r.resitAp, pendAp: r.pendAp, deadAp: r.deadAp, creditAp: r.creditAp, appts: r.appts,
     harvSl: r.harvSl, compSl: r.compSl, btrSl: r.btrSl, resitSl: r.resitSl, sales: r.sales,
     harvAmt: Math.round(r.harvAmt), compAmt: Math.round(r.compAmt), btrAmt: Math.round(r.btrAmt),
     harvPct: pct(r.harvSl, r.harvAp), compPct: pct(r.compSl, r.compAp), btrPct: pct(r.btrSl, r.btrAp), resitPct: pct(r.resitSl, r.resitAp),
@@ -383,15 +387,15 @@ function shapeRep(r) {
 }
 function sumTotals(reps) {
   const t = reps.reduce((s, r) => ({
-    appts: s.appts + r.appts, harvAp: s.harvAp + r.harvAp, compAp: s.compAp + r.compAp, btrAp: s.btrAp + r.btrAp, resitAp: s.resitAp + r.resitAp, pendAp: s.pendAp + r.pendAp, deadAp: s.deadAp + r.deadAp, creditAp: s.creditAp + r.creditAp,
+    appts: s.appts + r.appts, satAp: s.satAp + r.satAp, harvAp: s.harvAp + r.harvAp, compAp: s.compAp + r.compAp, btrAp: s.btrAp + r.btrAp, resitAp: s.resitAp + r.resitAp, pendAp: s.pendAp + r.pendAp, deadAp: s.deadAp + r.deadAp, creditAp: s.creditAp + r.creditAp,
     sales: s.sales + r.sales, harvSl: s.harvSl + r.harvSl, compSl: s.compSl + r.compSl, btrSl: s.btrSl + r.btrSl, resitSl: s.resitSl + r.resitSl,
     harvAmt: s.harvAmt + r.harvAmt, compAmt: s.compAmt + r.compAmt, btrAmt: s.btrAmt + r.btrAmt,
     amt: s.amt + r.amt, rb: s.rb + r.rb, ins: s.ins + r.ins,
-  }), { appts: 0, harvAp: 0, compAp: 0, btrAp: 0, resitAp: 0, pendAp: 0, deadAp: 0, creditAp: 0, sales: 0, harvSl: 0, compSl: 0, btrSl: 0, resitSl: 0, harvAmt: 0, compAmt: 0, btrAmt: 0, amt: 0, rb: 0, ins: 0 });
+  }), { appts: 0, satAp: 0, harvAp: 0, compAp: 0, btrAp: 0, resitAp: 0, pendAp: 0, deadAp: 0, creditAp: 0, sales: 0, harvSl: 0, compSl: 0, btrSl: 0, resitSl: 0, harvAmt: 0, compAmt: 0, btrAmt: 0, amt: 0, rb: 0, ins: 0 });
   return {
     ...t,
     harvAmt: Math.round(t.harvAmt), compAmt: Math.round(t.compAmt), btrAmt: Math.round(t.btrAmt),
-    harvPct: pct(t.harvSl, t.harvAp), compPct: pct(t.compSl, t.compAp), btrPct: pct(t.btrSl, t.btrAp), resitPct: pct(t.resitSl, t.resitAp),
+    satAp: t.satAp, satPct: pct(t.satAp, t.appts), harvPct: pct(t.harvSl, t.harvAp), compPct: pct(t.compSl, t.compAp), btrPct: pct(t.btrSl, t.btrAp), resitPct: pct(t.resitSl, t.resitAp),
     pct: pct(t.sales, t.appts), grossPct: pct(t.sales + t.creditAp, t.appts), pendPct: pct(t.pendAp, t.appts),
     amt: Math.round(t.amt),
     avg: t.sales > 0 ? Math.round(t.amt / t.sales) : 0,
