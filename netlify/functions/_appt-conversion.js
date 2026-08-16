@@ -321,7 +321,7 @@ function newRep(rep) {
   // It's an OVERLAY, not a 4th category — a re-sit is still one of harv/comp/btr,
   // so harv+comp+btr still equals appts. resitPct = resitSl ÷ resitAp.
   // creditAp = credit-denied deals (a sale that couldn't finance) → feeds the GROSS %.
-  return { rep, level: "", appts: 0, satAp: 0, harvAp: 0, compAp: 0, btrAp: 0, resitAp: 0, pendAp: 0, deadAp: 0, creditAp: 0, sales: 0, harvSl: 0, compSl: 0, btrSl: 0, resitSl: 0, harvAmt: 0, compAmt: 0, btrAmt: 0, amt: 0, rb: 0, ins: 0, details: [] };
+  return { rep, level: "", appts: 0, satAp: 0, harvSat: 0, compSat: 0, btrSat: 0, harvAp: 0, compAp: 0, btrAp: 0, resitAp: 0, pendAp: 0, deadAp: 0, creditAp: 0, sales: 0, harvSl: 0, compSl: 0, btrSl: 0, resitSl: 0, harvAmt: 0, compAmt: 0, btrAmt: 0, amt: 0, rb: 0, ins: 0, details: [] };
 }
 
 // TMS rep_level → short badge. "" when unknown (rep_level not set).
@@ -339,7 +339,7 @@ function tallyAppt(rec, job) {
   // Did they actually get in front of the homeowner? A counted appointment in a
   // no-show / no-sit / refused status came due but never became a sit, so the
   // sit rate is sits ÷ appointments that came due.
-  if (actuallySat(job)) rec.satAp++;
+  if (actuallySat(job)) { rec.satAp++; rec[cat + "Sat"]++ }
   rec[cat + "Ap"]++;
   if (job.__isReset && actuallySat(job)) rec.resitAp++;   // re-booked sit that ACTUALLY re-sat (not a repeat no-show)
   // Split the UNSOLD appointments so a low close % has context. Sold deals already
@@ -377,8 +377,11 @@ function shapeRep(r) {
     satAp: r.satAp, satPct: pct(r.satAp, r.appts), harvAp: r.harvAp, compAp: r.compAp, btrAp: r.btrAp, resitAp: r.resitAp, pendAp: r.pendAp, deadAp: r.deadAp, creditAp: r.creditAp, appts: r.appts,
     harvSl: r.harvSl, compSl: r.compSl, btrSl: r.btrSl, resitSl: r.resitSl, sales: r.sales,
     harvAmt: Math.round(r.harvAmt), compAmt: Math.round(r.compAmt), btrAmt: Math.round(r.btrAmt),
-    harvPct: pct(r.harvSl, r.harvAp), compPct: pct(r.compSl, r.compAp), btrPct: pct(r.btrSl, r.btrAp), resitPct: pct(r.resitSl, r.resitAp),
-    pct: pct(r.sales, r.appts), grossPct: pct(r.sales + r.creditAp, r.appts), pendPct: pct(r.pendAp, r.appts),
+    harvPct: pct(r.harvSl, r.harvSat), compPct: pct(r.compSl, r.compSat), btrPct: pct(r.btrSl, r.btrSat), resitPct: pct(r.resitSl, r.resitAp),
+    // Closing % is measured against SITS, not appointments — a no-show was never
+    // a chance to sell, so it must not drag the rep's close rate down. Appointment
+    // counts remain on the row so booked-vs-sat stays visible.
+    pct: pct(r.sales, r.satAp), grossPct: pct(r.sales + r.creditAp, r.satAp), pendPct: pct(r.pendAp, r.satAp),
     amt: Math.round(r.amt),
     avg: r.sales > 0 ? Math.round(r.amt / r.sales) : 0,
     rb: r.rb, rb_pct: pct(r.rb, r.sales), ins: r.ins, ins_pct: pct(r.ins, r.sales),
@@ -387,16 +390,16 @@ function shapeRep(r) {
 }
 function sumTotals(reps) {
   const t = reps.reduce((s, r) => ({
-    appts: s.appts + r.appts, satAp: s.satAp + r.satAp, harvAp: s.harvAp + r.harvAp, compAp: s.compAp + r.compAp, btrAp: s.btrAp + r.btrAp, resitAp: s.resitAp + r.resitAp, pendAp: s.pendAp + r.pendAp, deadAp: s.deadAp + r.deadAp, creditAp: s.creditAp + r.creditAp,
+    appts: s.appts + r.appts, satAp: s.satAp + r.satAp, harvSat: s.harvSat + r.harvSat, compSat: s.compSat + r.compSat, btrSat: s.btrSat + r.btrSat, harvAp: s.harvAp + r.harvAp, compAp: s.compAp + r.compAp, btrAp: s.btrAp + r.btrAp, resitAp: s.resitAp + r.resitAp, pendAp: s.pendAp + r.pendAp, deadAp: s.deadAp + r.deadAp, creditAp: s.creditAp + r.creditAp,
     sales: s.sales + r.sales, harvSl: s.harvSl + r.harvSl, compSl: s.compSl + r.compSl, btrSl: s.btrSl + r.btrSl, resitSl: s.resitSl + r.resitSl,
     harvAmt: s.harvAmt + r.harvAmt, compAmt: s.compAmt + r.compAmt, btrAmt: s.btrAmt + r.btrAmt,
     amt: s.amt + r.amt, rb: s.rb + r.rb, ins: s.ins + r.ins,
-  }), { appts: 0, satAp: 0, harvAp: 0, compAp: 0, btrAp: 0, resitAp: 0, pendAp: 0, deadAp: 0, creditAp: 0, sales: 0, harvSl: 0, compSl: 0, btrSl: 0, resitSl: 0, harvAmt: 0, compAmt: 0, btrAmt: 0, amt: 0, rb: 0, ins: 0 });
+  }), { appts: 0, satAp: 0, harvSat: 0, compSat: 0, btrSat: 0, harvAp: 0, compAp: 0, btrAp: 0, resitAp: 0, pendAp: 0, deadAp: 0, creditAp: 0, sales: 0, harvSl: 0, compSl: 0, btrSl: 0, resitSl: 0, harvAmt: 0, compAmt: 0, btrAmt: 0, amt: 0, rb: 0, ins: 0 });
   return {
     ...t,
     harvAmt: Math.round(t.harvAmt), compAmt: Math.round(t.compAmt), btrAmt: Math.round(t.btrAmt),
-    satAp: t.satAp, satPct: pct(t.satAp, t.appts), harvPct: pct(t.harvSl, t.harvAp), compPct: pct(t.compSl, t.compAp), btrPct: pct(t.btrSl, t.btrAp), resitPct: pct(t.resitSl, t.resitAp),
-    pct: pct(t.sales, t.appts), grossPct: pct(t.sales + t.creditAp, t.appts), pendPct: pct(t.pendAp, t.appts),
+    satAp: t.satAp, satPct: pct(t.satAp, t.appts), harvPct: pct(t.harvSl, t.harvSat), compPct: pct(t.compSl, t.compSat), btrPct: pct(t.btrSl, t.btrSat), resitPct: pct(t.resitSl, t.resitAp),
+    pct: pct(t.sales, t.satAp), grossPct: pct(t.sales + t.creditAp, t.satAp), pendPct: pct(t.pendAp, t.satAp),
     amt: Math.round(t.amt),
     avg: t.sales > 0 ? Math.round(t.amt / t.sales) : 0,
     rb_pct: pct(t.rb, t.sales), ins_pct: pct(t.ins, t.sales),
