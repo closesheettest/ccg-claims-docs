@@ -158,17 +158,26 @@ export function DamagePanel({ deal, rep, api, reschedule = false }) {
     } catch (e) { setErr(e.message); setNi(false); }
   };
   const [goRetail, setGoRetail] = useState(false);
+  const [wentRetail, setWentRetail] = useState(false);   // just went retail → offer the homeowner a PA visit anyway
   const [picking, setPicking] = useState("");
   const retailDays = useMemo(() => buildRetailDays(14), []);
   const pickRetail = async (slot) => {
     setPicking(slot.iso); setErr("");
     try {
       await api("damage-to-retail", { inspection_id: deal.inspection_id, start_at_iso: slot.iso, rep_jobnimbus_id: rep.jobnimbus_id, booked_by: rep.name });
+      setWentRetail(true);
       setDone(`Switched to Retail — appointment set for ${slot.label}. JobNimbus updated.`);
     } catch (e) { setErr(e.message); }
     setPicking("");
   };
-  if (done) return <div style={S.done}>✓ {done}</div>;
+  if (done) return (
+    <div>
+      <div style={S.done}>✓ {done}</div>
+      {/* The PA visit was just wiped by going retail. This is the one moment the
+          rep can still hand the homeowner one, so offer it here. */}
+      {wentRetail && <BtrPaBooking deal={deal} rep={rep} api={api} />}
+    </div>
+  );
   if (slots === null) return <p style={{ textAlign: "center", color: "#9ca3af", padding: "16px 0", fontSize: 14 }}>Loading availability…</p>;
 
   const todayKey = ymdET();
@@ -310,6 +319,91 @@ export function NoDamagePanel({ deal, rep, api }) {
   );
 }
 
+
+// ── BTRPA ────────────────────────────────────────────────────────────────────
+// Back-to-retail, PA anyway. The rep sold (or booked) the roof retail, and the
+// homeowner still wants an adjuster out. Until now that was impossible: going
+// retail nulls pa_id/pa_stage and moves the JN job out of Insurance, and nothing
+// could send them back — so the homeowner simply lost their PA visit.
+//
+// This books the PA appointment WITHOUT touching the retail outcome. It's safe
+// because pa-schedule-api's `book` only writes pa_appointments and notifies the
+// PA — it never writes to the inspection, so the retail sale can't be undone.
+//
+// Nothing here is tracked or reported. Neal: "I don't even want to track it, I
+// just want to be able to hook the homeowner up with a PA appointment."
+function BtrPaBooking({ deal, rep, api }) {
+  const [open, setOpen] = useState(false);
+  const [slots, setSlots] = useState(null);
+  const [busy, setBusy] = useState("");
+  const [done, setDone] = useState(null);
+  const [err, setErr] = useState("");
+
+  const load = () => {
+    setOpen(true);
+    if (slots !== null) return;
+    api("pa-schedule-api", { action: "slots", inspection_id: deal.inspection_id, lat: deal.latitude, lng: deal.longitude })
+      .then((o) => setSlots(o.slots || []))
+      .catch((e) => { setErr(e.message); setSlots([]); });
+  };
+  const book = async (s) => {
+    setErr(""); setBusy(s.start_at);
+    try {
+      await api("pa-schedule-api", {
+        action: "book", pa_id: s.pa_id, start_at: s.start_at, inspection_id: deal.inspection_id,
+        homeowner_name: deal.client_name, homeowner_phone: deal.mobile, address: deal.address,
+        booked_by: rep.name, note: "BTRPA — roof sold retail; PA visit booked for the homeowner.",
+      });
+      setDone(`PA booked with ${s.pa_name} — ${s.label}. The retail sale is untouched.`);
+    } catch (e) { setErr(e.message || "Couldn't book."); }
+    setBusy("");
+  };
+
+  if (done) return <p style={{ background: "#ecfdf5", border: "1px solid #6ee7b7", color: "#065f46", borderRadius: 10, padding: 10, fontSize: 14, fontWeight: 700, margin: "12px 0 0" }}>✅ {done}</p>;
+
+  if (!open) {
+    return (
+      <button type="button" onClick={load}
+        style={{ marginTop: 14, width: "100%", border: "1px dashed #7c3aed", color: "#6d28d9", background: "#faf5ff", borderRadius: 12, padding: "11px 14px", fontSize: 14, fontWeight: 800, cursor: "pointer" }}>
+        🧾 They still want a PA visit — book one
+      </button>
+    );
+  }
+
+  const byDay = [];
+  for (const s of (slots || [])) {
+    const d = byDay.find((x) => x.label === s.day_label);
+    (d ? d.slots : (byDay.push({ label: s.day_label, slots: [] }), byDay[byDay.length - 1].slots)).push(s);
+  }
+
+  return (
+    <div style={{ marginTop: 14, borderTop: "1px solid #e5e7eb", paddingTop: 12 }}>
+      <p style={{ fontSize: 14, fontWeight: 700, color: "#374151", margin: "0 0 4px" }}>🧾 Book their PA visit</p>
+      <p style={{ fontSize: 12, color: "#6b7280", margin: "0 0 10px" }}>
+        For the homeowner's benefit. This does not change the retail sale.
+      </p>
+      {err && <p style={{ color: "#b91c1c", fontSize: 13, fontWeight: 700 }}>{err}</p>}
+      {slots === null && <p style={{ color: "#9ca3af", fontSize: 14 }}>Loading availability…</p>}
+      {slots !== null && slots.length === 0 && <p style={{ color: "#9ca3af", fontSize: 14 }}>No PA availability showing right now.</p>}
+      <div style={{ maxHeight: "45vh", overflowY: "auto" }}>
+        {byDay.map((day) => (
+          <div key={day.label} style={{ marginBottom: 12 }}>
+            <p style={{ fontSize: 11.5, fontWeight: 800, textTransform: "uppercase", color: "#9ca3af", margin: "0 0 6px" }}>{day.label}</p>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+              {day.slots.map((s) => (
+                <button key={s.start_at} disabled={!!busy} onClick={() => book(s)}
+                  style={{ border: "1px solid #7c3aed", color: "#6d28d9", background: "#fff", borderRadius: 12, padding: "9px 14px", fontSize: 14, fontWeight: 700, cursor: "pointer", opacity: busy ? 0.6 : 1 }}>
+                  {busy === s.start_at ? "…" : `${s.time || s.label} · ${s.pa_name || "PA"}`}
+                </button>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function RetailPanel({ deal, rep, api }) {
   const [picking, setPicking] = useState("");
   const [err, setErr] = useState("");
@@ -373,6 +467,7 @@ export function RetailPanel({ deal, rep, api }) {
           </div>
         ))}
       </div>
+      <BtrPaBooking deal={deal} rep={rep} api={api} />
     </div>
   );
 }
