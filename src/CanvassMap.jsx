@@ -2159,6 +2159,12 @@ export default function CanvassMap() {
     [prospects]
   );
   const requiredCount = requiredVisits.length + requiredCallbacks.length;
+  // With required stops, "▶ Start my day" grows and "▢ Route an area" is pushed up
+  // the stack. Every button ABOVE it has to move by the same rule or it ends up
+  // buried underneath — ONE condition, used everywhere, so the column can't drift
+  // apart again. (Admins hit this: they get Route-an-area raised, the sim buttons
+  // didn't, and "🧪 Add test appt" disappeared behind it.)
+  const routeStackRaised = requiredCount > 0 && (isRouteManager || me?.level === "admin");
   // Any appointment today — a real JN appt OR a practice test appt. With an appointment
   // the rep plans the day AROUND it ("📅 Plan your day"), so "Route an area" is hidden
   // (routing a raw box would ignore the appt). testAppts is only ever set in test/practice.
@@ -3992,7 +3998,7 @@ export default function CanvassMap() {
             they "📅 Plan your day" (weave doors around it) instead of routing a raw box. */}
         {dayMode === null && !selecting && !(assignedIds && assignedIds.size > 0) && (requiredCount === 0 || isRouteManager || me?.level === "admin") && !forceApptPlan && (prospects.length > 0 || clusters.length > 0 || (me?.level === "admin" && visits.length > 0)) && (
           <button type="button" onClick={startSelecting}
-            style={{ position: "absolute", left: 12, bottom: (requiredCount > 0 && (isRouteManager || me?.level === "admin")) ? 160 : 68, zIndex: 601, background: "#1d4ed8", color: "#fff", border: "none", borderRadius: 999, padding: "10px 16px", fontSize: 13, fontWeight: 800, fontFamily: "'Oswald', sans-serif", boxShadow: "0 3px 12px rgba(0,0,0,.25)", cursor: "pointer" }}>
+            style={{ position: "absolute", left: 12, bottom: routeStackRaised ? 160 : 68, zIndex: 601, background: "#1d4ed8", color: "#fff", border: "none", borderRadius: 999, padding: "10px 16px", fontSize: 13, fontWeight: 800, fontFamily: "'Oswald', sans-serif", boxShadow: "0 3px 12px rgba(0,0,0,.25)", cursor: "pointer" }}>
             ▢ Route an area
           </button>
         )}
@@ -4195,7 +4201,7 @@ export default function CanvassMap() {
         )}
         {/* Test harness: drop fake appts to see Smart Scheduling work; clear to reset. */}
         {dayMode === null && !selecting && testMode && (
-          <div style={{ position: "absolute", left: 12, bottom: (requiredCount > 0 && isRouteManager) ? 216 : 156, zIndex: 600, display: "flex", gap: 6, alignItems: "center" }}>
+          <div style={{ position: "absolute", left: 12, bottom: routeStackRaised ? 216 : 156, zIndex: 600, display: "flex", gap: 6, alignItems: "center" }}>
             <button type="button" onClick={() => setAddingTestAppt(true)}
               style={{ background: "#f59e0b", color: "#111827", border: "none", borderRadius: 999, padding: "9px 15px", fontSize: 12.5, fontWeight: 800, fontFamily: "'Oswald', sans-serif", boxShadow: "0 3px 12px rgba(0,0,0,.25)", cursor: "pointer" }}>
               🧪 Add test appt{testAppts.length ? ` (${testAppts.length})` : ""}
@@ -4210,7 +4216,7 @@ export default function CanvassMap() {
         )}
         {/* Sim an Enhanced Planned Day (manager-assigned section) so the purple banner can be filmed. */}
         {dayMode === null && !selecting && testMode && (
-          <div style={{ position: "absolute", left: 12, bottom: (requiredCount > 0 && isRouteManager) ? 256 : 196, zIndex: 600, display: "flex", gap: 6, alignItems: "center" }}>
+          <div style={{ position: "absolute", left: 12, bottom: routeStackRaised ? 256 : 196, zIndex: 600, display: "flex", gap: 6, alignItems: "center" }}>
             <button type="button" onClick={simPlannedDay}
               style={{ background: "#7c3aed", color: "#fff", border: "none", borderRadius: 999, padding: "9px 15px", fontSize: 12.5, fontWeight: 800, fontFamily: "'Oswald', sans-serif", boxShadow: "0 3px 12px rgba(0,0,0,.25)", cursor: "pointer" }}>
               🧭 Sim planned day{assignedIds ? ` (${assignedIds.size})` : ""}
@@ -4225,7 +4231,7 @@ export default function CanvassMap() {
         )}
         {/* Sim go-backs (retail/damage/no-damage) so the "Today's go-backs" card can be filmed. */}
         {dayMode === null && !selecting && testMode && (
-          <div style={{ position: "absolute", left: 12, bottom: (requiredCount > 0 && isRouteManager) ? 296 : 236, zIndex: 600, display: "flex", gap: 6, alignItems: "center" }}>
+          <div style={{ position: "absolute", left: 12, bottom: routeStackRaised ? 296 : 236, zIndex: 600, display: "flex", gap: 6, alignItems: "center" }}>
             <button type="button" onClick={simGobacks}
               style={{ background: "#0f172a", color: "#fff", border: "none", borderRadius: 999, padding: "9px 15px", fontSize: 12.5, fontWeight: 800, fontFamily: "'Oswald', sans-serif", boxShadow: "0 3px 12px rgba(0,0,0,.25)", cursor: "pointer" }}>
               🧪 Sim go-backs{visits.length ? ` (${visits.length})` : ""}
