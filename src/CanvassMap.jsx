@@ -1048,7 +1048,8 @@ export default function CanvassMap() {
   // said what happened. They feed the accountability gate and nothing else (never
   // routed, never planned around: that day is over).
   const [overdueAppts, setOverdueAppts] = useState([]);
-  const [apptGatePick, setApptGatePick] = useState(null);  // rep chose which outstanding one to close out first
+  const [apptGatePick, setApptGatePick] = useState(null);
+  const [apptGateNote, setApptGateNote] = useState("");   // required — goes on the JN job
   // A rep's OWN appointment pins show on the map only on the DAY of the appointment
   // (Neal: "the only time they were showing before was the day of the appt"). This
   // holds today's appt job ids so the pin load can gate on them, and the 📅 chip
@@ -2197,7 +2198,8 @@ export default function CanvassMap() {
   // which is most of the day. It blocks the map whenever they're carrying one —
   // status it and the map comes back clean.
   const apptToAccount = (auth.rt && (unaccountedAppts.find((a) => a.jn_job_id === apptGatePick) || unaccountedAppts[0])) || null;
-  const setApptGateFirst = (id) => setApptGatePick(id);
+  const setApptGateFirst = (id) => { setApptGatePick(id); setApptGateNote(""); };
+  const apptGateNoteOk = apptGateNote.trim().length >= 10;
   // JUNIOR-only restriction: with an appt today, a junior is FORCED into "Plan your day"
   // (Route-an-area hidden) so their day stays structured. SENIORS always keep Route-an-area
   // — they choose to route or plan. (Sam, a senior, lost his rectangle; this fixes it.)
@@ -2879,11 +2881,12 @@ export default function CanvassMap() {
     try {
       const r = await fetch("/.netlify/functions/harvest-appt-status", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rt: auth.rt, jn_job_id: apptToAccount.jn_job_id, status }),
+        body: JSON.stringify({ rt: auth.rt, jn_job_id: apptToAccount.jn_job_id, status, note: apptGateNote.trim() }),
       });
       const d = await r.json().catch(() => ({}));
       if (!r.ok || !d.ok) { setApptGateErr(d.error || "Couldn't save — try again."); setApptGateBusy(false); return; }
       const id = apptToAccount.jn_job_id;
+      setApptGateNote("");                       // don't carry a note onto the next one
       setApptGateResolved((s) => { const n = new Set(s); n.add(id); return n; });
     } catch { setApptGateErr("Network hiccup — try again."); }
     setApptGateBusy(false);
@@ -4043,10 +4046,33 @@ export default function CanvassMap() {
                   </div>
                 </div>
               )}
+              {/* The note is REQUIRED and lands on the JobNimbus job. A status on its
+                  own says "no sale" and never says why — the next person to pick
+                  the deal up gets nothing. Outcome buttons stay locked until
+                  there's something real in here, and the server enforces it too so
+                  it can't be skipped. */}
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ fontSize: 12.5, fontWeight: 800, color: "#334155", marginBottom: 4 }}>
+                  What happened? <span style={{ color: "#dc2626" }}>required</span>
+                </div>
+                <textarea
+                  value={apptGateNote}
+                  onChange={(e) => setApptGateNote(e.target.value)}
+                  disabled={apptGateBusy}
+                  rows={3}
+                  placeholder="e.g. Sat with both owners, roof is 4 years old, no damage — asked me back after storm season."
+                  style={{ width: "100%", boxSizing: "border-box", border: "1px solid " + (apptGateNoteOk ? "#cbd5e1" : "#fca5a5"), borderRadius: 10, padding: "10px 12px", fontSize: 14, fontFamily: "inherit", resize: "vertical" }}
+                />
+                <div style={{ fontSize: 11.5, color: apptGateNoteOk ? "#94a3b8" : "#b91c1c", marginTop: 3 }}>
+                  {apptGateNoteOk
+                    ? "This goes on the job in JobNimbus."
+                    : `A few more characters — say what actually happened (${apptGateNote.trim().length}/10).`}
+                </div>
+              </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
                 {APPT_OUTCOMES.map((o) => (
-                  <button key={o.status} type="button" disabled={apptGateBusy} onClick={() => setApptOutcome(o.status)}
-                    style={{ background: o.color, color: "#fff", border: "none", borderRadius: 10, padding: "13px 8px", fontSize: 12.5, fontWeight: 700, fontFamily: "'Oswald', sans-serif", cursor: apptGateBusy ? "default" : "pointer", opacity: apptGateBusy ? 0.55 : 1, lineHeight: 1.15 }}>
+                  <button key={o.status} type="button" disabled={apptGateBusy || !apptGateNoteOk} onClick={() => setApptOutcome(o.status)}
+                    style={{ background: o.color, color: "#fff", border: "none", borderRadius: 10, padding: "13px 8px", fontSize: 12.5, fontWeight: 700, fontFamily: "'Oswald', sans-serif", cursor: (apptGateBusy || !apptGateNoteOk) ? "not-allowed" : "pointer", opacity: (apptGateBusy || !apptGateNoteOk) ? 0.45 : 1, lineHeight: 1.15 }}>
                     {o.label}
                   </button>
                 ))}

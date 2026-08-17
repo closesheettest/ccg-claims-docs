@@ -21,6 +21,7 @@ import { jnFetch } from "./_jn.js";
 const JN_KEY = process.env.JOBNIMBUS_API_KEY;
 const SB_URL = process.env.VITE_SUPABASE_URL;
 const SB_KEY = process.env.VITE_SUPABASE_ANON_KEY;
+const MIN_NOTE = 10;   // enough to be a sentence, not a keystroke
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // The office's appointment-outcome statuses the gate may set — VERBATIM from the
@@ -56,10 +57,16 @@ export const handler = async (event) => {
   const status = String(body.status || "").trim();
   if (!ALLOWED.has(status)) return cors(400, { ok: false, error: "status not allowed" });
 
+  // The rep's own note on what happened. REQUIRED — a status alone says "no sale"
+  // but never says why, and the person who picks the deal up next has nothing to
+  // go on. Enforced here as well as in the UI so it can't be bypassed.
+  const note = String(body.note || "").trim();
+  if (note.length < MIN_NOTE) return cors(400, { ok: false, error: `Add a note about what happened (at least ${MIN_NOTE} characters).` });
+
   const r = await jnFetch(JN_KEY, `jobs/${encodeURIComponent(jobId)}`, { method: "PUT", body: JSON.stringify({ status_name: status }) });
   if (!r.ok) { const t = await r.text().catch(() => ""); return cors(502, { ok: false, error: `JobNimbus rejected the status (${r.status})`, detail: t.slice(0, 200) }); }
   // Best-effort audit note (don't fail the write if the note fails).
-  jnFetch(JN_KEY, `activities`, { method: "POST", body: JSON.stringify({ record_type_name: "Note", note: `📋 Appt outcome (${rep.name}): ${status} — via DoorDispatcher`, primary: { id: jobId, type: "job" }, related: [{ id: jobId, type: "job" }], is_status_change: false }) }).catch(() => {});
+  jnFetch(JN_KEY, `activities`, { method: "POST", body: JSON.stringify({ record_type_name: "Note", note: `📋 Appt outcome (${rep.name}): ${status} — via DoorDispatcher\n\n${note}`, primary: { id: jobId, type: "job" }, related: [{ id: jobId, type: "job" }], is_status_change: false }) }).catch(() => {});
   await updatePin(jobId, status).catch(() => {});
   return cors(200, { ok: true, status_name: status, resolved: isResolved(status) });
 };
