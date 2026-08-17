@@ -47,7 +47,7 @@ export const handler = async () => {
     // Candidates: completed inspection, not booked, not cancelled, has a cell + a rep.
     const rows = await sbGetAll(
       `inspections?result_at=gte.${encodeURIComponent(floor)}&review_appt_at=is.null&cancelled_at=is.null` +
-      `&mobile=not.is.null&result=not.is.null&retail_outcome=not.eq.sold` +
+      `&mobile=not.is.null&result=not.is.null&or=(retail_outcome.is.null,retail_outcome.neq.sold)` +
       `&select=id,client_name,jn_status,mobile,email,address,city,state,zip,sales_rep_name,result_at,goback_token`
     );
     if (!rows.length) return resp(200, { ok: true, sent: 0, candidates: 0 });

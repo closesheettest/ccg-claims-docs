@@ -66,7 +66,7 @@ export const handler = async (event) => {
   const sinceIso = new Date(Date.now() - days * 86400000).toISOString();
   const rows = await sbGetAll(
     `inspections?result_at=gte.${encodeURIComponent(sinceIso)}&review_appt_at=is.null&cancelled_at=is.null` +
-    `&mobile=not.is.null&result=not.is.null&retail_outcome=not.eq.sold&goback_token=not.is.null` +
+    `&mobile=not.is.null&result=not.is.null&or=(retail_outcome.is.null,retail_outcome.neq.sold)&goback_token=not.is.null` +
     `&select=id,client_name,jn_status,mobile,email,address,city,state,zip,sales_rep_name,result,result_at,goback_token&order=result_at.desc`
   );
 
