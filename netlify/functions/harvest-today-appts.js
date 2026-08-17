@@ -46,6 +46,8 @@ export const handler = async (event) => {
   const dayStartSec = Math.floor(new Date(`${etDay}T00:00:00${sign}${oh}:00`).getTime() / 1000);
   const fromSec = Math.min(Math.floor(Date.now() / 1000) - 2 * 3600, dayStartSec + 6 * 3600);
   const toSec = dayStartSec + 24 * 3600;
+  // First of THIS month in ET — the accountability gate's look-back floor.
+  const monthStartSec = Math.floor(new Date(`${etDay.slice(0, 7)}-01T00:00:00${sign}${oh}:00`).getTime() / 1000);
 
   const jnHeaders = { Authorization: `bearer ${JN_KEY}`, "Content-Type": "application/json" };
   // Filter by DATE ONLY — JobNimbus's task search does NOT honor a nested
@@ -75,7 +77,7 @@ export const handler = async (event) => {
       if (results.length < 100) break;
     }
   } catch { /* fall through with whatever we have */ }
-  if (!rows.length) return cors(200, { ok: true, appts: [] });
+  if (!rows.length) return cors(200, { ok: true, appts: [], overdue: await fetchOverdue(jnHeaders, jn, dayStartSec, monthStartSec, new Set()) });
 
   // 2) Location shortcut: the map's own appt pins (already geocoded) by jn_job_id.
   const jobIds = [...new Set(rows.map((r) => r.jobId).filter(Boolean))];
@@ -165,8 +167,72 @@ export const handler = async (event) => {
     appts.push({ jn_job_id: row.jobId, name: (ji && ji.name) || (pin && pin.name) || nameFromTitle(row.title), address: (ji && ji.address) || (pin ? [pin.address, pin.city, pin.state, pin.zip].filter(Boolean).join(", ") : ""), lat: null, lng: null, at_ms: row.at_ms, status });
   }
   appts.sort((a, b) => a.at_ms - b.at_ms);
-  return cors(200, { ok: true, appts });
+
+  // 5) OVERDUE — appointments from EARLIER DAYS that are still sitting at
+  //    "Appointment Scheduled". Nobody ever recorded what happened.
+  //
+  //    The accountability gate used to read only today's list, so it could ask
+  //    exactly once — on the day, after the appt time, and only from the start
+  //    screen. Miss that window and the appointment aged out overnight and was
+  //    never asked about again. (Aug 10-16: six appointments across four reps who
+  //    were ON the map all week — 88, 85, 66 actions — and were never prompted.)
+  //
+  //    Asked the cheap way: JN jobs BY STATUS (a few hundred company-wide), not by
+  //    re-scanning weeks of tasks. A job still at "Appointment Scheduled" IS the
+  //    unstatused set by definition, so no status cross-check is needed.
+  const overdue = await fetchOverdue(jnHeaders, jn, dayStartSec, monthStartSec, new Set(appts.map((a) => a.jn_job_id).filter(Boolean)));
+
+  return cors(200, { ok: true, appts, overdue });
 };
+
+// Appointments from EARLIER DAYS (back to the 1st of this month) still sitting at
+// "Appointment Scheduled" — nobody ever recorded what happened. Feeds the
+// accountability gate only; never routed or planned around, that day is over.
+//
+// Asked the cheap way: JN jobs BY STATUS (a few hundred company-wide) rather than
+// re-scanning weeks of tasks. A job still at "Appointment Scheduled" IS the
+// unstatused set by definition, so no status cross-check is needed.
+async function fetchOverdue(jnHeaders, jn, dayStartSec, monthStartSec, seen) {
+  const out = [];
+  try {
+    const jf = encodeURIComponent(JSON.stringify({ must: [{ term: { status_name: "Appointment Scheduled" } }] }));
+    for (let page = 0; page < 6; page++) {
+      const r = await fetch(`${JN_BASE}/jobs?size=100&from=${page * 100}&filter=${jf}`, { headers: jnHeaders });
+      if (!r.ok) break;
+      const d = await r.json().catch(() => ({}));
+      const list = d.results || d.jobs || d.data || [];
+      for (const j of list) {
+        const id = j.jnid || j.id;
+        if (!id || seen.has(id)) continue;
+        // Theirs? sales_rep, or an owner. (Owner matched in code — JN's nested
+        // owners filter silently returns nothing.)
+        const mine = String(j.sales_rep || "") === String(jn) || (j.owners || []).some((o) => String(o.id) === String(jn));
+        if (!mine) continue;
+        const sec = Number(j.date_start) || 0;
+        if (!sec || sec >= dayStartSec) continue;   // today/future → today's list owns it
+        // Back to the 1st of this month only (Neal, 2026-08-17). Older is a backlog
+        // nobody was ever asked about — 100+ records, some from April. Making a rep
+        // reconstruct a spring door just to get their map back produces guessed
+        // statuses, which is worse than none. The office bulk-cleans those in JN.
+        if (sec < monthStartSec) continue;
+        seen.add(id);
+        out.push({
+          jn_job_id: id,
+          name: j.display_name || j.name || "Appointment",
+          address: [j.address_line1, j.city, j.state_text, j.zip].filter(Boolean).join(", "),
+          lat: (j.geo && Number(j.geo.lat)) || null,
+          lng: (j.geo && Number(j.geo.lon)) || null,
+          at_ms: sec * 1000,
+          status: j.status_name || null,
+          overdue: true,
+        });
+      }
+      if (list.length < 100) break;
+    }
+  } catch { /* best-effort — today's gate still works without it */ }
+  out.sort((a, b) => a.at_ms - b.at_ms);
+  return out;
+}
 
 function nameFromTitle(t) { const m = String(t || "").split("—"); return (m[1] || m[0] || "").trim() || "Appointment"; }
 function etOffsetHours(d) {

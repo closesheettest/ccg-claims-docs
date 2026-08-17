@@ -1044,6 +1044,11 @@ export default function CanvassMap() {
   const [assignedIds, setAssignedIds] = useState(null); // Enhanced Planned Day: the pin ids the manager assigned this rep today (null = no plan)
   const [hasApptsToday, setHasApptsToday] = useState(false); // rep has ≥1 JN appointment today → they Plan-your-day, not Start-my-day
   const [todayAppts, setTodayAppts] = useState([]);          // today's JN appts (for the auto-detect "you have an appt" banner)
+  // Appointments from EARLIER days still at "Appointment Scheduled" — nobody ever
+  // said what happened. They feed the accountability gate and nothing else (never
+  // routed, never planned around: that day is over).
+  const [overdueAppts, setOverdueAppts] = useState([]);
+  const [apptGatePick, setApptGatePick] = useState(null);  // rep chose which outstanding one to close out first
   // A rep's OWN appointment pins show on the map only on the DAY of the appointment
   // (Neal: "the only time they were showing before was the day of the appt"). This
   // holds today's appt job ids so the pin load can gate on them, and the 📅 chip
@@ -2180,9 +2185,19 @@ export default function CanvassMap() {
   // still shows as "Appointment Scheduled" is UNACCOUNTED — the rep must say what happened
   // before starting. Already-resolved ones (No-Sit, Sold, …) and ones the rep closed this
   // session are skipped. Location isn't required — it's about accountability, not routing.
-  const unaccountedAppts = todayAppts.filter((a) => a.jn_job_id && a.at_ms < Date.now() - 30 * 60000
+  // Today's past appts PLUS every earlier one still sitting at "Appointment
+  // Scheduled" (overdueAppts, from harvest-today-appts). Carrying them forward is
+  // the whole point: the gate used to read today's list only, so it asked once —
+  // on the day, after the appt time, from the start screen — and if that window
+  // was missed the appointment aged out at midnight and was never asked about
+  // again. Six went unstatused in one week that way.
+  const unaccountedAppts = [...todayAppts, ...overdueAppts].filter((a) => a.jn_job_id && a.at_ms < Date.now() - 30 * 60000
     && /appointment scheduled/i.test(String(a.status || "")) && !apptGateResolved.has(a.jn_job_id));
-  const apptToAccount = (auth.rt && dayMode === null && unaccountedAppts[0]) || null;
+  // No `dayMode === null` any more: it hid the gate for anyone already in a route,
+  // which is most of the day. It blocks the map whenever they're carrying one —
+  // status it and the map comes back clean.
+  const apptToAccount = (auth.rt && (unaccountedAppts.find((a) => a.jn_job_id === apptGatePick) || unaccountedAppts[0])) || null;
+  const setApptGateFirst = (id) => setApptGatePick(id);
   // JUNIOR-only restriction: with an appt today, a junior is FORCED into "Plan your day"
   // (Route-an-area hidden) so their day stays structured. SENIORS always keep Route-an-area
   // — they choose to route or plan. (Sam, a senior, lost his rectangle; this fixes it.)
@@ -3698,6 +3713,7 @@ export default function CanvassMap() {
       .then((a) => {
         const list = (a && Array.isArray(a.appts)) ? a.appts : [];
         setTodayAppts(list); setHasApptsToday(list.length > 0);
+        setOverdueAppts((a && Array.isArray(a.overdue)) ? a.overdue : []);
         // Feed the day-of gate below, then re-run the pin load: this fetch races the
         // first pin load, and without the re-run today's appt pins wouldn't appear
         // until the rep panned the map.
@@ -4019,12 +4035,35 @@ export default function CanvassMap() {
           <div style={{ position: "fixed", inset: 0, zIndex: 4000, background: "rgba(15,23,42,.74)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
             <div style={{ background: "#fff", borderRadius: 16, maxWidth: 460, width: "100%", padding: "20px 18px", boxShadow: "0 14px 52px rgba(0,0,0,.45)", maxHeight: "92vh", overflowY: "auto" }}>
               <div style={{ fontSize: 19, fontWeight: 800, fontFamily: "'Oswald', sans-serif", color: "#0f172a", marginBottom: 3 }}>What happened with this appointment?</div>
-              <div style={{ fontSize: 13, color: "#64748b", marginBottom: 12 }}>Close out your earlier appointment before you start today.</div>
+              <div style={{ fontSize: 13, color: "#64748b", marginBottom: 12 }}>
+                {unaccountedAppts.length > 1
+                  ? <>You have <b>{unaccountedAppts.length} appointments</b> with no result recorded. Close them out and the map opens back up.</>
+                  : <>Close this out and the map opens back up.</>}
+              </div>
               <div style={{ background: "#f1f5f9", borderRadius: 10, padding: "10px 12px", marginBottom: 14 }}>
                 <div style={{ fontWeight: 800, color: "#0f172a", fontSize: 15 }}>{apptToAccount.name || "Appointment"}</div>
                 {apptToAccount.address ? <div style={{ fontSize: 12.5, color: "#64748b", marginTop: 1 }}>{apptToAccount.address}</div> : null}
-                <div style={{ fontSize: 12.5, color: "#64748b", marginTop: 3 }}>📅 Scheduled <b>{new Date(apptToAccount.at_ms).toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" })}</b> today</div>
+                <div style={{ fontSize: 12.5, color: "#64748b", marginTop: 3 }}>📅 {apptGateDayLabel(apptToAccount.at_ms)}</div>
               </div>
+              {/* The rest of the queue, so they can SEE exactly what they're carrying
+                  instead of finding out one at a time. Tap one to do it first. */}
+              {unaccountedAppts.length > 1 && (
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ fontSize: 11.5, fontWeight: 800, textTransform: "uppercase", color: "#94a3b8", marginBottom: 6 }}>
+                    Also waiting on you ({unaccountedAppts.length - 1})
+                  </div>
+                  <div style={{ maxHeight: 150, overflowY: "auto", display: "flex", flexDirection: "column", gap: 6 }}>
+                    {unaccountedAppts.filter((a) => a.jn_job_id !== apptToAccount.jn_job_id).map((a) => (
+                      <button key={a.jn_job_id} type="button" disabled={apptGateBusy}
+                        onClick={() => setApptGateFirst(a.jn_job_id)}
+                        style={{ textAlign: "left", background: "#fff", border: "1px solid #e2e8f0", borderRadius: 9, padding: "8px 10px", cursor: apptGateBusy ? "default" : "pointer" }}>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: "#0f172a" }}>{a.name || "Appointment"}</div>
+                        <div style={{ fontSize: 11.5, color: "#94a3b8" }}>{apptGateDayLabel(a.at_ms)}{a.address ? ` · ${String(a.address).split(",")[0]}` : ""}</div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
                 {APPT_OUTCOMES.map((o) => (
                   <button key={o.status} type="button" disabled={apptGateBusy} onClick={() => setApptOutcome(o.status)}
@@ -5502,6 +5541,18 @@ const extraVal = (pin, names) => {
 };
 // The ORIGINAL appointment a no-sit was booked for (from the JN sync), in ET.
 // Midnight-ET means no specific time was set → show the date only.
+// Accountability gate: an outstanding appointment can now be from ANY earlier day,
+// so never say "today" — say which day, and how far behind it is.
+function apptGateDayLabel(ms) {
+  const d = new Date(ms);
+  const time = d.toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" });
+  const key = (x) => new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(x);
+  const days = Math.round((new Date(key(new Date())) - new Date(key(d))) / 864e5);
+  if (days <= 0) return `Scheduled ${time} today`;
+  if (days === 1) return `Scheduled ${time} yesterday`;
+  const day = d.toLocaleDateString("en-US", { timeZone: "America/New_York", weekday: "short", month: "short", day: "numeric" });
+  return `Scheduled ${day}, ${time} — ${days} days ago`;
+}
 function origApptLabel(pin) {
   const sec = Number(pin && pin.extra && pin.extra.orig_appt_sec);
   if (!Number.isFinite(sec) || sec <= 0) return null;
