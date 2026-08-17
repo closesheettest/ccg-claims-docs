@@ -11,7 +11,7 @@ import "leaflet.markercluster";
 import "leaflet.markercluster/dist/MarkerCluster.css";
 import "leaflet.markercluster/dist/MarkerCluster.Default.css";
 import { supabase } from "./lib/supabase";
-import VisitActions from "./VisitActions";
+import VisitActions, { BtrPaBooking } from "./VisitActions";
 import HarvestTraining from "./HarvestTraining";
 import HarvestTrainingPage from "./HarvestTrainingPage";
 import { AddressAutocomplete } from "./lib/AddressAutocomplete";
@@ -5251,6 +5251,7 @@ export default function CanvassMap() {
       {btrPin && (
         <AppointmentModal
           variant="btr" pin={btrPin} rt={auth.rt} demo={demoMode}
+          api={visitApi} repName={me?.name || ""}
           onClose={() => setBtrPin(null)}
           onBooked={(patch) => {
             setProspects((list) => list.map((x) => (x.id === btrPin.id ? { ...x, ...patch } : x)));
@@ -5506,7 +5507,7 @@ function origApptLabel(pin) {
   return `${datePart} · ${timePart}`;
 }
 
-function AppointmentModal({ pin, rt, onClose, onBooked, variant, demo }) {
+function AppointmentModal({ pin, rt, onClose, onBooked, variant, demo, api, repName }) {
   // "btr" = book a Back-To-Retail appointment off an inspection pin (homeowner
   // declined the inspection, wants retail). Always a fresh booking + always
   // needs contact info. Otherwise: a reschedule (pin already has a JN job — e.g.
@@ -5519,6 +5520,10 @@ function AppointmentModal({ pin, rt, onClose, onBooked, variant, demo }) {
   const [err, setErr] = useState("");
   const [booked, setBooked] = useState(null); // null = still checking JN
   const [ownerInfo, setOwnerInfo] = useState(null); // BTR: whose calendar (rep or zone manager)
+  // BTR only: after the retail appt is booked we hold the modal open on a done
+  // screen so the rep can also book the homeowner a PA visit (BTRPA). The pin
+  // patch is applied when they leave that screen.
+  const [btrDone, setBtrDone] = useState(null);
 
   // Pull already-booked appointments so we only offer free times. For a BTR the
   // calendar belongs to whoever RUNS it (the rep, or the zone manager for William).
@@ -5566,8 +5571,53 @@ function AppointmentModal({ pin, rt, onClose, onBooked, variant, demo }) {
       // Booked on the map even if JobNimbus refused this one job — tell the rep so
       // someone resets it in JN manually (the map + JN are briefly out of sync).
       if (j.warning) { try { window.alert("⚠️ " + j.warning); } catch { /* ignore */ } }
+      // Retail is booked. If they ALSO want a PA out (BTRPA), that offer only
+      // makes sense here — stay on a done screen instead of closing.
+      if (isBtr) {
+        setBtrDone({
+          jobId: j.job_id,
+          inspectionId: j.inspection_id || null,
+          when: slot.dt.toLocaleString([], { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }),
+        });
+        setBusy(false);
+        return;
+      }
       onBooked({ status: "appt", jn_job_id: j.job_id, status_updated_at: new Date().toISOString() });
     } catch (e) { setErr(e.message || "Network error"); setBusy(false); }
+  }
+
+  // The retail appointment is already booked and the pin is already flipped
+  // server-side — closing this screen just syncs the map and drops the pin from
+  // the day's remaining stops.
+  const finishBtr = () => onBooked({ status: "appt", jn_job_id: btrDone.jobId, status_updated_at: new Date().toISOString() });
+
+  if (btrDone) {
+    return (
+      <div style={{ position: "absolute", inset: 0, background: "rgba(15,23,42,.55)", zIndex: 3000, display: "flex", alignItems: "flex-end", justifyContent: "center" }} onClick={finishBtr}>
+        <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", width: "100%", maxWidth: 520, borderTopLeftRadius: 18, borderTopRightRadius: 18, padding: "16px 18px 22px", maxHeight: "88vh", overflowY: "auto", fontFamily: FONT }}>
+          <div style={{ fontSize: 16, fontWeight: 800, fontFamily: "'Oswald', sans-serif", color: "#166534", marginBottom: 6 }}>✅ Retail appointment booked</div>
+          <div style={{ fontSize: 13.5, color: "#475569", fontWeight: 600, marginBottom: 12 }}>
+            {pin.name ? `${pin.name} · ` : ""}{btrDone.when}. It's in JobNimbus and on your pay.
+          </div>
+          {/* BTRPA — the homeowner keeps their insurance option. Nothing about the
+              retail sale changes; this is purely a favour to the homeowner. */}
+          <BtrPaBooking
+            deal={{
+              inspection_id: btrDone.inspectionId,
+              client_name: pin.name || "", mobile: phone || "",
+              address: `${pin.address || ""}${pin.city ? `, ${pin.city}` : ""}`,
+              latitude: pin.latitude, longitude: pin.longitude,
+            }}
+            rep={{ name: repName || "" }}
+            api={api}
+          />
+          <button type="button" onClick={finishBtr}
+            style={{ marginTop: 14, width: "100%", border: "none", background: "#0f172a", color: "#fff", borderRadius: 12, padding: "13px 14px", fontSize: 15, fontWeight: 800, cursor: "pointer" }}>
+            Done
+          </button>
+        </div>
+      </div>
+    );
   }
 
   return (

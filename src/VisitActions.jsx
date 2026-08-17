@@ -164,9 +164,13 @@ export function DamagePanel({ deal, rep, api, reschedule = false }) {
   const pickRetail = async (slot) => {
     setPicking(slot.iso); setErr("");
     try {
-      await api("damage-to-retail", { inspection_id: deal.inspection_id, start_at_iso: slot.iso, rep_jobnimbus_id: rep.jobnimbus_id, booked_by: rep.name });
-      setWentRetail(true);
-      setDone(`Switched to Retail — appointment set for ${slot.label}. JobNimbus updated.`);
+      const o = await api("damage-to-retail", { inspection_id: deal.inspection_id, start_at_iso: slot.iso, rep_jobnimbus_id: rep.jobnimbus_id, booked_by: rep.name });
+      // A PA already working the claim is NOT fired by the retail sale — the deal
+      // stays theirs and there's nothing to re-book, so skip the PA-visit offer.
+      setWentRetail(!o.pa_stays);
+      setDone(o.pa_stays
+        ? `Retail appointment set for ${slot.label}. The PA stays on the claim — they're still going.`
+        : `Switched to Retail — appointment set for ${slot.label}. JobNimbus updated.`);
     } catch (e) { setErr(e.message); }
     setPicking("");
   };
@@ -332,7 +336,7 @@ export function NoDamagePanel({ deal, rep, api }) {
 //
 // Nothing here is tracked or reported. Neal: "I don't even want to track it, I
 // just want to be able to hook the homeowner up with a PA appointment."
-function BtrPaBooking({ deal, rep, api }) {
+export function BtrPaBooking({ deal, rep, api }) {
   const [open, setOpen] = useState(false);
   const [slots, setSlots] = useState(null);
   const [busy, setBusy] = useState("");
@@ -349,10 +353,14 @@ function BtrPaBooking({ deal, rep, api }) {
   const book = async (s) => {
     setErr(""); setBusy(s.start_at);
     try {
+      // Deliberately booked WITHOUT inspection_id. Passing it would flip that
+      // record back to pa_stage "active" and reassign it to this PA — dragging a
+      // sold retail roof back into the PA pipeline and onto go-back lists. The
+      // homeowner still gets their visit; we just don't track it as our claim.
       await api("pa-schedule-api", {
-        action: "book", pa_id: s.pa_id, start_at: s.start_at, inspection_id: deal.inspection_id,
+        action: "book", pa_id: s.pa_id, start_at: s.start_at,
         homeowner_name: deal.client_name, homeowner_phone: deal.mobile, address: deal.address,
-        booked_by: rep.name, note: "BTRPA — roof sold retail; PA visit booked for the homeowner.",
+        booked_by: rep.name, note: "BTRPA — roof sold retail; PA visit booked for the homeowner only.",
       });
       setDone(`PA booked with ${s.pa_name} — ${s.label}. The retail sale is untouched.`);
     } catch (e) { setErr(e.message || "Couldn't book."); }

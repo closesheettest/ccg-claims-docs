@@ -164,7 +164,10 @@ export const handler = async (event) => {
     //    (it's a back-to-retail outcome) also locks the credit if it's later
     //    cancelled. Pay report matches by sales_rep_id = the rep's jobnimbus_id.
     const nowIso = new Date().toISOString();
-    await sbInsert("inspections", {
+    // Keep the new row's id: the map offers "they still want a PA visit" right
+    // after booking (BTRPA), and the PA appointment hangs off this record.
+    let inspectionId = null;
+    inspectionId = await sbInsertReturningId("inspections", {
       client_name: nm, address: street, city: pin.city || "", state: pin.state || "", zip: pin.zip || "", county: county || null,
       mobile: phone || null, email: email || null,
       latitude: Number.isFinite(Number(pin.latitude)) ? Number(pin.latitude) : null,
@@ -176,7 +179,7 @@ export const handler = async (event) => {
       retail_outcome: bornRetail ? "retail_appt" : "btr_appt", retail_outcome_at: nowIso, retail_outcome_by: rep.name || null,
       jn_job_id: jobId, jn_status: APPT_STATUS_NAME, jn_pushed_at: nowIso,
       lead_source: payLeadSource,
-    }).catch((e) => { console.warn("BTR pay-credit insert failed:", e.message); });
+    }).catch((e) => { console.warn("BTR pay-credit insert failed:", e.message); return null; });
 
     // 5. Flip the pin to Appt.
     const log = Array.isArray(pin.status_log) ? [...pin.status_log] : [];
@@ -191,7 +194,11 @@ export const handler = async (event) => {
     // it. A real BTR (retail off an existing inspection pin) keeps pin.status (=insp)
     // and stays EXCLUDED — that's post-inspection, not lead-gen.
     logActivity({ pin_id: pinId, rep_name: rep.name, rep_token: rt, kind: "status", from_status: selfGen ? "self_gen" : pin.status, to_status: "appt" });
-    return json(200, { ok: true, job_id: jobId, contact_id: contactId, assigned, credited_rep: rep.name || null });
+    return json(200, {
+      ok: true, job_id: jobId, contact_id: contactId, assigned, credited_rep: rep.name || null,
+      inspection_id: inspectionId,
+      homeowner: { name: nm, phone: phone || null, address: street, latitude: pin.latitude ?? null, longitude: pin.longitude ?? null },
+    });
   } catch (e) {
     return json(502, { ok: false, error: `JobNimbus: ${e.message || "failed"}` });
   }
@@ -205,6 +212,13 @@ async function sbGet(path) {
 async function sbInsert(table, row) {
   const r = await fetch(`${SB_URL}/rest/v1/${table}`, { method: "POST", headers: { ...sb, Prefer: "return=minimal" }, body: JSON.stringify(row) });
   if (!r.ok) throw new Error(`SB insert ${table} ${r.status}: ${(await r.text().catch(() => "")).slice(0, 150)}`);
+}
+// Same insert, but hands back the new row's id (used to hang a BTRPA visit off it).
+async function sbInsertReturningId(table, row) {
+  const r = await fetch(`${SB_URL}/rest/v1/${table}?select=id`, { method: "POST", headers: { ...sb, Prefer: "return=representation" }, body: JSON.stringify(row) });
+  if (!r.ok) throw new Error(`SB insert ${table} ${r.status}: ${(await r.text().catch(() => "")).slice(0, 150)}`);
+  const out = await r.json().catch(() => []);
+  return (Array.isArray(out) && out[0] && out[0].id) || null;
 }
 function logActivity(row) {
   fetch(`${SB_URL}/rest/v1/canvass_activity`, { method: "POST", headers: { ...sb, Prefer: "return=minimal" }, body: JSON.stringify(row) }).catch(() => {});
