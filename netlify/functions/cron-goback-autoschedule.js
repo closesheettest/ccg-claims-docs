@@ -48,7 +48,7 @@ export const handler = async () => {
     const rows = await sbGetAll(
       `inspections?result_at=gte.${encodeURIComponent(floor)}&review_appt_at=is.null&cancelled_at=is.null` +
       `&mobile=not.is.null&result=not.is.null` +
-      `&select=id,client_name,mobile,address,city,state,zip,sales_rep_name,result_at,goback_token`
+      `&select=id,client_name,mobile,email,address,city,state,zip,sales_rep_name,result_at,goback_token`
     );
     if (!rows.length) return resp(200, { ok: true, sent: 0, candidates: 0 });
 
@@ -75,7 +75,11 @@ export const handler = async () => {
         }
         // Send it.
         const body = fill(m.body, insp);
-        const ok = await sendSms(insp.mobile, insp.client_name || "there", body);
+        const [smsOk, mailOk] = await Promise.all([
+          sendSms(insp.mobile, insp.client_name || "there", body),
+          sendEmail(insp.email, insp.client_name, body),
+        ]);
+        const ok = smsOk || mailOk;          // reached them on EITHER channel
         await logSend(insp.id, idx, insp.mobile, ok).catch(() => {});
         if (ok) sent++;
         break; // one message per inspection per run — the next fires on a later run
@@ -108,6 +112,31 @@ async function sendSms(phone, name, message) {
     return !!(r.ok && o.success && !o.skipped); // opted-out (skipped) counts as not-sent
   } catch { return false; }
 }
+// SMS **and** EMAIL. A text alone silently misses anyone on DND or opted out of
+// the GHL number — the same reason every trainee/rep message goes out on both
+// channels. The email carries the identical wording with the {link} as a real
+// link, so whichever one they see, they land on the same booking page.
+async function sendEmail(to, name, message) {
+  if (!to || !/.+@.+\..+/.test(String(to))) return false;
+  const first = String(name || "").trim().split(/\s+/)[0] || "there";
+  const linked = String(message).replace(
+    /(https?:\/\/\S+)/g,
+    '<a href="$1" style="color:#1d4ed8;font-weight:700">$1</a>',
+  );
+  const html =
+    `<div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.55;color:#0f172a">` +
+    `<p style="white-space:pre-wrap;margin:0 0 14px">${linked}</p>` +
+    `<p style="margin:18px 0 0;font-size:12.5px;color:#64748b">${COMPANY}</p>` +
+    `</div>`;
+  try {
+    const r = await fetch(`${ORIGIN}/.netlify/functions/send-email`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ to, subject: `${first}, your roof inspection report`, html }),
+    });
+    return r.ok;
+  } catch { return false; }
+}
+
 async function logSend(inspection_id, msg_idx, to_phone, ok) {
   // Unique(inspection_id,msg_idx) → merge-duplicates keeps the first (never resends).
   await fetch(`${SB_URL}/rest/v1/goback_text_log?on_conflict=inspection_id,msg_idx`, {
