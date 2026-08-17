@@ -48,6 +48,14 @@ export const handler = async (event) => {
   }
 
   const live = String(body.confirm || "") === "SEND";
+  // EMAIL-ONLY repair pass. The first catch-up sent text + email together, but
+  // the email leg came back false for people who had a valid address (the text
+  // went fine). Because the log stored only a combined ok, there's no way to tell
+  // who got an email and who didn't — so this re-sends the email to everyone in
+  // the window who has an address, and deliberately ignores the already-reached
+  // exclusion. A homeowner whose first email DID land gets a second copy; that's
+  // the accepted cost of not being able to tell them apart.
+  const emailsOnly = !!body.emails_only;
   const days = Math.min(Math.max(parseInt(body.days, 10) || 7, 1), 30);
 
   // Message 1 from the saved sequence unless an override is passed.
@@ -102,8 +110,9 @@ export const handler = async (event) => {
   // damage record on the same phone gets one message (the most recent).
   const byPhone = new Map();
   for (const r of rows) {
-    if (already.has(r.id)) continue;
+    if (already.has(r.id) && !emailsOnly) continue;
     if (!notSold(r)) continue;              // already bought a roof
+    if (emailsOnly && !(r.email && /.+@.+\..+/.test(String(r.email)))) continue;
     const key = String(r.mobile || "").replace(/\D/g, "").slice(-10);
     if (key.length < 10) continue;
     if (!byPhone.has(key)) byPhone.set(key, r);
@@ -113,6 +122,7 @@ export const handler = async (event) => {
   if (!live) {
     return resp(200, {
       ok: true, dry_run: true, window_days: days,
+      emails_only: emailsOnly,
       would_send: people.length,
       skipped_already_reached: rows.filter((r) => already.has(r.id)).length,
       collapsed_duplicate_phones: rows.length - already.size - people.length,
@@ -128,14 +138,12 @@ export const handler = async (event) => {
   let sent = 0, failed = 0;
   for (const p of people) {
     const text = fill(template, p);
-    const [smsOk, mailOk] = await Promise.all([
-      sendSms(p.mobile, p.client_name || "there", text),
-      sendEmail(p.email, p.client_name, text),
-    ]);
-    const ok = smsOk || mailOk;
-    await logSend(p.id, 0, p.mobile, ok).catch(() => {});
+    const smsOk = emailsOnly ? null : await sendSms(p.mobile, p.client_name || "there", text);
+    const mailOk = await sendEmail(p.email, p.client_name, text);
+    const ok = !!smsOk || !!mailOk;
+    if (!emailsOnly) await logSend(p.id, 0, p.mobile, ok).catch(() => {});
     if (ok) sent++; else failed++;
-    results.push({ name: p.client_name, phone: p.mobile, sms: smsOk, email: mailOk });
+    results.push({ name: p.client_name, phone: p.mobile, email_addr: p.email, sms: smsOk, email: mailOk });
   }
   return resp(200, { ok: true, sent, failed, total: people.length, results });
 };
