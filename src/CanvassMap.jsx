@@ -2888,27 +2888,6 @@ export default function CanvassMap() {
     } catch { setApptGateErr("Network hiccup — try again."); }
     setApptGateBusy(false);
   }
-  // "Already statused in JobNimbus" — re-read JN's current status; unlock only if it's no
-  // longer "Appointment Scheduled" (they really did close it out somewhere else).
-  async function apptAlreadyStatused() {
-    if (!apptToAccount || apptGateBusy) return;
-    setApptGateBusy(true); setApptGateErr("");
-    try {
-      const r = await fetch("/.netlify/functions/harvest-appt-status", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rt: auth.rt, jn_job_id: apptToAccount.jn_job_id, recheck: true }),
-      });
-      const d = await r.json().catch(() => ({}));
-      if (d.ok && d.resolved) {
-        const id = apptToAccount.jn_job_id;
-        setApptGateResolved((s) => { const n = new Set(s); n.add(id); return n; });
-      } else {
-        setApptGateErr(`Still shows "${(d && d.status_name) || "Appointment Scheduled"}" in JobNimbus — pick an outcome, or set it in JN first.`);
-      }
-    } catch { setApptGateErr("Network hiccup — try again."); }
-    setApptGateBusy(false);
-  }
-
   async function planAroundAppts() {
     if ((!auth.rt && !testMode) || planningAppts) return;
     const startMs = hmToMsToday(planStartHM) || Date.now();
@@ -4072,10 +4051,19 @@ export default function CanvassMap() {
                   </button>
                 ))}
               </div>
-              <button type="button" disabled={apptGateBusy} onClick={apptAlreadyStatused}
-                style={{ width: "100%", marginTop: 10, background: "#fff", color: "#0f172a", border: "2px solid #cbd5e1", borderRadius: 10, padding: "12px", fontSize: 13, fontWeight: 800, fontFamily: "'Oswald', sans-serif", cursor: apptGateBusy ? "default" : "pointer" }}>
-                ✓ Already statused in JobNimbus
-              </button>
+              {/* No self-service way out. There used to be an "Already statused in
+                  JobNimbus" button here — it did re-read JN and refused unless the
+                  status really had changed, but Neal's call is that any button at the
+                  bottom of a blocking screen becomes the button you press to make the
+                  screen go away. If they genuinely statused it elsewhere that's a
+                  conversation with their manager, not a click. */}
+              <div style={{ marginTop: 12, background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 10, padding: "10px 12px" }}>
+                <div style={{ fontSize: 12.5, fontWeight: 800, color: "#334155" }}>Already statused it in JobNimbus?</div>
+                <div style={{ fontSize: 12, color: "#64748b", lineHeight: 1.4, marginTop: 2 }}>
+                  Tell your manager and they'll get it squared away. Don't guess an outcome just to clear this
+                  screen — a wrong status is worse than no status.
+                </div>
+              </div>
               {apptGateErr ? <div style={{ marginTop: 10, color: "#b91c1c", fontSize: 12.5, fontWeight: 600, lineHeight: 1.35 }}>{apptGateErr}</div> : null}
               {apptGateBusy ? <div style={{ marginTop: 8, color: "#64748b", fontSize: 12.5 }}>Saving…</div> : null}
             </div>
