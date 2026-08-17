@@ -62,6 +62,14 @@ export const handler = async () => {
   //
   // retail_outcome=sold is filtered in the query above; the JN sold statuses are
   // filtered here because jn_status is free text.
+  // DEAD / REFUSED → leave them alone.
+  //
+  // Same class of mistake as texting someone who already bought: "I have your
+  // report and want to come go over it" to a homeowner who told us No, was
+  // disqualified, no-showed, or whose deal is Lost is a message that should
+  // never leave the building. Caught by Neal on the email pass — 4 of 43.
+  const DEAD_JN = ["refused appointment", "no show h o", "btr ni", "not interested", "lost", "dq", "no response", "stale", "dead"];
+  const notDead = (r) => { const st = String(r.jn_status || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim(); return !DEAD_JN.some((d) => st === d || st.startsWith(d)); };
   const SOLD_JN = new Set(["sit sold","signed contract","production review","job prep","in funding","waiting on pace","upcoming installs","install set","roof started","new roof","install complete collect payment","paid closed","upcoming commissions","commission","holds","extras"]);
   const notSold = (r) => !SOLD_JN.has(String(r.jn_status || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim());
 
@@ -74,6 +82,7 @@ export const handler = async () => {
     let sent = 0;
     for (const insp of rows) {
       if (!notSold(insp)) continue;          // already bought a roof
+      if (!notDead(insp)) continue;           // refused / DQ / no-show / lost
       const anchorDay = tzParts(new Date(insp.result_at)); // ET Y/M/D of completion
       for (let idx = 0; idx < msgs.length; idx++) {
         if (sentSet.has(`${insp.id}:${idx}`)) continue;
