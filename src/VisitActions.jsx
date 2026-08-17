@@ -157,6 +157,9 @@ export function DamagePanel({ deal, rep, api, reschedule = false }) {
       setDone(`Marked Not Interested (BTR - NI). Removed from your list.`);
     } catch (e) { setErr(e.message); setNi(false); }
   };
+  // A PA already assigned/working this claim changes what "going retail" does:
+  // the sale becomes its own job and the PA keeps the insurance one.
+  const paOnIt = !!deal.pa_id || ["active", "waiting_docs", "signed"].includes(deal.pa_stage || "");
   const [goRetail, setGoRetail] = useState(false);
   const [wentRetail, setWentRetail] = useState(false);   // just went retail → offer the homeowner a PA visit anyway
   const [picking, setPicking] = useState("");
@@ -215,7 +218,17 @@ export function DamagePanel({ deal, rep, api, reschedule = false }) {
       {err && <div style={{ color: "#b91c1c", fontSize: 14, marginBottom: 8 }}>{err}</div>}
       {goRetail ? (
         <div>
-          <p style={{ fontSize: 14, fontWeight: 700, color: "#374151", margin: "0 0 8px" }}>🏠 Going retail — pick a retail appointment time. This switches the deal to Retail in JobNimbus and books it.</p>
+          {/* Two different outcomes — say which one this is BEFORE they pick a time. */}
+          {paOnIt ? (
+            <p style={{ fontSize: 14, fontWeight: 700, color: "#374151", margin: "0 0 8px" }}>
+              🏠 Going retail — pick a retail appointment time.{" "}
+              <span style={{ color: "#6d28d9" }}>
+                A PA is already working this claim, so this does <b>not</b> take it off them. You'll get a separate Retail job for the sale in JobNimbus; the insurance job stays with the PA and they keep going.
+              </span>
+            </p>
+          ) : (
+            <p style={{ fontSize: 14, fontWeight: 700, color: "#374151", margin: "0 0 8px" }}>🏠 Going retail — pick a retail appointment time. This switches the deal to Retail in JobNimbus and books it.</p>
+          )}
           <div style={{ maxHeight: "55vh", overflowY: "auto" }}>
             {retailDays.map((day) => (
               <div key={day.key} style={{ marginBottom: 14 }}>
