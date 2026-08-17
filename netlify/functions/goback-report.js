@@ -44,7 +44,15 @@ export const handler = async (event) => {
     const insps = [];
     for (let i = 0; i < ids.length; i += 200) {
       const chunk = ids.slice(i, i + 200).map((x) => `"${x}"`).join(",");
-      insps.push(...await sbGetAll(`inspections?id=in.(${chunk})&select=id,client_name,mobile,sales_rep_name,review_appt_at,result_at,goback_opened_at`));
+      // goback_opened_at is a newer column (sql/goback_opened.sql). PostgREST
+      // rejects the WHOLE query for one unknown column, which returned zero
+      // inspections and rendered every homeowner as "—". Ask for it, and fall
+      // back to the same query without it so a pre-migration database still
+      // shows names — it just can't show opens yet.
+      const SEL = "id,client_name,mobile,sales_rep_name,review_appt_at,result_at";
+      let chunkRows = await sbGetAll(`inspections?id=in.(${chunk})&select=${SEL},goback_opened_at`);
+      if (!chunkRows.length) chunkRows = await sbGetAll(`inspections?id=in.(${chunk})&select=${SEL}`);
+      insps.push(...chunkRows);
     }
     const inspById = Object.fromEntries(insps.map((i) => [i.id, i]));
 
