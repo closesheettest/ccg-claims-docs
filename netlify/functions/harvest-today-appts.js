@@ -195,6 +195,30 @@ export const handler = async (event) => {
 async function fetchOverdue(jnHeaders, jn, dayStartSec, monthStartSec, seen) {
   const out = [];
   try {
+    // FIRST: which jobs already have a NEW appointment booked ahead?
+    //
+    // A no-sit that got rescheduled goes back to "Appointment Scheduled" pointing
+    // at a future date — the rep DID their job. The job's own date_start can still
+    // hold the old date, so status alone would flag it as never-statused and block
+    // a rep who did everything right. Any job with an appointment task from today
+    // forward is re-booked, not neglected.
+    const ahead = new Set();
+    const aheadFilter = encodeURIComponent(JSON.stringify({ must: [
+      { range: { date_start: { gte: dayStartSec, lte: dayStartSec + 90 * 86400 } } },
+    ] }));
+    for (let page = 0; page < 20; page++) {
+      const r = await fetch(`${JN_BASE}/tasks?size=100&from=${page * 100}&filter=${aheadFilter}`, { headers: jnHeaders });
+      if (!r.ok) break;
+      const d = await r.json().catch(() => ({}));
+      const rows = d.results || d.tasks || d.data || [];
+      for (const t of rows) {
+        if (!APPT_TASK_TYPES.has(t.record_type_name) && !APPT_TASK_RTS.has(Number(t.record_type))) continue;
+        for (const rel of (t.related || [])) if (rel.type === "job" && rel.id) ahead.add(rel.id);
+        if (t.primary && t.primary.type === "job" && t.primary.id) ahead.add(t.primary.id);
+      }
+      if (rows.length < 100) break;
+    }
+
     const jf = encodeURIComponent(JSON.stringify({ must: [{ term: { status_name: "Appointment Scheduled" } }] }));
     for (let page = 0; page < 6; page++) {
       const r = await fetch(`${JN_BASE}/jobs?size=100&from=${page * 100}&filter=${jf}`, { headers: jnHeaders });
@@ -204,6 +228,7 @@ async function fetchOverdue(jnHeaders, jn, dayStartSec, monthStartSec, seen) {
       for (const j of list) {
         const id = j.jnid || j.id;
         if (!id || seen.has(id)) continue;
+        if (ahead.has(id)) continue;   // re-booked ahead — the rep statused it, then rescheduled
         // Theirs? sales_rep, or an owner. (Owner matched in code — JN's nested
         // owners filter silently returns nothing.)
         const mine = String(j.sales_rep || "") === String(jn) || (j.owners || []).some((o) => String(o.id) === String(jn));

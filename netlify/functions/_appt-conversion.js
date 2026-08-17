@@ -170,6 +170,42 @@ async function fetchApptTaskMeta(jnKey, startSec, endSec) {
     }
     if (rows.length < 100) break;
   }
+
+  // FUTURE appointments — a second, small scan (now → +90 days).
+  //
+  // Without this, a no-sit that got RESCHEDULED looks unstatused. The rep marks
+  // "No Sit - Need to Reschedule", books a new date, and JobNimbus puts the job
+  // back to "Appointment Scheduled" — pointing at a date we couldn't see, because
+  // the scan above stops at now. The old appointment then read as "date passed,
+  // nobody statused it", which is exactly backwards: the rep did their job.
+  //
+  // Nothing else needs to change. m.latest becomes the future date, so the
+  // existing "count the deal in the week of its LATEST appt task" rule drops it
+  // out of this period on its own — it counts later, in the week it re-sits, the
+  // same as any other no-sit reschedule.
+  //
+  // Kept as a separate pass so the main scan's page budget is untouched, and only
+  // jobs already seen in-window are updated (a job with nothing but a future appt
+  // isn't part of this period anyway).
+  const futureEnd = nowSec + 90 * 86400;
+  const futureFilter = encodeURIComponent(JSON.stringify({ must: [{ range: { date_start: { gte: nowSec, lte: futureEnd } } }] }));
+  for (let page = 0; page < 20; page++) {
+    const r = await fetch(`${JN_BASE}/tasks?size=100&from=${page * 100}&filter=${futureFilter}`, { headers });
+    if (!r.ok) break;
+    const d = await r.json().catch(() => ({}));
+    const rows = d.results || d.tasks || d.data || [];
+    for (const t of rows) {
+      if (!APPT_TASK_TYPES.has(t.record_type_name)) continue;
+      const td = Number(t.date_start) || 0;
+      if (!td) continue;
+      for (const rel of (t.related || [])) {
+        if (rel.type !== "job" || !rel.id) continue;
+        const m = meta.get(rel.id);
+        if (m && td > m.latest) m.latest = td;   // re-booked ahead → counts in that week, not this one
+      }
+    }
+    if (rows.length < 100) break;
+  }
   return meta;
 }
 
