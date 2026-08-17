@@ -35,7 +35,12 @@ exports.handler = async (event) => {
   const sbHeaders = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` };
 
   // 1. Pull all "Sit Sold PA" jobs from JN. Filter by exact status_name.
-  const filter = JSON.stringify({ must: [{ term: { status_name: "Sit Sold PA" } }] });
+  //    ?status_name=<name> asks the same question about ANY status — read-only,
+  //    and the default is unchanged, so the Sit Sold PA report is unaffected.
+  //    (Added to answer "when did these get moved to Stale, and by whom" —
+  //    date_status_change is already in the response below.)
+  const wantStatus = String((event && event.queryStringParameters && event.queryStringParameters.status_name) || "Sit Sold PA").trim();
+  const filter = JSON.stringify({ must: [{ term: { status_name: wantStatus } }] });
   const jobs = [];
   let from = 0;
   for (let page = 0; page < MAX_PAGES; page++) {

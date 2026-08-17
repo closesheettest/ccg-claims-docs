@@ -84,6 +84,9 @@ function isNoSitReschedule(job) { return NO_SIT_RESCHEDULE_STATUSES.has(normStat
 const DIDNT_SIT_STATUSES = new Set([
   "no show h o", "no sit no show", "no sit",
   "no sit need to reschedule", "no sit rescheduled", "refused appointment",
+  // DQ is a no-sit — Neal, 2026-08-17. A disqualified appointment never became a
+  // sit-down, so it must not sit in the denominator of the closing percentage.
+  "dq",
 ]);
 function actuallySat(job) { return !DIDNT_SIT_STATUSES.has(normStatus(job.status_name)); }
 // Outcome of a counted appointment that isn't in a (net) SOLD status:
