@@ -34,6 +34,7 @@ exports.handler = async (event) => {
   if (action === "update_contact") return await updateContact(id, body);
   if (action === "pa_slots" || action === "pa_book") return await paProxy(action, id, body);
   if (action === "change_result") return await changeResult(id, body);
+  if (action === "sold_retail_pa_continues") return await soldRetailPaContinues(id, body);
   return cors(400, JSON.stringify({ ok: false, error: `unknown action: ${action}` }));
 };
 
@@ -144,6 +145,36 @@ async function paProxy(action, id, body) {
     const r = await fetch(`${base}/.netlify/functions/pa-schedule-api`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
     return cors(r.status, await r.text());
   } catch (e) { return cors(502, JSON.stringify({ ok: false, error: e.message || "PA scheduler unreachable" })); }
+}
+// "We sold the roof retail, but the PA is still working the claim."
+//
+// Deliberately NOT "change result → retail": that pulls the deal out of the PA
+// lane and off the PA's board. This books the retail sale as its OWN JobNimbus
+// job on the same homeowner and leaves the insurance job with the PA, with a
+// note on both saying the pair is intentional. All of that lives in
+// damage-to-retail (the same thing the rep's Damage go-back does) — proxy to it
+// so there's one implementation, not two that can drift.
+//
+// The lookup is the only place this is reachable for a deal a PA already has:
+// once a PA is working it, the deal drops off the rep's go-back list, so there
+// is no pin or card to tap — you search the address here.
+async function soldRetailPaContinues(id, body) {
+  const startIso = String(body.start_at_iso || "").trim();
+  if (!startIso || !Date.parse(startIso)) return cors(400, JSON.stringify({ ok: false, error: "start_at_iso required" }));
+  const token = (await getSetting("visit_token")) || (await getSetting("dialer_token"));
+  if (!token) return cors(500, JSON.stringify({ ok: false, error: "No token configured (app_settings visit_token)." }));
+  const base = process.env.URL || process.env.DEPLOY_URL || "https://free-roof-inspections.netlify.app";
+  try {
+    const r = await fetch(`${base}/.netlify/functions/damage-to-retail`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        token, inspection_id: id, start_at_iso: startIso,
+        rep_jobnimbus_id: String(body.rep_jobnimbus_id || "").trim(),
+        booked_by: String(body.by || "").trim() || "Manager (lookup)",
+      }),
+    });
+    return cors(r.status, await r.text());
+  } catch (e) { return cors(502, JSON.stringify({ ok: false, error: e.message || "Retail booking unreachable" })); }
 }
 async function getSetting(key) { const rows = await sbGet(`app_settings?key=eq.${encodeURIComponent(key)}&select=value&limit=1`); return rows[0]?.value || null; }
 

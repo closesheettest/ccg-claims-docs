@@ -8494,14 +8494,86 @@ function InspectionActions({ d, base = "", onChanged }) {
     setBusy(false); setConfirmResult(null); setOpen(null);
   };
   const canPa = d.result === "damage";
+  // "We sold it retail, but the PA keeps going." Only offered on a damage deal a
+  // PA actually has — that deal has dropped off the rep's go-back list, so this
+  // search is the only place to record it. Booking creates a SEPARATE retail job
+  // and leaves the PA's insurance job alone.
+  const paOnIt = d.result === "damage" && (!!d.pa_id || ["active", "waiting_docs", "signed"].includes(d.pa_stage || ""));
+  const [retailDays, setRetailDays] = useState(null);
+  const [pickingRetail, setPickingRetail] = useState("");
+  const openBtrPa = () => {
+    if (open === "btrpa") { setOpen(null); return; }
+    setOpen("btrpa"); setMsg("");
+    // Next 14 days, 9am–6pm on the hour, weekdays + Saturday morning.
+    const days = [];
+    for (let i = 1; i <= 14; i++) {
+      const dt = new Date(); dt.setDate(dt.getDate() + i); dt.setHours(0, 0, 0, 0);
+      const wd = dt.getDay();
+      if (wd === 0) continue;
+      const hours = wd === 6 ? [9, 10, 11, 12] : [9, 10, 11, 12, 13, 14, 15, 16, 17, 18];
+      days.push({
+        key: dt.toDateString(),
+        label: dt.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" }),
+        slots: hours.map((h) => {
+          const s = new Date(dt); s.setHours(h, 0, 0, 0);
+          return { iso: s.toISOString(), time: s.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) };
+        }),
+      });
+    }
+    setRetailDays(days);
+  };
+  const bookBtrPa = async (slot) => {
+    setPickingRetail(slot.iso); setMsg("");
+    try {
+      const j = await post("inspection-action", { action: "sold_retail_pa_continues", inspection_id: d.inspection_id, start_at_iso: slot.iso, by: "Manager (lookup)" });
+      if (!j.ok) setMsg(j.error || "Booking failed.");
+      else {
+        setMsg("✓ Retail sale booked on its own JobNimbus job. The PA keeps the insurance job — both jobs got a note explaining why there are two.");
+        setTimeout(() => onChanged && onChanged(), 1600);
+      }
+    } catch { setMsg("Network error."); }
+    setPickingRetail("");
+  };
 
   return (
     <div style={{ marginTop: 12, borderTop: "1px dashed #d1d5db", paddingTop: 10 }}>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
         <button type="button" onClick={() => setOpen(open === "fix" ? null : "fix")} style={actBtn}>✏️ Fix homeowner info</button>
         {canPa && <button type="button" onClick={() => (open === "pa" ? setOpen(null) : loadSlots())} style={actBtn}>📅 Schedule a PA</button>}
+        {paOnIt && (
+          <button type="button" onClick={openBtrPa}
+            style={{ ...actBtn, border: "1px solid #7c3aed", color: open === "btrpa" ? "#fff" : "#6d28d9", background: open === "btrpa" ? "#7c3aed" : "#faf5ff" }}>
+            🏠 Sold retail — PA keeps going
+          </button>
+        )}
         <button type="button" onClick={() => { setConfirmResult(null); setOpen(open === "result" ? null : "result"); }} style={actBtn}>🔄 Change result</button>
       </div>
+      {open === "btrpa" && (
+        <div style={{ marginTop: 10, background: "#fff", border: "1px solid #e5e7eb", borderRadius: 10, padding: 12 }}>
+          <div style={{ fontSize: 13, color: "#374151", marginBottom: 4 }}>
+            <b>The roof was sold retail and {d.pa_name || "the PA"} is still working the claim.</b> Pick the retail appointment time.
+          </div>
+          <div style={{ fontSize: 12.5, color: "#6b7280", marginBottom: 10 }}>
+            This creates a <b>separate Retail job</b> for the sale and leaves the insurance job exactly where it is — same PA, same status.
+            Both jobs get a note saying the two jobs are on purpose. Nothing is taken off the PA.
+          </div>
+          <div style={{ maxHeight: 320, overflowY: "auto" }}>
+            {(retailDays || []).map((day) => (
+              <div key={day.key} style={{ marginBottom: 12 }}>
+                <div style={{ fontSize: 11.5, fontWeight: 800, textTransform: "uppercase", color: "#9ca3af", marginBottom: 6 }}>{day.label}</div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                  {day.slots.map((s) => (
+                    <button key={s.iso} type="button" disabled={!!pickingRetail} onClick={() => bookBtrPa(s)}
+                      style={{ border: "1px solid #7c3aed", color: "#6d28d9", background: "#fff", borderRadius: 10, padding: "8px 12px", fontSize: 13, fontWeight: 700, cursor: "pointer", opacity: pickingRetail ? 0.6 : 1 }}>
+                      {pickingRetail === s.iso ? "…" : s.time}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       {open === "result" && (
         <div style={{ marginTop: 10, background: "#fff", border: "1px solid #e5e7eb", borderRadius: 10, padding: 12 }}>
           <div style={{ fontSize: 13, color: "#374151", marginBottom: 8 }}>
