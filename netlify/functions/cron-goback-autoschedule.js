@@ -47,10 +47,23 @@ export const handler = async () => {
     // Candidates: completed inspection, not booked, not cancelled, has a cell + a rep.
     const rows = await sbGetAll(
       `inspections?result_at=gte.${encodeURIComponent(floor)}&review_appt_at=is.null&cancelled_at=is.null` +
-      `&mobile=not.is.null&result=not.is.null` +
-      `&select=id,client_name,mobile,email,address,city,state,zip,sales_rep_name,result_at,goback_token`
+      `&mobile=not.is.null&result=not.is.null&retail_outcome=not.eq.sold` +
+      `&select=id,client_name,jn_status,mobile,email,address,city,state,zip,sales_rep_name,result_at,goback_token`
     );
     if (!rows.length) return resp(200, { ok: true, sent: 0, candidates: 0 });
+
+  // ALREADY BOUGHT A ROOF → do not ask them to book a report review.
+  //
+  // The booked-check (review_appt_at) only catches someone who scheduled the
+  // come-back. It says nothing about a homeowner who SOLD — and "I have your
+  // report and want to come go over it" to a customer who signed a contract
+  // last week reads like nobody here talks to each other. Caught on Wilmer
+  // Benitez, who sold retail while his PA keeps the claim.
+  //
+  // retail_outcome=sold is filtered in the query above; the JN sold statuses are
+  // filtered here because jn_status is free text.
+  const SOLD_JN = new Set(["sit sold","signed contract","production review","job prep","in funding","waiting on pace","upcoming installs","install set","roof started","new roof","install complete collect payment","paid closed","upcoming commissions","commission","holds","extras"]);
+  const notSold = (r) => !SOLD_JN.has(String(r.jn_status || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim());
 
     // Which (inspection, msg#) already went out.
     const ids = rows.map((r) => r.id);
@@ -60,6 +73,7 @@ export const handler = async () => {
 
     let sent = 0;
     for (const insp of rows) {
+      if (!notSold(insp)) continue;          // already bought a roof
       const anchorDay = tzParts(new Date(insp.result_at)); // ET Y/M/D of completion
       for (let idx = 0; idx < msgs.length; idx++) {
         if (sentSet.has(`${insp.id}:${idx}`)) continue;

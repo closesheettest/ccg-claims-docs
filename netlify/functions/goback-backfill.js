@@ -66,9 +66,22 @@ export const handler = async (event) => {
   const sinceIso = new Date(Date.now() - days * 86400000).toISOString();
   const rows = await sbGetAll(
     `inspections?result_at=gte.${encodeURIComponent(sinceIso)}&review_appt_at=is.null&cancelled_at=is.null` +
-    `&mobile=not.is.null&result=not.is.null&goback_token=not.is.null` +
-    `&select=id,client_name,mobile,email,address,city,state,zip,sales_rep_name,result,result_at,goback_token&order=result_at.desc`
+    `&mobile=not.is.null&result=not.is.null&retail_outcome=not.eq.sold&goback_token=not.is.null` +
+    `&select=id,client_name,jn_status,mobile,email,address,city,state,zip,sales_rep_name,result,result_at,goback_token&order=result_at.desc`
   );
+
+  // ALREADY BOUGHT A ROOF → do not ask them to book a report review.
+  //
+  // The booked-check (review_appt_at) only catches someone who scheduled the
+  // come-back. It says nothing about a homeowner who SOLD — and "I have your
+  // report and want to come go over it" to a customer who signed a contract
+  // last week reads like nobody here talks to each other. Caught on Wilmer
+  // Benitez, who sold retail while his PA keeps the claim.
+  //
+  // retail_outcome=sold is filtered in the query above; the JN sold statuses are
+  // filtered here because jn_status is free text.
+  const SOLD_JN = new Set(["sit sold","signed contract","production review","job prep","in funding","waiting on pace","upcoming installs","install set","roof started","new roof","install complete collect payment","paid closed","upcoming commissions","commission","holds","extras"]);
+  const notSold = (r) => !SOLD_JN.has(String(r.jn_status || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim());
 
   // Anyone the sequence ACTUALLY REACHED is out — this must never double up.
   //
@@ -90,6 +103,7 @@ export const handler = async (event) => {
   const byPhone = new Map();
   for (const r of rows) {
     if (already.has(r.id)) continue;
+    if (!notSold(r)) continue;              // already bought a roof
     const key = String(r.mobile || "").replace(/\D/g, "").slice(-10);
     if (key.length < 10) continue;
     if (!byPhone.has(key)) byPhone.set(key, r);
