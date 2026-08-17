@@ -29,8 +29,21 @@ export const handler = async (event) => {
     const action = String(body.action || "").trim();
     const t = String(body.t || "").trim();
     if (!t) return cors(400, JSON.stringify({ ok: false, error: "This link is missing its code — use the link from your text." }));
-    const insp = (await sbGet(`inspections?goback_token=eq.${encodeURIComponent(t)}&select=id,client_name,address,city,state,zip,mobile,sales_rep_name,sales_rep_id,jn_job_id,review_appt_at&limit=1`))[0];
+    const insp = (await sbGet(`inspections?goback_token=eq.${encodeURIComponent(t)}&select=id,client_name,address,city,state,zip,mobile,sales_rep_name,sales_rep_id,jn_job_id,review_appt_at,goback_opened_at&limit=1`))[0];
     if (!insp) return cors(404, JSON.stringify({ ok: false, error: "We couldn't find your inspection — please contact the office." }));
+
+    // OPENED — stamp the first time the homeowner actually lands on their booking
+    // page. "Contacted" only says a message left the building; this says they read
+    // it and clicked. The gap between the two is the interesting number: opened and
+    // did NOT book is a warm homeowner sitting there for a rep to call, and a rep
+    // chasing those beats a rep chasing everyone. First open only — never overwrite,
+    // so it stays the moment they first showed interest.
+    if (!insp.goback_opened_at) {
+      fetch(`${SB_URL}/rest/v1/inspections?id=eq.${encodeURIComponent(insp.id)}`, {
+        method: "PATCH", headers: { ...sb, Prefer: "return=minimal" },
+        body: JSON.stringify({ goback_opened_at: new Date().toISOString() }),
+      }).catch(() => { /* never block the homeowner's page on analytics */ });
+    }
 
     if (action === "load") {
       const first = (insp.client_name || "").trim().split(/\s+/)[0] || "there";
