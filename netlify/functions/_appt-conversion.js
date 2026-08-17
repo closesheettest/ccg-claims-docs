@@ -324,7 +324,7 @@ function newRep(rep) {
   // It's an OVERLAY, not a 4th category — a re-sit is still one of harv/comp/btr,
   // so harv+comp+btr still equals appts. resitPct = resitSl ÷ resitAp.
   // creditAp = credit-denied deals (a sale that couldn't finance) → feeds the GROSS %.
-  return { rep, level: "", appts: 0, satAp: 0, harvSat: 0, compSat: 0, btrSat: 0, harvAp: 0, compAp: 0, btrAp: 0, resitAp: 0, pendAp: 0, deadAp: 0, creditAp: 0, sales: 0, harvSl: 0, compSl: 0, btrSl: 0, resitSl: 0, resitAmt: 0, harvAmt: 0, compAmt: 0, btrAmt: 0, amt: 0, rb: 0, ins: 0, details: [] };
+  return { rep, level: "", appts: 0, unstatused: 0, satAp: 0, harvSat: 0, compSat: 0, btrSat: 0, harvAp: 0, compAp: 0, btrAp: 0, resitAp: 0, pendAp: 0, deadAp: 0, creditAp: 0, sales: 0, harvSl: 0, compSl: 0, btrSl: 0, resitSl: 0, resitAmt: 0, harvAmt: 0, compAmt: 0, btrAmt: 0, amt: 0, rb: 0, ins: 0, details: [] };
 }
 
 // TMS rep_level → short badge. "" when unknown (rep_level not set).
@@ -335,9 +335,25 @@ function levelLabel(repLevel) {
   return "";
 }
 
+// UNSTATUSED — the appointment date came and went and nobody ever recorded what
+// happened; the job is still sitting at "Appointment Scheduled". It is NOT an
+// appointment, NOT a sit and NOT a no-sit — it doesn't exist in the math (Neal,
+// 2026-08-17). Counting it as a sit credited a rep for a sit-down that nobody can
+// show happened, purely because the record was never touched.
+//
+// It's only ever a PAST appointment here: the report doesn't count an appointment
+// until its date has passed. The moment someone statuses it, it stops matching
+// this and flows into the numbers normally — nothing to re-run.
+function isUnstatused(job) { return normStatus(job.status_name) === "appointment scheduled"; }
+
 // An appointment that happened in the period (bucketed by category).
 function tallyAppt(rec, job) {
   const cat = categoryOf(job);
+  if (isUnstatused(job)) {
+    rec.unstatused++;
+    rec.details.push({ kind: "unstatused", cat, ...dealInfo(job) });
+    return;
+  }
   rec.appts++;
   // Did they actually get in front of the homeowner? A counted appointment in a
   // no-show / no-sit / refused status came due but never became a sit, so the
@@ -378,7 +394,7 @@ function avg(total, count) { return count > 0 ? Math.round(total / count) : 0; }
 function shapeRep(r) {
   return {
     rep: r.rep, level: r.level || "",
-    satAp: r.satAp, satPct: pct(r.satAp, r.appts), harvAp: r.harvAp, compAp: r.compAp, btrAp: r.btrAp, resitAp: r.resitAp, pendAp: r.pendAp, deadAp: r.deadAp, creditAp: r.creditAp, appts: r.appts,
+    satAp: r.satAp, satPct: pct(r.satAp, r.appts), unstatused: r.unstatused, harvAp: r.harvAp, compAp: r.compAp, btrAp: r.btrAp, resitAp: r.resitAp, pendAp: r.pendAp, deadAp: r.deadAp, creditAp: r.creditAp, appts: r.appts,
     harvSl: r.harvSl, compSl: r.compSl, btrSl: r.btrSl, resitSl: r.resitSl, sales: r.sales,
     harvAmt: Math.round(r.harvAmt), compAmt: Math.round(r.compAmt), btrAmt: Math.round(r.btrAmt),
     harvPct: pct(r.harvSl, r.harvSat), compPct: pct(r.compSl, r.compSat), btrPct: pct(r.btrSl, r.btrSat), resitPct: pct(r.resitSl, r.resitAp),
@@ -398,15 +414,15 @@ function shapeRep(r) {
 }
 function sumTotals(reps) {
   const t = reps.reduce((s, r) => ({
-    appts: s.appts + r.appts, satAp: s.satAp + r.satAp, harvSat: s.harvSat + r.harvSat, compSat: s.compSat + r.compSat, btrSat: s.btrSat + r.btrSat, harvAp: s.harvAp + r.harvAp, compAp: s.compAp + r.compAp, btrAp: s.btrAp + r.btrAp, resitAp: s.resitAp + r.resitAp, pendAp: s.pendAp + r.pendAp, deadAp: s.deadAp + r.deadAp, creditAp: s.creditAp + r.creditAp,
+    appts: s.appts + r.appts, unstatused: s.unstatused + r.unstatused, satAp: s.satAp + r.satAp, harvSat: s.harvSat + r.harvSat, compSat: s.compSat + r.compSat, btrSat: s.btrSat + r.btrSat, harvAp: s.harvAp + r.harvAp, compAp: s.compAp + r.compAp, btrAp: s.btrAp + r.btrAp, resitAp: s.resitAp + r.resitAp, pendAp: s.pendAp + r.pendAp, deadAp: s.deadAp + r.deadAp, creditAp: s.creditAp + r.creditAp,
     sales: s.sales + r.sales, harvSl: s.harvSl + r.harvSl, compSl: s.compSl + r.compSl, btrSl: s.btrSl + r.btrSl, resitSl: s.resitSl + r.resitSl, resitAmt: s.resitAmt + r.resitAmt,
     harvAmt: s.harvAmt + r.harvAmt, compAmt: s.compAmt + r.compAmt, btrAmt: s.btrAmt + r.btrAmt,
     amt: s.amt + r.amt, rb: s.rb + r.rb, ins: s.ins + r.ins,
-  }), { appts: 0, satAp: 0, harvSat: 0, compSat: 0, btrSat: 0, harvAp: 0, compAp: 0, btrAp: 0, resitAp: 0, pendAp: 0, deadAp: 0, creditAp: 0, sales: 0, harvSl: 0, compSl: 0, btrSl: 0, resitSl: 0, resitAmt: 0, harvAmt: 0, compAmt: 0, btrAmt: 0, amt: 0, rb: 0, ins: 0 });
+  }), { appts: 0, unstatused: 0, satAp: 0, harvSat: 0, compSat: 0, btrSat: 0, harvAp: 0, compAp: 0, btrAp: 0, resitAp: 0, pendAp: 0, deadAp: 0, creditAp: 0, sales: 0, harvSl: 0, compSl: 0, btrSl: 0, resitSl: 0, resitAmt: 0, harvAmt: 0, compAmt: 0, btrAmt: 0, amt: 0, rb: 0, ins: 0 });
   return {
     ...t,
     harvAmt: Math.round(t.harvAmt), compAmt: Math.round(t.compAmt), btrAmt: Math.round(t.btrAmt),
-    satAp: t.satAp, satPct: pct(t.satAp, t.appts), harvPct: pct(t.harvSl, t.harvSat), compPct: pct(t.compSl, t.compSat), btrPct: pct(t.btrSl, t.btrSat), resitPct: pct(t.resitSl, t.resitAp),
+    satAp: t.satAp, satPct: pct(t.satAp, t.appts), unstatused: t.unstatused, harvPct: pct(t.harvSl, t.harvSat), compPct: pct(t.compSl, t.compSat), btrPct: pct(t.btrSl, t.btrSat), resitPct: pct(t.resitSl, t.resitAp),
     harvAvg: avg(t.harvAmt, t.harvSl), compAvg: avg(t.compAmt, t.compSl), btrAvg: avg(t.btrAmt, t.btrSl), resitAvg: avg(t.resitAmt, t.resitSl),
     pct: pct(t.sales, t.satAp), grossPct: pct(t.sales + t.creditAp, t.satAp), pendPct: pct(t.pendAp, t.satAp),
     amt: Math.round(t.amt),
