@@ -70,11 +70,18 @@ export const handler = async (event) => {
     `&select=id,client_name,mobile,email,address,city,state,zip,sales_rep_name,result,result_at,goback_token&order=result_at.desc`
   );
 
-  // Anyone already texted by the sequence is out — this must never double up.
+  // Anyone the sequence ACTUALLY REACHED is out — this must never double up.
+  //
+  // ok=true only. The cron writes a log row in two very different cases: it sent
+  // the message (ok=true), or the message was past its 18-hour window so it was
+  // marked skipped and nothing went out (ok=false). Treating both as "already
+  // texted" excluded exactly the people this catch-up exists for — when the
+  // toggle was saved on 8/17 the cron immediately marked 28 stale messages
+  // skipped, all ok=false, and those 16 homeowners had received nothing.
   const already = new Set();
   if (rows.length) {
     const ids = rows.map((r) => `"${r.id}"`).join(",");
-    const logs = await sbGetAll(`goback_text_log?inspection_id=in.(${ids})&select=inspection_id`);
+    const logs = await sbGetAll(`goback_text_log?inspection_id=in.(${ids})&ok=is.true&select=inspection_id`);
     for (const l of logs) already.add(l.inspection_id);
   }
 
@@ -93,7 +100,7 @@ export const handler = async (event) => {
     return resp(200, {
       ok: true, dry_run: true, window_days: days,
       would_send: people.length,
-      skipped_already_texted: rows.filter((r) => already.has(r.id)).length,
+      skipped_already_reached: rows.filter((r) => already.has(r.id)).length,
       collapsed_duplicate_phones: rows.length - already.size - people.length,
       sample: people[0] ? fill(template, people[0]) : null,
       people: people.map((p) => ({
