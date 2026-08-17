@@ -8522,6 +8522,19 @@ function InspectionActions({ d, base = "", onChanged }) {
     }
     setRetailDays(days);
   };
+  // The sale already happened — record it, book nothing, touch JobNimbus not at all.
+  const bookAlreadySold = async () => {
+    setPickingRetail("sold"); setMsg("");
+    try {
+      const j = await post("inspection-action", { action: "sold_retail_pa_continues", inspection_id: d.inspection_id, already_sold: true, by: "Manager (lookup)" });
+      if (!j.ok) setMsg(j.error || "Save failed.");
+      else {
+        setMsg("✓ Recorded as a retail sale. The PA keeps the claim, and JobNimbus wasn't touched — leave the status where payroll needs it.");
+        setTimeout(() => onChanged && onChanged(), 1600);
+      }
+    } catch { setMsg("Network error."); }
+    setPickingRetail("");
+  };
   const bookBtrPa = async (slot) => {
     setPickingRetail(slot.iso); setMsg("");
     try {
@@ -8554,8 +8567,17 @@ function InspectionActions({ d, base = "", onChanged }) {
             <b>The roof was sold retail and {d.pa_name || "the PA"} is still working the claim.</b> Pick the retail appointment time.
           </div>
           <div style={{ fontSize: 12.5, color: "#6b7280", marginBottom: 10 }}>
-            This creates a <b>separate Retail job</b> for the sale and leaves the insurance job exactly where it is — same PA, same status.
-            Both jobs get a note saying the two jobs are on purpose. Nothing is taken off the PA.
+            Records it as a <b>retail sale</b> and <b>leaves the PA on the claim</b> — they keep the deal on their board and keep collecting docs.
+            Nothing is taken off the PA.
+          </div>
+          {/* Two shapes: the sale already happened (backfill — nothing to book), or
+              the rep set a retail appointment they still have to run. */}
+          <button type="button" disabled={!!pickingRetail} onClick={bookAlreadySold}
+            style={{ width: "100%", marginBottom: 12, border: "1px solid #7c3aed", background: "#7c3aed", color: "#fff", borderRadius: 10, padding: "11px 12px", fontSize: 13.5, fontWeight: 800, cursor: "pointer", opacity: pickingRetail ? 0.6 : 1 }}>
+            {pickingRetail === "sold" ? "Saving…" : "✅ Already sold — no appointment to book"}
+          </button>
+          <div style={{ fontSize: 12, color: "#9ca3af", fontWeight: 700, marginBottom: 8 }}>
+            …or the retail appointment still has to be run — pick the time:
           </div>
           <div style={{ maxHeight: 320, overflowY: "auto" }}>
             {(retailDays || []).map((day) => (

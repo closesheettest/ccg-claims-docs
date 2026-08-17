@@ -159,6 +159,38 @@ async function paProxy(action, id, body) {
 // once a PA is working it, the deal drops off the rep's go-back list, so there
 // is no pin or card to tap — you search the address here.
 async function soldRetailPaContinues(id, body) {
+  const by = String(body.by || "").trim() || "Manager (lookup)";
+  // ALREADY SOLD — no appointment to book (the sale happened, we're recording it).
+  //
+  // Nothing is written to JobNimbus. A sold BTR is parked on "Sit Sold Insp" on
+  // the retail side so PAYROLL knows to pay it at the BTR rate — that's the
+  // office's convention and this must not disturb it. But "Sit Sold Insp" is
+  // also the UNWORKED retail pool status, so on its own the deal would read as a
+  // lead nobody has gone back to. retail_outcome="sold" is what tells every
+  // report otherwise (see _retail.js retailStage — a recorded outcome beats the
+  // stale pool status). The PA keeps the claim: pa_id/pa_stage are untouched.
+  if (body.already_sold) {
+    const insp = (await sbGet(`inspections?id=eq.${encodeURIComponent(id)}&select=id,client_name,pa_id,pa_stage,pa_notes_log,result&limit=1`))[0];
+    if (!insp) return cors(404, JSON.stringify({ ok: false, error: "inspection not found" }));
+    const nowIso = new Date().toISOString();
+    const log = Array.isArray(insp.pa_notes_log) ? insp.pa_notes_log : [];
+    log.push({
+      at: nowIso, stage: insp.pa_stage || null,
+      text: `🏠 Roof SOLD RETAIL (recorded by ${by}). The PA stays on it — the homeowner still wants the adjuster to finish the claim.`,
+    });
+    const r = await fetch(`${SB_URL}/rest/v1/inspections?id=eq.${encodeURIComponent(id)}`, {
+      method: "PATCH", headers: { ...sb, Prefer: "return=minimal" },
+      body: JSON.stringify({
+        result: "retail", result_at: nowIso, pa_notes_log: log,
+        retail_outcome: "sold", retail_outcome_at: nowIso, retail_outcome_by: by,
+      }),
+    });
+    if (!r.ok) return cors(500, JSON.stringify({ ok: false, error: `Save failed: ${(await r.text()).slice(0, 160)}` }));
+    return cors(200, JSON.stringify({
+      ok: true, already_sold: true, pa_stays: !!insp.pa_id,
+      note: "Recorded as a retail sale. The PA keeps the claim. JobNimbus was not touched.",
+    }));
+  }
   const startIso = String(body.start_at_iso || "").trim();
   if (!startIso || !Date.parse(startIso)) return cors(400, JSON.stringify({ ok: false, error: "start_at_iso required" }));
   const token = (await getSetting("visit_token")) || (await getSetting("dialer_token"));

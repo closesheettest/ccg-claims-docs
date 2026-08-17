@@ -396,7 +396,8 @@ exports.handler = async (event) => {
   // result=eq.damage: a deal that's been converted back to RETAIL (rep marked it
   // Not Interested / BTR, so result flips to "retail") must leave the PA pool —
   // otherwise it keeps re-surfacing in the company's "Needs assigning" even after
-  // they DQ it (the Ariel Alvarez bug). PA work is only ever on damage claims.
+  // they DQ it (the Ariel Alvarez bug). The ONE exception is pulled in below: a
+  // retail deal that still has an assigned PA actively working it.
   const sel = `select=id,client_name,address,city,state,zip,county,signed_at,mobile,email,jn_job_id,latitude,longitude,pa_id,pa_company_id,pa_stage,pa_opened_at,pa_notes_log,correction_needed,pa_company_at,spanish_only,cancelled_at,pa_signed_at,pa_fields`;
   const dealMap = {};
   for (const d of (await get(`${SB_URL}/rest/v1/inspections?result=eq.damage&pa_company_id=eq.${company.id}&${sel}&order=signed_at.desc&limit=500`, sb)) || []) dealMap[d.id] = d;
@@ -404,6 +405,17 @@ exports.handler = async (event) => {
   if (paIdList.length) {
     const inList = `(${paIdList.map((id) => `"${id}"`).join(",")})`;
     for (const d of (await get(`${SB_URL}/rest/v1/inspections?result=eq.damage&pa_id=in.${encodeURIComponent(inList)}&${sel}&order=signed_at.desc&limit=500`, sb)) || []) dealMap[d.id] = d;
+    // "Sold retail, PA keeps going." The homeowner bought the roof from us AND
+    // still wants their adjuster to work the claim, so the deal flips to
+    // result="retail" but the PA stays on it. Without this pull it would vanish
+    // off the company's board mid-claim — they'd lose a live file they're still
+    // collecting documents for.
+    //
+    // This canNOT reintroduce the Ariel Alvarez bug: it requires an ASSIGNED PA
+    // in an active stage, and "Needs assigning" is bucketed on having NO pa_id.
+    // A BTR / Not-Interested deal has no PA, so it still leaves the pool.
+    const liveStages = `("active","waiting_docs","signed")`;
+    for (const d of (await get(`${SB_URL}/rest/v1/inspections?result=eq.retail&pa_id=in.${encodeURIComponent(inList)}&pa_stage=in.${encodeURIComponent(liveStages)}&${sel}&order=signed_at.desc&limit=500`, sb)) || []) dealMap[d.id] = d;
   }
   // Drop cancelled + dead, then newest-signed first.
   const deals = Object.values(dealMap)
