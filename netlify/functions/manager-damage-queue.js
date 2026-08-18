@@ -141,7 +141,15 @@ exports.handler = async (event) => {
     const wanted = (Array.isArray(body.results) && body.results.length ? body.results : ["damage", "no_damage", "retail"])
       .filter((x) => ["damage", "no_damage", "retail"].includes(x));
     const sel = "id,client_name,address,city,county,zip,mobile,result,result_at,original_sales_rep_id,original_sales_rep_name,sales_rep_id,sales_rep_name,pa_stage";
-    const rows = await sbGet(`inspections?result=in.(${wanted.join(",")})&cancelled_at=is.null&pa_signed_at=is.null&jn_job_id=not.is.null&select=${sel}&order=result_at.asc&limit=5000`);
+    // A deal that already SOLD doesn't need a rep assigned to go work it. Jane Ann
+    // Davis sat here 80 days as "No-Damage, unassigned" while JobNimbus had her at
+    // Holds with a sold date — the queue was asking a manager to hand out a roof
+    // that had already been sold (Anthony via Neal, 2026-08-18).
+    //
+    // or=(is.null,neq.sold) rather than not.eq.sold: in PostgREST a NOT-EQUAL on a
+    // NULL column is NULL, not TRUE, so the plain form silently drops every deal
+    // with no outcome recorded — which is nearly all of them.
+    const rows = await sbGet(`inspections?result=in.(${wanted.join(",")})&cancelled_at=is.null&pa_signed_at=is.null&jn_job_id=not.is.null&or=(retail_outcome.is.null,retail_outcome.neq.sold)&select=${sel}&order=result_at.asc&limit=5000`);
     const isActive = (id, name) => (id && activeById.has(id)) || (name && activeByName.has(norm(name)));
     const now = Date.now();
     const deals = rows.filter((r) => {
