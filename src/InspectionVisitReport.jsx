@@ -37,7 +37,16 @@ export default function InspectionVisitReport() {
               <div key={ins.inspector}>
                 <button onClick={() => setOpenInsp(io ? null : ins.inspector)} style={{ width: "100%", textAlign: "left", cursor: "pointer", background: io ? "#0f172a" : "#eef2f7", border: "none", borderRadius: 12, padding: "12px 16px", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
                   <span style={{ fontSize: 18, fontWeight: 900, fontFamily: OSWALD, color: io ? "#fff" : "#0f172a" }}>👷 {ins.inspector}</span>
-                  <span style={{ fontSize: 13, fontWeight: 800, color: io ? "#cbd5e1" : "#64748b" }}>{ins.roofs} roofs · {ins.days} days · ~{ins.miles} mi</span>
+                  <span style={{ fontSize: 13, fontWeight: 800, color: io ? "#cbd5e1" : "#64748b" }}>
+                    {ins.roofs} roofs · {ins.days} days · ~{ins.miles} mi
+                    {/* Roofs is the work. on_map is how many were worked through the
+                        map — the GPS-verified ones. A gap is a nudge to use the map,
+                        NOT a smaller roof count: the report used to show only the
+                        mapped ones and made a 51-roof fortnight look like 13. */}
+                    {ins.on_map != null && ins.on_map < ins.roofs && (
+                      <span style={{ color: io ? "#94a3b8" : "#b45309" }}> · {ins.on_map} on the map</span>
+                    )}
+                  </span>
                   <span style={{ marginLeft: "auto", color: io ? "#fff" : "#94a3b8" }}>{io ? "▲" : "▼"}</span>
                 </button>
                 {io && <div style={{ display: "grid", gap: 6, marginTop: 6 }}>
