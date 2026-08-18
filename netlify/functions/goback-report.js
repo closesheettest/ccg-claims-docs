@@ -26,6 +26,9 @@ const sb = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` };
 // surname (see the rep-name matching gotcha).
 const ZONE_TEAMS = { "Zone 1": "SQUAD", "Zone 2": "SitSold", "Zone 3": "SHARKS", "Zone 4": "HURRICANE" };
 const normName = (s) => String(s || "").toLowerCase().replace(/[^a-z ]+/g, " ").replace(/\s+/g, " ").trim();
+
+// A REAL sales zone, not a training-class region. only real sales zones: a rep who also has an old TRAINEE record carries that record's TRAINING region ("St Pete") in the same field, and last-write-wins let it overwrite the live zone — Todd Saylor lost his team on the self-scheduler report (Neal, 2026-08-18)
+const isSalesZone = (z) => /^Zone \d+$/.test(String(z || "").trim());
 async function repZones() {
   try {
     const r = await fetch("https://trainingmanagementsys.netlify.app/.netlify/functions/rep-zones?include_inactive=1");
@@ -33,7 +36,7 @@ async function repZones() {
     const reps = (await r.json()).reps || [];
     const m = {};
     for (const x of reps) {
-      if (!x.name || !x.zone) continue;
+      if (!x.name || !isSalesZone(x.zone)) continue;   // /* only real sales zones: a rep who also has an old TRAINEE record carries that record's TRAINING region ("St Pete") in the same field, and last-write-wins let it overwrite the live zone — Todd Saylor lost his team on the self-scheduler report (Neal, 2026-08-18) */
       m[normName(x.name)] = x.zone;
     }
     return m;

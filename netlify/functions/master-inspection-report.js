@@ -31,7 +31,7 @@ async function fetchZoneByRep() {
   const map = {};
   try {
     const res = await fetch(TMS_REP_ZONES_URL);
-    if (res.ok) { const j = await res.json(); for (const r of (j.reps || [])) if (r.name && r.zone) map[normalizeName(r.name)] = r.zone; }
+    if (res.ok) { const j = await res.json(); for (const r of (j.reps || [])) if (r.name && isSalesZone(r.zone)) map[normalizeName(r.name)] = r.zone; }
   } catch { /* best-effort — reps with no zone bucket under "Unassigned" */ }
   return map;
 }
@@ -53,6 +53,9 @@ async function sbGetAll(pathQuery, pageSize = 1000) {
 }
 
 const isYes = (v) => v === true || v === "true" || v === "Yes" || v === "yes";
+
+// A REAL sales zone, not a training-class region. only real sales zones: a rep who also has an old TRAINEE record carries that record's TRAINING region ("St Pete") in the same field, and last-write-wins let it overwrite the live zone — Todd Saylor lost his team on the self-scheduler report (Neal, 2026-08-18)
+const isSalesZone = (z) => /^Zone \d+$/.test(String(z || "").trim());
 // Epoch-seconds (JN cf_date) or ISO → ISO date string, else null.
 function toISO(v) {
   if (v == null || v === "") return null;

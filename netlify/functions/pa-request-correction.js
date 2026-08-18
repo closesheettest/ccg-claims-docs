@@ -25,6 +25,9 @@ const TMS_REP_ZONES_URL =
 const JN_BASE = "https://app.jobnimbus.com/api1";
 import { jnFetch } from "./_jn.js";
 
+// A REAL sales zone, not a training-class region. only real sales zones: a rep who also has an old TRAINEE record carries that record's TRAINING region ("St Pete") in the same field, and last-write-wins let it overwrite the live zone — Todd Saylor lost his team on the self-scheduler report (Neal, 2026-08-18)
+const isSalesZone = (z) => /^Zone \d+$/.test(String(z || "").trim());
+
 export const handler = async (event) => {
   if (event.httpMethod !== "POST") {
     return json(405, { ok: false, error: "Method not allowed" });
@@ -196,7 +199,7 @@ async function resolveZone(SB_URL, headers, rep, fallbackName) {
   const zoneByNormName = {};
   for (const r of tmsReps) {
     if (r.jobnimbus_id) zoneByJnId[r.jobnimbus_id] = r.zone;
-    if (r.name) zoneByNormName[normalizeName(r.name)] = r.zone;
+    if (r.name && isSalesZone(r.zone)) zoneByNormName[normalizeName(r.name)] = r.zone;
   }
   const jnId = rep?.jobnimbus_id;
   const name = rep?.name || fallbackName;

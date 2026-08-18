@@ -43,6 +43,9 @@ const ZONE_TEAMS = {
 // bar stable Monday morning when nobody's signed yet.
 const ZONE_ORDER = ['Zone 1', 'Zone 2', 'Zone 3', 'Zone 4']
 
+// A REAL sales zone, not a training-class region. only real sales zones: a rep who also has an old TRAINEE record carries that record's TRAINING region ("St Pete") in the same field, and last-write-wins let it overwrite the live zone — Todd Saylor lost his team on the self-scheduler report (Neal, 2026-08-18)
+const isSalesZone = (z) => /^Zone \d+$/.test(String(z || "").trim());
+
 export const handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') return cors(200, '')
   if (event.httpMethod !== 'GET') {
@@ -271,8 +274,8 @@ async function fetchZoneMaps() {
   const zoneByJnId = {}
   const zoneByNormName = {}
   for (const r of tmsReps) {
-    if (r.jobnimbus_id) zoneByJnId[r.jobnimbus_id] = r.zone
-    if (r.name) zoneByNormName[normalizeName(r.name)] = r.zone
+    if (r.jobnimbus_id && isSalesZone(r.zone)) zoneByJnId[r.jobnimbus_id] = r.zone
+    if (r.name && isSalesZone(r.zone)) zoneByNormName[normalizeName(r.name)] = r.zone
   }
 
   // b) CCG sales_reps → zone via the bridge. Keyed by CCG id + name so

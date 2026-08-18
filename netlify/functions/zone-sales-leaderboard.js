@@ -71,7 +71,14 @@ const SOLD_STATUSES = new Set([
 // real sold deals that hadn't been touched recently). The normalized
 // SOLD_STATUSES set above still does the authoritative filter, so any
 // over-match (e.g. "Sit - Sold" also returning "Sit Sold Insp") is dropped.
+// A REAL sales zone, not a training-class region: a rep who also has an old
+// TRAINEE record carries that record's TRAINING region ("St Pete") in the same
+// field, and last-write-wins let it overwrite the live zone — which is how Todd
+// Saylor lost his team on the self-scheduler report (Neal, 2026-08-18).
+const isSalesZone = (z) => /^Zone \d+$/.test(String(z || "").trim());
+
 const SOLD_STATUS_NAMES = [
+
   'Sit - Sold',
   'Signed Contract',
   'Production Review',
@@ -250,7 +257,7 @@ async function fetchZoneResolver() {
   const byName = {}
   for (const r of reps) {
     if (r.jobnimbus_id) byJnId[r.jobnimbus_id] = r.zone
-    if (r.name) byName[normalizeName(r.name)] = r.zone
+    if (r.name && isSalesZone(r.zone)) byName[normalizeName(r.name)] = r.zone
   }
   return (jnId, name) =>
     (jnId && byJnId[jnId]) || byName[normalizeName(name)] || null

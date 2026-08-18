@@ -73,6 +73,9 @@ function countyToZone(county, lat) {
 // backlog appointment by the PROPERTY's county). Mirrors all-no-sits.js.
 const GOOGLE_KEY = process.env.GOOGLE_MAPS_API_KEY || process.env.VITE_GOOGLE_PLACES_API_KEY
 const GOOGLE_GEOCODE = 'https://maps.googleapis.com/maps/api/geocode/json'
+
+// A REAL sales zone, not a training-class region. only real sales zones: a rep who also has an old TRAINEE record carries that record's TRAINING region ("St Pete") in the same field, and last-write-wins let it overwrite the live zone — Todd Saylor lost his team on the self-scheduler report (Neal, 2026-08-18)
+const isSalesZone = (z) => /^Zone \d+$/.test(String(z || "").trim());
 async function geocodeCounty(addr) {
   if (!GOOGLE_KEY || !addr) return null
   try {
@@ -1039,8 +1042,8 @@ async function loadRepZoneMaps() {
   } catch (e) { console.warn('rep-zones (incl inactive) fetch failed:', e.message || e) }
   const byJn = {}, byName = {}
   for (const r of tmsReps) {
-    if (r.jobnimbus_id && r.zone) byJn[r.jobnimbus_id] = r.zone
-    if (r.name && r.zone) byName[normalizeName(r.name)] = r.zone
+    if (r.jobnimbus_id && isSalesZone(r.zone)) byJn[r.jobnimbus_id] = r.zone
+    if (r.name && isSalesZone(r.zone)) byName[normalizeName(r.name)] = r.zone
   }
   return { byJn, byName }
 }
@@ -1068,8 +1071,8 @@ async function fetchRepsInZoneBridged(targetZone) {
   const zoneByJnId = {}
   const zoneByNormalizedName = {}
   for (const r of tmsReps) {
-    if (r.jobnimbus_id) zoneByJnId[r.jobnimbus_id] = r.zone
-    if (r.name) zoneByNormalizedName[normalizeName(r.name)] = r.zone
+    if (r.jobnimbus_id && isSalesZone(r.zone)) zoneByJnId[r.jobnimbus_id] = r.zone
+    if (r.name && isSalesZone(r.zone)) zoneByNormalizedName[normalizeName(r.name)] = r.zone
   }
 
   // b) CCG sales_reps — our local roster of who's allowed to sign

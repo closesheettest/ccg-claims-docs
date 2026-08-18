@@ -25,7 +25,14 @@
 //   (JobNimbus + GHL creds live in the functions we call internally.)
 //   URL or PUBLIC_SITE_URL — base for internal function calls.
 
+// A REAL sales zone, not a training-class region: a rep who also has an old
+// TRAINEE record carries that record's TRAINING region ("St Pete") in the same
+// field, and last-write-wins let it overwrite the live zone — which is how Todd
+// Saylor lost his team on the self-scheduler report (Neal, 2026-08-18).
+const isSalesZone = (z) => /^Zone \d+$/.test(String(z || "").trim());
+
 const TMS_REP_ZONES_URL =
+
   "https://trainingmanagementsys.netlify.app/.netlify/functions/rep-zones";
 
 exports.handler = async (event) => {
@@ -212,7 +219,7 @@ async function resolveZone(SB_URL, headers, rep, fallbackName) {
   const zoneByNormName = {};
   for (const r of tmsReps) {
     if (r.jobnimbus_id) zoneByJnId[r.jobnimbus_id] = r.zone;
-    if (r.name) zoneByNormName[normalizeName(r.name)] = r.zone;
+    if (r.name && isSalesZone(r.zone)) zoneByNormName[normalizeName(r.name)] = r.zone;
   }
   const jnId = rep?.jobnimbus_id;
   const name = rep?.name || fallbackName;

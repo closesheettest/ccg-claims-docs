@@ -16,6 +16,9 @@ const sb = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` };
 const TMS_REP_ZONES_URL = "https://trainingmanagementsys.netlify.app/.netlify/functions/rep-zones?include_inactive=1";
 const BASE = (process.env.URL || process.env.PUBLIC_SITE_URL || "https://free-roof-inspections.netlify.app").replace(/\/$/, "");
 
+// A REAL sales zone, not a training-class region. only real sales zones: a rep who also has an old TRAINEE record carries that record's TRAINING region ("St Pete") in the same field, and last-write-wins let it overwrite the live zone — Todd Saylor lost his team on the self-scheduler report (Neal, 2026-08-18)
+const isSalesZone = (z) => /^Zone \d+$/.test(String(z || "").trim());
+
 function normalizeName(s) { return String(s || "").toLowerCase().replace(/["“”]([^"“”]*)["“”]/g, "").replace(/'([^']*)'/g, "").replace(/\(([^)]*)\)/g, "").replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim(); }
 
 export const handler = async (event) => {
@@ -39,7 +42,7 @@ export const handler = async (event) => {
 
     // rep name → zone (same source as the cancel-review text routing).
     const zoneByRep = {};
-    try { const res = await fetch(TMS_REP_ZONES_URL); if (res.ok) { const j = await res.json(); for (const r of (j.reps || [])) if (r.name && r.zone) zoneByRep[normalizeName(r.name)] = String(r.zone).trim(); } } catch { /* best-effort */ }
+    try { const res = await fetch(TMS_REP_ZONES_URL); if (res.ok) { const j = await res.json(); for (const r of (j.reps || [])) if (r.name && isSalesZone(r.zone)) zoneByRep[normalizeName(r.name)] = String(r.zone).trim(); } } catch { /* best-effort */ }
 
     // Show a review if it's in THIS manager's zone — or if its zone can't be
     // resolved (better to over-show than let one slip through unseen).
