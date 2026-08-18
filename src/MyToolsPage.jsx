@@ -57,8 +57,8 @@ const CATALOG = [
   { key: "foreman_links", cat: "Installs", emoji: "🔗", label: "Foreman Links", desc: "Each foreman's personal link, to hand out.", href: "/?mode=foremanlinks" },
 
   // ── People & Payroll ──
-  { key: "payroll", cat: "People & Payroll", emoji: "🧾", label: "Employee Payroll (office)", desc: "W-2 timekeeping: roster, PTO allotments, holidays, comp days, and who has signed off last week.", href: "/?mode=payroll" },
-  { key: "timecard", cat: "People & Payroll", emoji: "🕒", label: "My Time Card", desc: "Your own days worked, time off and doctor visits — and the Monday sign-off if you run a department.", href: "/?mode=timecard" },
+  { key: "payroll", cat: "People & Payroll", emoji: "🧾", label: "Employee Payroll (office)", desc: "W-2 timekeeping: shifts, roster, PTO allotments, holidays, daily recaps, and who has signed off last week.", href: "/?mode=payroll" },
+  { key: "timecard", cat: "People & Payroll", emoji: "🕒", label: "My Time Card", desc: "Check in, recap your day, request time off — and read your team's day + sign off the week if you run a department.", href: "/?mode=timecard" },
 
   // ── Sales & Settings ──
   { key: "contest", cat: "Sales & Settings", emoji: "🏁", label: "Contest Leaderboard", desc: "Turn the Positive-Effort Contest board on/off + preview standings.", href: "/?mode=contest" },
