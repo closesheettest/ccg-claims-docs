@@ -32,7 +32,9 @@
 // if the contest hasn't started yet, preview scores a TRAILING 7-day window so there's
 // something real to look at. `?debug=1` adds scan diagnostics.
 //
-//   GET /.netlify/functions/zone-contest-leaderboard[?preview=1][?debug=1]
+//   GET /.netlify/functions/zone-contest-leaderboard[?week=1..4][?preview=1][?debug=1]
+//     • default   → the contest week in progress, else the most recent one
+//     • ?week=2   → that specific contest week (same param as contest-report)
 //   → { ok, enabled, contest, week, range:{start,end}, zones:[{ zone, team, count,
 //       avg, points, activeReps, sales, reps:[{ name, count }] }] }
 //
@@ -131,7 +133,15 @@ export const handler = async (event) => {
     //
     // So the board always shows a REAL contest week: the one in progress while
     // it's Wed/Thu, and the most recent completed one the rest of the time.
-    const live = now >= contestStart && now <= contestEnd;
+    // ?week=1..4 scores one specific contest week, same param the admin audit
+    // report takes — so a manager can flip between the weeks instead of only
+    // seeing whichever one is current.
+    const wantWeek = Number(qp.week);
+    if (wantWeek >= 1 && wantWeek <= weeksWithBounds.length) active = weeksWithBounds[wantWeek - 1];
+    contestStart = active.startUTC; contestEnd = active.endUTC;
+
+    const live = now >= active.startUTC && now <= active.endUTC;
+    const started = now >= active.startUTC;
     weekLabel = `${active.label} · ${etRangeLabel(active.start, active.end)}`;
 
     // Attributes come from the map activity in the window (paged — 1000 cap).
@@ -251,7 +261,11 @@ export const handler = async (event) => {
     zones.forEach((z, i) => { z.rank = i + 1; });
 
     const payload = {
-      ok: true, enabled, live, contest: CONTEST.name, week: weekLabel,
+      ok: true, enabled, live, started, contest: CONTEST.name, week: weekLabel,
+      weekNo: weeksWithBounds.indexOf(active) + 1,
+      weeks: weeksWithBounds.map((w, i) => ({
+        no: i + 1, label: w.label, range: etRangeLabel(w.start, w.end), started: now >= w.startUTC,
+      })),
       range: { start: contestStart.toISOString(), end: contestEnd.toISOString() }, zones,
     };
     if (qp.debug === "1") {
