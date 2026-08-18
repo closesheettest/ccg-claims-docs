@@ -293,3 +293,10 @@
 # Same in-file exports.config schedule; this project registers crons from here.
 [functions."cron-payroll-signoff"]
   schedule = "0 12,15 * * 1"
+
+# Daily check-in / recap nudges. Every 15 min: texts anyone who hasn't checked in
+# by their shift start + grace, and anyone who checked in but hasn't filed their
+# end-of-shift recap. Each fires at most once per person per work date (stamped
+# on the timecard row), and night shifts are handled by work date, not clock date.
+[functions."cron-shift-nudge"]
+  schedule = "*/15 * * * *"

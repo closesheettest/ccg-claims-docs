@@ -1,8 +1,15 @@
 // netlify/functions/payroll-me.js
 //
 // The EMPLOYEE side of payroll/timekeeping (?mode=timecard), plus the
-// department manager's Monday-morning sign-off. One login serves both:
-// a manager is just an employee with is_manager, and sees an extra Team tab.
+// department manager's daily review and Monday-morning sign-off. One login
+// serves both: a manager is just an employee with is_manager, and sees an
+// extra Team tab.
+//
+// The day is built from TWO taps, not a punch clock: they CHECK IN when their
+// shift starts, and at the end they file a RECAP of what they got done, which
+// closes the day out and sets the hours. Shifts are named and office-defined
+// (Day 7:00a–3:30p, Night 6:00p–6:00a); a night shift's whole span is filed
+// under the date it STARTED, so one night is one row on one work date.
 //
 // Login: email + a 4–8 digit passcode. The FIRST time a person logs in,
 // whatever they type becomes their passcode (same idea as My Tools), and
@@ -17,7 +24,12 @@
 //   "login"         { email, passcode }          → { token, me }
 //   "logout"        { token }
 //   "set_passcode"  { token, passcode }
-//   "me"            { token }                    → me + balances + holidays + config
+//   "me"            { token }                    → me + balances + holidays + shift
+//   "today"         { token }                    → my current shift-day + its state
+//   "check_in"      { token }                    → stamp the start of my shift
+//   "check_out"     { token, recap, ... }        → recap + close the day out
+//   "save_recap"    { token, work_date?, recap } → fix a recap afterwards
+//   "day_off"       { token, day_type, ... }     → "I'm off today" (no request needed)
 //   "week"          { token, week_start? }       → my 7 days + totals + lock state
 //   "save_day"      { token, work_date, ... }    → upsert one day of my timecard
 //   "submit_week"   { token, week_start }        → "my week is done"
@@ -26,6 +38,8 @@
 //   "my_time_off"   { token }
 //
 //   ── department manager (is_manager) / office (is_admin) ─────────────
+//   "team_today"    { token, work_date?, department_id? }    → who's in, and what
+//                                                              everyone got done today
 //   "team_week"     { token, week_start?, department_id? }  → every member's week
 //   "team_save_day" { token, employee_id, work_date, ... }  → fix a member's day
 //   "approve_week"  { token, week_start, sign_name, note? } → SIGN OFF + lock
@@ -50,7 +64,7 @@ const SESSION_DAYS = 30;
 const EMP_SEL =
   "id,first_name,last_name,email,phone,department_id,title,pay_type,hourly_rate,annual_salary," +
   "standard_day_hours,standard_week_hours,hire_date,pto_days_per_year,pto_carryover_days," +
-  "sick_days_per_year,paid_holidays,is_manager,is_admin,active,passcode_hash";
+  "sick_days_per_year,paid_holidays,shift_id,is_manager,is_admin,active,passcode_hash";
 
 // Day types an employee can put on their own timecard. "holiday" is filled in
 // automatically from the holiday calendar; "no_show" is manager/office only.
@@ -121,6 +135,76 @@ export const handler = async (event) => {
 
     if (action === "me") return cors(200, j({ ok: true, me: await meBundle(me) }));
 
+    // ── Today: the check-in / recap screen ──────────────────────────
+    if (action === "today") return cors(200, j({ ok: true, ...(await todayFor(me)) }));
+
+    if (action === "check_in") {
+      const t = await todayFor(me);
+      if (t.locked) return cors(400, j({ ok: false, error: "That day is already signed off." }));
+      if (t.entry?.checked_in_at) return cors(200, j({ ok: true, already: true, ...(await todayFor(me)) }));
+      const now = nowET();
+      await upsert("payroll_time_entries", {
+        employee_id: me.id, work_date: t.work_date, day_type: "worked",
+        shift_id: t.shift?.id || null, checked_in_at: nowIso(), time_in: now.time,
+        late_minutes: lateBy(t.shift, now.time),
+        source: "employee", updated_at: nowIso(),
+      }, "employee_id,work_date");
+      return cors(200, j({ ok: true, ...(await todayFor(me)) }));
+    }
+
+    // The recap IS the clock-out — you can't close a day without saying what
+    // you got done, which is the whole point of the evening step.
+    if (action === "check_out") {
+      const t = await todayFor(me);
+      if (t.locked) return cors(400, j({ ok: false, error: "That day is already signed off." }));
+      const recap = str(body.recap, 2000);
+      if (recap.length < 3) return cors(400, j({ ok: false, error: "Write a line about what you got done today." }));
+      if (!t.entry?.checked_in_at) return cors(400, j({ ok: false, error: "You never checked in today — check in first, or mark the day off." }));
+      const now = nowET();
+      const lunch = clampNum(body.lunch_minutes, 0, 240) || Number(t.entry.lunch_minutes || 0);
+      const hours = hoursBetween(t.entry.checked_in_at, new Date().toISOString(), lunch);
+      await upsert("payroll_time_entries", {
+        employee_id: me.id, work_date: t.work_date, day_type: t.entry.day_type || "worked",
+        checked_out_at: nowIso(), time_out: now.time, lunch_minutes: lunch, hours,
+        recap, recap_at: nowIso(),
+        left_early_minutes: earlyBy(t.shift, now.time),
+        off_type: OFF_TYPES.includes(body.off_type || "") ? (body.off_type || null) : (t.entry.off_type || null),
+        off_hours: clampNum(body.off_hours, 0, 24) || Number(t.entry.off_hours || 0),
+        note: str(body.note, 500) || t.entry.note || null,
+        source: "employee", updated_at: nowIso(),
+      }, "employee_id,work_date");
+      return cors(200, j({ ok: true, ...(await todayFor(me)) }));
+    }
+
+    if (action === "save_recap") {
+      const wd = dstr(body.work_date) || (await todayFor(me)).work_date;
+      const ex = (await get(`payroll_time_entries?employee_id=eq.${me.id}&work_date=eq.${wd}&select=id,locked&limit=1`))[0];
+      if (!ex) return cors(404, j({ ok: false, error: "Nothing logged for that day yet." }));
+      if (ex.locked) return cors(400, j({ ok: false, error: "That week is signed off." }));
+      const recap = str(body.recap, 2000);
+      if (recap.length < 3) return cors(400, j({ ok: false, error: "Write a line about what you got done." }));
+      await patch(`payroll_time_entries?id=eq.${ex.id}`, { recap, recap_at: nowIso(), updated_at: nowIso() });
+      return cors(200, j({ ok: true }));
+    }
+
+    // "I'm off today" — straight onto the card, no request/approval round-trip
+    // (it still counts against their balance, and the manager sees it).
+    if (action === "day_off") {
+      const t = await todayFor(me);
+      const wd = dstr(body.work_date) || t.work_date;
+      const dayType = SELF_DAY_TYPES.includes(body.day_type) && body.day_type !== "worked" ? body.day_type : "pto";
+      const ex = (await get(`payroll_time_entries?employee_id=eq.${me.id}&work_date=eq.${wd}&select=id,locked&limit=1`))[0];
+      if (ex?.locked) return cors(400, j({ ok: false, error: "That week is signed off." }));
+      await upsert("payroll_time_entries", {
+        employee_id: me.id, work_date: wd, day_type: dayType, shift_id: t.shift?.id || null,
+        hours: 0, off_type: null, off_hours: Number(me.standard_day_hours || 8) || 8,
+        time_in: null, time_out: null, checked_in_at: null, checked_out_at: null,
+        late_minutes: 0, left_early_minutes: 0,
+        note: str(body.note, 500) || null, source: "employee", updated_at: nowIso(),
+      }, "employee_id,work_date");
+      return cors(200, j({ ok: true, ...(await todayFor(me)) }));
+    }
+
     // ── My week ─────────────────────────────────────────────────────
     if (action === "week") {
       const ws = weekStart(body.week_start || todayET());
@@ -176,6 +260,15 @@ export const handler = async (event) => {
 
     // ── Manager / office from here down ─────────────────────────────
     if (!me.is_manager && !me.is_admin) return cors(403, j({ ok: false, error: "That's a manager-only screen." }));
+
+    // What everyone on the team got done today — the manager's daily read.
+    if (action === "team_today") {
+      const depts = await myDepartments(me, body.department_id);
+      if (!depts.length) return cors(200, j({ ok: true, departments: [] }));
+      const out = [];
+      for (const d of depts) out.push(await departmentDay(d, dstr(body.work_date) || ""));
+      return cors(200, j({ ok: true, departments: out }));
+    }
 
     if (action === "team_week") {
       const ws = weekStart(body.week_start || lastWeekStart());
@@ -252,11 +345,12 @@ export const handler = async (event) => {
 // Everything the employee app needs on load: who I am, my department, my
 // balances, the holiday list, and (for a manager) which teams I sign off.
 async function meBundle(emp) {
-  const [dept, bal, hol, cfg] = await Promise.all([
+  const [dept, bal, hol, cfg, shift] = await Promise.all([
     emp.department_id ? get(`payroll_departments?id=eq.${emp.department_id}&select=id,name,manager_employee_id&limit=1`).then((r) => r[0] || null) : null,
     balances(emp),
     get(`payroll_holidays?active=is.true&holiday_date=gte.${addDays(todayET(), -30)}&select=holiday_date,name,paid,hours&order=holiday_date.asc&limit=40`),
     config(),
+    shiftOf(emp),
   ]);
   const managed = (emp.is_manager || emp.is_admin) ? await myDepartments(emp) : [];
   return {
@@ -264,7 +358,7 @@ async function meBundle(emp) {
     title: emp.title, pay_type: emp.pay_type, standard_day_hours: Number(emp.standard_day_hours || 8),
     standard_week_hours: Number(emp.standard_week_hours || 40),
     is_manager: !!emp.is_manager, is_admin: !!emp.is_admin, passcode_set: !!emp.passcode_hash,
-    department: dept, balances: bal, holidays: hol, config: cfg,
+    department: dept, balances: bal, holidays: hol, config: cfg, shift,
     manages: managed.map((d) => ({ id: d.id, name: d.name })),
     day_types: SELF_DAY_TYPES, off_types: OFF_TYPES, request_types: OFF_REQUEST_TYPES,
   };
@@ -495,6 +589,106 @@ async function materializeTimeOff(req) {
     placed++;
   }
   return placed;
+}
+
+// The state of the shift-day an employee is currently living in. For a night
+// shift after midnight that is YESTERDAY's date — the night they're still working.
+async function todayFor(emp) {
+  const shift = await shiftOf(emp);
+  const now = nowET();
+  const wd = workDateFor(shift, now);
+  const [rows, hols, appr] = await Promise.all([
+    get(`payroll_time_entries?employee_id=eq.${emp.id}&work_date=eq.${wd}&select=*&limit=1`),
+    get(`payroll_holidays?active=is.true&holiday_date=eq.${wd}&select=holiday_date,name,paid,hours&limit=1`),
+    emp.department_id ? get(`payroll_week_approvals?department_id=eq.${emp.department_id}&week_start=eq.${weekStart(wd)}&select=status&limit=1`) : [],
+  ]);
+  const entry = rows[0] || null;
+  const state = !entry ? "not_started"
+    : entry.day_type !== "worked" ? "off"
+      : entry.recap_at ? "done"
+        : entry.checked_in_at ? "working" : "not_started";
+  return {
+    work_date: wd, weekday: weekdayName(wd), now, shift, entry,
+    holiday: hols[0] || null, state,
+    elapsed_minutes: entry?.checked_in_at && !entry.checked_out_at
+      ? Math.max(0, Math.round((Date.now() - new Date(entry.checked_in_at).getTime()) / 60000)) : null,
+    locked: !!entry?.locked || appr[0]?.status === "approved",
+  };
+}
+
+// One department's day: who's in, who hasn't checked in, and every recap.
+async function departmentDay(dept, wantDate) {
+  const emps = await get(`payroll_employees?department_id=eq.${dept.id}&active=is.true&select=${EMP_SEL}&order=last_name.asc`);
+  const shifts = await allShifts();
+  const now = nowET();
+  const members = [];
+  for (const e of emps) {
+    const shift = shifts.find((s) => s.id === e.shift_id) || null;
+    const wd = wantDate || workDateFor(shift, now);
+    const entry = (await get(`payroll_time_entries?employee_id=eq.${e.id}&work_date=eq.${wd}&select=*&limit=1`))[0] || null;
+    const state = !entry ? "not_started"
+      : entry.day_type !== "worked" ? "off"
+        : entry.recap_at ? "done"
+          : entry.checked_in_at ? "working" : "not_started";
+    members.push({
+      employee: { id: e.id, name: fullName(e), title: e.title },
+      shift: shift ? { id: shift.id, name: shift.name, start_time: shift.start_time, end_time: shift.end_time } : null,
+      work_date: wd, state, entry,
+      elapsed_minutes: entry?.checked_in_at && !entry.checked_out_at
+        ? Math.max(0, Math.round((Date.now() - new Date(entry.checked_in_at).getTime()) / 60000)) : null,
+    });
+  }
+  return {
+    department: { id: dept.id, name: dept.name },
+    work_date: wantDate || null, members,
+    counts: {
+      working: members.filter((m) => m.state === "working").length,
+      done: members.filter((m) => m.state === "done").length,
+      off: members.filter((m) => m.state === "off").length,
+      missing: members.filter((m) => m.state === "not_started").length,
+    },
+  };
+}
+
+// ── shifts ───────────────────────────────────────────────────────────
+async function allShifts() { return get("payroll_shifts?active=is.true&select=*&order=sort_order.asc"); }
+async function shiftOf(emp) {
+  if (!emp?.shift_id) return null;
+  return (await get(`payroll_shifts?id=eq.${emp.shift_id}&select=*&limit=1`))[0] || null;
+}
+// A shift whose end is at or before its start runs through midnight.
+function crossesMidnight(sh) { return !!sh && String(sh.end_time) <= String(sh.start_time); }
+// Which work date "right now" belongs to: on a night shift, the small hours
+// before the shift ends still belong to the night before.
+function workDateFor(shift, now) {
+  if (!crossesMidnight(shift)) return now.date;
+  return now.time < shift.end_time ? addDays(now.date, -1) : now.date;
+}
+// Minutes late past the shift start, past the grace period. Wrapped, so a
+// night-shift check-in after midnight doesn't read as 20 hours early.
+function lateBy(shift, t) {
+  if (!shift) return 0;
+  const raw = (mins(t) - mins(shift.start_time) + 1440) % 1440;
+  if (raw > 720) return 0;                       // they're early, not late
+  return Math.max(0, raw - Number(shift.grace_minutes ?? 15));
+}
+function earlyBy(shift, t) {
+  if (!shift) return 0;
+  const raw = (mins(shift.end_time) - mins(t) + 1440) % 1440;
+  return raw > 720 ? 0 : raw;                    // stayed past the end
+}
+function hoursBetween(startIso, endIso, lunchMinutes) {
+  const ms = new Date(endIso).getTime() - new Date(startIso).getTime();
+  if (!Number.isFinite(ms) || ms <= 0) return 0;
+  return round2(Math.min(24, Math.max(0, ms / 3600000 - (Number(lunchMinutes) || 0) / 60)));
+}
+// Local date AND time in one read, so they can't straddle a minute boundary.
+function nowET() {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-CA", {
+    timeZone: TZ, year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+  }).formatToParts(new Date()).map((p) => [p.type, p.value]));
+  return { date: `${parts.year}-${parts.month}-${parts.day}`, time: `${parts.hour}:${parts.minute}` };
 }
 
 // ══ small helpers ════════════════════════════════════════════════════

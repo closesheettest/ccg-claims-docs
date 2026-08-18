@@ -11,6 +11,9 @@
 //
 //   POST { token, action, ... }
 //
+//   shifts           →  { shifts }   the named shifts (Day, Night…)
+//   shift_save       { id?, name, start_time, end_time, grace_minutes?, active? }
+//   shift_delete     { id }
 //   departments      →  { departments } (with manager name + headcount)
 //   department_save  { id?, name, manager_employee_id?, active? }
 //   department_delete{ id }
@@ -40,7 +43,7 @@ const TZ = "America/New_York";
 const EMP_COLS = [
   "first_name", "last_name", "email", "phone", "department_id", "title", "pay_type", "hourly_rate",
   "annual_salary", "standard_day_hours", "standard_week_hours", "hire_date", "pto_days_per_year",
-  "pto_carryover_days", "sick_days_per_year", "paid_holidays", "is_manager",
+  "pto_carryover_days", "sick_days_per_year", "paid_holidays", "shift_id", "is_manager",
   "is_admin", "active", "notes",
 ];
 const NUMERIC = new Set(["hourly_rate", "annual_salary", "standard_day_hours", "standard_week_hours", "pto_days_per_year", "pto_carryover_days", "sick_days_per_year"]);
@@ -58,6 +61,36 @@ export const handler = async (event) => {
 
   const action = String(b.action || "").trim();
   try {
+    // ── Shifts ─────────────────────────────────────────────────────
+    if (action === "shifts") {
+      const [shifts, emps] = await Promise.all([
+        get("payroll_shifts?select=*&order=sort_order.asc"),
+        get("payroll_employees?active=is.true&select=id,shift_id"),
+      ]);
+      return cors(200, j({ ok: true, shifts: shifts.map((x) => ({ ...x, headcount: emps.filter((e) => e.shift_id === x.id).length, crosses_midnight: String(x.end_time) <= String(x.start_time) })) }));
+    }
+
+    if (action === "shift_save") {
+      const name = str(b.name, 40);
+      const start = tstr(b.start_time), end = tstr(b.end_time);
+      if (!name) return cors(400, j({ ok: false, error: "Name the shift." }));
+      if (!start || !end) return cors(400, j({ ok: false, error: "Both a start and an end time are required (24-hour, e.g. 18:00)." }));
+      const row = { name, start_time: start, end_time: end, grace_minutes: num(b.grace_minutes, 0, 120) || 15, active: b.active !== false, sort_order: num(b.sort_order, 0, 99) || 0 };
+      if (b.id) await patch(`payroll_shifts?id=eq.${str(b.id, 64)}`, row);
+      else await upsert("payroll_shifts", row, "name");
+      return cors(200, j({ ok: true }));
+    }
+
+    if (action === "shift_delete") {
+      const id = str(b.id, 64);
+      const on = await get(`payroll_shifts?id=eq.${id}&select=id`);
+      if (!on.length) return cors(404, j({ ok: false, error: "Shift not found." }));
+      const used = await get(`payroll_employees?shift_id=eq.${id}&active=is.true&select=id&limit=1`);
+      if (used.length) return cors(400, j({ ok: false, error: "Move that shift's employees to another one first." }));
+      await del(`payroll_shifts?id=eq.${id}`);
+      return cors(200, j({ ok: true }));
+    }
+
     // ── Departments ────────────────────────────────────────────────
     if (action === "departments") {
       const [depts, emps] = await Promise.all([
@@ -95,12 +128,18 @@ export const handler = async (event) => {
     // ── Employees ──────────────────────────────────────────────────
     if (action === "employees") {
       const filter = b.include_inactive ? "" : "active=is.true&";
-      const [emps, depts] = await Promise.all([
-        get(`payroll_employees?${filter}select=id,first_name,last_name,email,phone,department_id,title,pay_type,hourly_rate,annual_salary,standard_day_hours,standard_week_hours,hire_date,pto_days_per_year,pto_carryover_days,sick_days_per_year,paid_holidays,is_manager,is_admin,active,notes,passcode_set_at&order=last_name.asc`),
+      const [emps, depts, shifts] = await Promise.all([
+        get(`payroll_employees?${filter}select=id,first_name,last_name,email,phone,department_id,title,pay_type,hourly_rate,annual_salary,standard_day_hours,standard_week_hours,hire_date,pto_days_per_year,pto_carryover_days,sick_days_per_year,paid_holidays,shift_id,is_manager,is_admin,active,notes,passcode_set_at&order=last_name.asc`),
         get("payroll_departments?select=id,name"),
+        get("payroll_shifts?select=id,name,start_time,end_time&order=sort_order.asc"),
       ]);
       const dn = Object.fromEntries(depts.map((d) => [d.id, d.name]));
-      return cors(200, j({ ok: true, employees: emps.map((e) => ({ ...e, department_name: dn[e.department_id] || null })), departments: depts }));
+      const sn = Object.fromEntries(shifts.map((x) => [x.id, x.name]));
+      return cors(200, j({
+        ok: true,
+        employees: emps.map((e) => ({ ...e, department_name: dn[e.department_id] || null, shift_name: sn[e.shift_id] || null })),
+        departments: depts, shifts,
+      }));
     }
 
     if (action === "employee_save") {
@@ -239,6 +278,42 @@ export const handler = async (event) => {
         note: str(b.note, 500) || null, source: "office", updated_at: nowIso(),
       }, "employee_id,work_date");
       return cors(200, j({ ok: true }));
+    }
+
+    // ── One day, company-wide: who checked in and what they got done ─
+    if (action === "day_review") {
+      const d = dstr(b.work_date) || todayET();
+      const [emps, depts, shifts, entries] = await Promise.all([
+        get("payroll_employees?active=is.true&select=id,first_name,last_name,department_id,shift_id,title&order=last_name.asc"),
+        get("payroll_departments?select=id,name"),
+        get("payroll_shifts?select=id,name,start_time,end_time"),
+        get(`payroll_time_entries?work_date=eq.${d}&select=*`),
+      ]);
+      const dn = Object.fromEntries(depts.map((x) => [x.id, x.name]));
+      const sn = Object.fromEntries(shifts.map((x) => [x.id, x.name]));
+      const rows = emps.map((e) => {
+        const en = entries.find((x) => x.employee_id === e.id) || null;
+        const state = !en ? "not_started"
+          : en.day_type !== "worked" ? "off"
+            : en.recap_at ? "done"
+              : en.checked_in_at ? "working" : "not_started";
+        return {
+          id: e.id, name: `${e.last_name}, ${e.first_name}`, title: e.title,
+          department: dn[e.department_id] || "—", shift: sn[e.shift_id] || "—",
+          state, day_type: en?.day_type || null, time_in: en?.time_in || null, time_out: en?.time_out || null,
+          hours: en ? Number(en.hours || 0) : 0, late_minutes: en?.late_minutes || 0,
+          recap: en?.recap || null, recap_at: en?.recap_at || null,
+        };
+      });
+      return cors(200, j({
+        ok: true, work_date: d, rows,
+        counts: {
+          done: rows.filter((r) => r.state === "done").length,
+          working: rows.filter((r) => r.state === "working").length,
+          off: rows.filter((r) => r.state === "off").length,
+          missing: rows.filter((r) => r.state === "not_started").length,
+        },
+      }));
     }
 
     // ── Payroll export: one row per employee for the period ─────────

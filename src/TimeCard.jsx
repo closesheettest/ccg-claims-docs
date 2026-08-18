@@ -2,17 +2,22 @@
 //
 // EMPLOYEE TIME CARD  (/?mode=timecard)
 //
-// One screen for a W-2 employee's whole week: the days they worked, the days
-// they were off (vacation, sick, doctor), arriving late or leaving early, the
-// paid holidays coming up, what's left of their time-off allotment, and — for
-// anyone who runs a department — the Monday-morning sign-off on their team's
-// hours.
+// The day is two taps, not a punch clock:
+//   • at the start of their shift they CHECK IN,
+//   • at the end they file a RECAP of what they got done, which closes the day
+//     out and sets the hours.
+// Anyone who'd rather not do either can mark the day off (vacation, sick, the
+// doctor) right from the same card.
+//
+// Shifts are named and office-defined — a night shift running 6pm–6am belongs
+// to the date it STARTED, so someone checking in Monday evening and recapping
+// at 6am Tuesday files one day, on Monday.
 //
 // Sign-in is their work email + a 4–8 digit passcode they set the first time.
 // Everything is saved server-side (payroll-me.js) so it follows them to any
 // phone; the session token is the only thing kept on the device.
 //
-// Tabs:  My Week  ·  Time Off  ·  Team (managers only)
+// Tabs:  Today  ·  My Week  ·  Time Off  ·  Team (managers only)
 
 import React, { useCallback, useEffect, useState } from "react";
 
@@ -57,6 +62,9 @@ const mondayOf = (s) => { const dow = asDate(s).getUTCDay(); return addDays(s, d
 const pretty = (s) => { if (!s) return ""; const [, m, d] = s.split("-"); return `${+m}/${+d}`; };
 const prettyLong = (s) => asDate(s).toLocaleDateString("en-US", { timeZone: "UTC", weekday: "short", month: "short", day: "numeric" });
 const hhmm = (t) => { if (!t) return ""; const [h, m] = t.split(":").map(Number); const ap = h >= 12 ? "pm" : "am"; const hr = h % 12 || 12; return `${hr}:${String(m).padStart(2, "0")}${ap}`; };
+// Minutes read as minutes up to an hour and a half, then as hours — "465 min late"
+// is true but unreadable on a night shift.
+const fmtMins = (m) => { m = Math.round(Number(m) || 0); if (m < 90) return `${m} min`; const h = Math.floor(m / 60); return `${h}h ${m % 60}m`; };
 
 // ── shared bits of chrome ───────────────────────────────────────────────
 const card = { background: "#fff", border: `1px solid ${LINE}`, borderRadius: 14, padding: 14 };
@@ -85,7 +93,7 @@ function Err({ children }) {
 export default function TimeCard() {
   const [token, setToken] = useState(() => { try { return localStorage.getItem(TOKEN_KEY) || ""; } catch { return ""; } });
   const [me, setMe] = useState(null);
-  const [tab, setTab] = useState("week");
+  const [tab, setTab] = useState("today");
   const [booting, setBooting] = useState(true);
   const [err, setErr] = useState("");
 
@@ -117,7 +125,7 @@ export default function TimeCard() {
   if (!token || !me) return <SignIn onIn={(t, m) => { setToken(t); setMe(m); try { localStorage.setItem(TOKEN_KEY, t); } catch { /* private mode */ } }} />;
 
   const isMgr = me.is_manager || me.is_admin;
-  const tabs = [["week", "My Week"], ["off", "Time Off"]].concat(isMgr ? [["team", "Team"]] : []);
+  const tabs = [["today", "Today"], ["week", "My Week"], ["off", "Time Off"]].concat(isMgr ? [["team", "Team"]] : []);
 
   return (
     <Shell>
@@ -143,6 +151,7 @@ export default function TimeCard() {
       </div>
 
       <Err>{err}</Err>
+      {tab === "today" && <Today me={me} api={api} onErr={setErr} onChanged={async () => { const d = await api("me"); if (d.ok) setMe(d.me); }} />}
       {tab === "week" && <MyWeek me={me} api={api} onErr={setErr} onChanged={async () => { const d = await api("me"); if (d.ok) setMe(d.me); }} />}
       {tab === "off" && <TimeOff me={me} api={api} onErr={setErr} onChanged={async () => { const d = await api("me"); if (d.ok) setMe(d.me); }} />}
       {tab === "team" && <Team me={me} api={api} onErr={setErr} />}
@@ -236,6 +245,162 @@ function SignIn({ onIn }) {
         </div>
       </div>
     </Shell>
+  );
+}
+
+// ── TODAY: check in, then recap ─────────────────────────────────────────
+function Today({ me, api, onErr, onChanged }) {
+  const [d, setD] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [recap, setRecap] = useState("");
+  const [lunch, setLunch] = useState(30);
+  const [pickOff, setPickOff] = useState(false);
+  const [editingRecap, setEditingRecap] = useState(false);
+  const [tick, setTick] = useState(0);
+
+  const load = useCallback(async () => {
+    const r = await api("today");
+    if (r.ok) { setD(r); setRecap(r.entry?.recap || ""); if (r.entry?.lunch_minutes != null) setLunch(r.entry.lunch_minutes); }
+    else onErr(r.error || "Couldn't load today.");
+  }, [api, onErr]);
+  useEffect(() => { load(); }, [load]);
+  // keep the "on shift for 3h 20m" counter honest without re-fetching
+  useEffect(() => { const t = setInterval(() => setTick((x) => x + 1), 60000); return () => clearInterval(t); }, []);
+
+  const call = async (action, extra) => {
+    setBusy(true); onErr("");
+    const r = await api(action, extra);
+    setBusy(false);
+    if (!r.ok) { onErr(r.error || "That didn't go through."); return false; }
+    setD(r); setRecap(r.entry?.recap || ""); setPickOff(false); setEditingRecap(false);
+    onChanged();
+    return true;
+  };
+
+  if (!d) return <div style={{ ...card, color: MUTE, textAlign: "center" }}>Loading…</div>;
+
+  const e = d.entry;
+  const shift = d.shift;
+  const elapsed = e?.checked_in_at && !e?.checked_out_at
+    ? Math.max(0, Math.round((Date.now() - new Date(e.checked_in_at).getTime()) / 60000)) : null;
+  const isNight = shift && shift.end_time <= shift.start_time;
+  const offType = e && e.day_type !== "worked" ? (DT[e.day_type] || null) : null;
+
+  return (
+    <div style={{ display: "grid", gap: 12 }}>
+      {/* which day this is — spelled out, because on nights it isn't today's date */}
+      <div style={{ ...card, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+        <div>
+          <div style={{ fontSize: 12, color: MUTE, fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.4 }}>
+            {d.locked ? "Signed off" : "Your shift day"}
+          </div>
+          <div style={{ fontSize: 19, fontWeight: 900, color: NAVY }}>{prettyLong(d.work_date)}</div>
+          {isNight && d.work_date !== d.now.date ? (
+            <div style={{ fontSize: 12, color: MUTE }}>You're still on {prettyLong(d.work_date)}'s night shift.</div>
+          ) : null}
+        </div>
+        {shift ? (
+          <div style={{ textAlign: "right" }}>
+            <Pill color={NAVY}>{shift.name} shift</Pill>
+            <div style={{ fontSize: 12.5, color: MUTE, marginTop: 3 }}>{hhmm(shift.start_time)} – {hhmm(shift.end_time)}</div>
+          </div>
+        ) : <Pill color={AMBER}>no shift set</Pill>}
+      </div>
+
+      {d.holiday ? (
+        <div style={{ background: "#fdf2f8", border: "1px solid #fbcfe8", color: "#9d174d", borderRadius: 12, padding: "10px 12px", fontWeight: 700, fontSize: 13.5 }}>
+          🎉 {d.holiday.name}{d.holiday.paid ? " — paid holiday" : ""}
+        </div>
+      ) : null}
+
+      {/* the state machine */}
+      {d.state === "off" ? (
+        <div style={{ ...card, display: "grid", gap: 10, textAlign: "center" }}>
+          <div style={{ fontSize: 34 }}>{offType?.emoji || "—"}</div>
+          <div style={{ fontSize: 19, fontWeight: 900 }}>{offType?.label || e.day_type}</div>
+          <div style={{ fontSize: 13.5, color: MUTE }}>You're marked off for {prettyLong(d.work_date)}. Your manager sees it on their board.</div>
+          {!d.locked ? <button style={ghost} disabled={busy} onClick={() => call("check_in")}>Actually, I'm working — check me in</button> : null}
+        </div>
+      ) : d.state === "done" ? (
+        <div style={{ ...card, display: "grid", gap: 11 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+            <div style={{ fontSize: 26 }}>✅</div>
+            <div>
+              <div style={{ fontSize: 17, fontWeight: 900 }}>Day closed out — {e.hours}h</div>
+              <div style={{ fontSize: 12.5, color: MUTE }}>
+                {hhmm(e.time_in)} – {hhmm(e.time_out)}{e.lunch_minutes ? ` · ${e.lunch_minutes} min lunch` : ""}
+                {e.late_minutes ? ` · ${fmtMins(e.late_minutes)} late` : ""}
+                {e.left_early_minutes ? ` · left ${fmtMins(e.left_early_minutes)} early` : ""}
+              </div>
+            </div>
+          </div>
+          <div style={{ background: "#f8fafc", border: `1px solid ${LINE}`, borderRadius: 10, padding: 12 }}>
+            <div style={{ fontSize: 11.5, fontWeight: 800, color: MUTE, textTransform: "uppercase", letterSpacing: 0.3, marginBottom: 5 }}>What you got done</div>
+            {editingRecap ? (
+              <>
+                <textarea style={{ ...fld, minHeight: 110, resize: "vertical", fontFamily: "inherit" }} value={recap} maxLength={2000} onChange={(ev) => setRecap(ev.target.value)} />
+                <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                  <button style={btn(NAVY, { flex: 1 })} disabled={busy} onClick={async () => { const r = await api("save_recap", { work_date: d.work_date, recap }); if (r.ok) { setEditingRecap(false); load(); } else onErr(r.error); }}>Save</button>
+                  <button style={ghost} onClick={() => { setRecap(e.recap || ""); setEditingRecap(false); }}>Cancel</button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div style={{ fontSize: 14.5, whiteSpace: "pre-wrap", lineHeight: 1.45 }}>{e.recap}</div>
+                {!d.locked ? <button style={{ ...ghost, marginTop: 9, padding: "6px 12px", fontSize: 13 }} onClick={() => setEditingRecap(true)}>Add to it</button> : null}
+              </>
+            )}
+          </div>
+          {d.locked ? <div style={{ fontSize: 12.5, color: MUTE }}>🔒 This week is signed off.</div> : null}
+        </div>
+      ) : d.state === "working" ? (
+        <div style={{ ...card, display: "grid", gap: 12 }}>
+          <div style={{ textAlign: "center" }}>
+            <div style={{ fontSize: 12, color: MUTE, fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.4 }}>Checked in at {hhmm(e.time_in)}</div>
+            <div style={{ fontSize: 40, fontWeight: 900, color: NAVY, lineHeight: 1.15 }}>
+              {elapsed != null ? `${Math.floor(elapsed / 60)}h ${elapsed % 60}m` : "—"}
+            </div>
+            <div style={{ fontSize: 12.5, color: MUTE }}>on shift{e.late_minutes ? ` · ${fmtMins(e.late_minutes)} late` : ""}</div>
+          </div>
+          <div>
+            <div style={{ fontSize: 13.5, fontWeight: 800, marginBottom: 6 }}>What did you get done today?</div>
+            <textarea style={{ ...fld, minHeight: 120, resize: "vertical", fontFamily: "inherit" }} value={recap} maxLength={2000}
+              onChange={(ev) => setRecap(ev.target.value)}
+              placeholder={"Jobs, addresses, deliveries, what got finished, anything that held you up…"} />
+          </div>
+          <Field label="Lunch / breaks (min)"><input style={fld} type="number" min="0" max="240" value={lunch} onChange={(ev) => setLunch(ev.target.value)} /></Field>
+          <button style={btn(GREEN)} disabled={busy || recap.trim().length < 3}
+            onClick={() => call("check_out", { recap: recap.trim(), lunch_minutes: Number(lunch) || 0 })}>
+            {busy ? "…" : "End shift & send recap"}
+          </button>
+          <div style={{ fontSize: 12, color: MUTE, textAlign: "center" }}>Your hours come from your check-in to right now, minus breaks.</div>
+        </div>
+      ) : (
+        <div style={{ ...card, display: "grid", gap: 12, textAlign: "center" }}>
+          <div style={{ fontSize: 15.5, fontWeight: 800 }}>Good {shift && Number(shift.start_time.slice(0, 2)) >= 17 ? "evening" : "morning"}, {me.first_name}</div>
+          <div style={{ fontSize: 13.5, color: MUTE }}>
+            {shift ? `Your ${shift.name.toLowerCase()} shift starts at ${hhmm(shift.start_time)}.` : "Tap below when you start."}
+          </div>
+          <button style={btn(NAVY, { fontSize: 18, padding: "18px 20px" })} disabled={busy || d.locked} onClick={() => call("check_in")}>
+            {busy ? "…" : "✋ Check in"}
+          </button>
+          {!pickOff ? (
+            <button style={{ ...ghost, border: "none", color: MUTE }} disabled={d.locked} onClick={() => setPickOff(true)}>I'm off today</button>
+          ) : (
+            <div style={{ display: "grid", gap: 8 }}>
+              <div style={{ fontSize: 12.5, color: MUTE }}>What kind of day off?</div>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "center" }}>
+                {DAY_TYPES.filter((t) => t.key !== "worked").map((t) => (
+                  <button key={t.key} style={{ ...ghost, padding: "8px 12px", fontSize: 13 }} disabled={busy}
+                    onClick={() => call("day_off", { day_type: t.key })}>{t.emoji} {t.label}</button>
+                ))}
+              </div>
+              <button style={{ ...ghost, border: "none", color: MUTE }} onClick={() => setPickOff(false)}>Never mind</button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -393,6 +558,9 @@ function DayCard({ day, me, locked, expanded, onSave, onToggle }) {
           <div style={{ fontSize: 13.5, color: e ? INK : MUTE, marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
             {summary}{e?.note ? ` · ${e.note}` : ""}
           </div>
+          {e?.recap ? (
+            <div style={{ fontSize: 12.5, color: MUTE, marginTop: 3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>📝 {e.recap}</div>
+          ) : null}
         </div>
         <div style={{ color: MUTE, fontSize: 18 }}>{expanded ? "▴" : "▾"}</div>
       </button>
@@ -581,6 +749,7 @@ function TimeOff({ me, api, onErr, onChanged }) {
 
 // ── TEAM (department manager sign-off) ──────────────────────────────────
 function Team({ me, api, onErr }) {
+  const [view, setView] = useState("today");     // today | week
   const [ws, setWs] = useState(() => addDays(mondayOf(todayET()), -7));   // default: the week that just closed
   const [data, setData] = useState(null);
   const [queue, setQueue] = useState([]);
@@ -615,9 +784,20 @@ function Team({ me, api, onErr }) {
 
   const thisWeek = mondayOf(todayET());
   const allSigned = (data?.departments || []).every((d) => d.approval?.status === "approved");
+  const needsSignoff = data && !allSigned && ws === addDays(thisWeek, -7);
+
+  if (view === "today") {
+    return (
+      <div style={{ display: "grid", gap: 12 }}>
+        <TeamViewToggle view={view} setView={setView} needsSignoff={needsSignoff} />
+        <TeamToday api={api} onErr={onErr} />
+      </div>
+    );
+  }
 
   return (
     <div style={{ display: "grid", gap: 12 }}>
+      <TeamViewToggle view={view} setView={setView} needsSignoff={needsSignoff} />
       <div style={{ ...card, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: 10 }}>
         <button style={{ ...ghost, padding: "8px 12px" }} onClick={() => setWs(addDays(ws, -7))}>←</button>
         <div style={{ textAlign: "center", lineHeight: 1.2 }}>
@@ -737,6 +917,7 @@ function TeamMember({ m, open, onToggle, onSave, locked }) {
                       ? `${e.hours}h${e.time_in && e.time_out ? ` (${hhmm(e.time_in)}–${hhmm(e.time_out)})` : ""}${e.off_type ? ` +${e.off_hours}h ${DT[e.off_type]?.label || e.off_type}` : ""}`
                       : `${t?.emoji || ""} ${t?.label || e.day_type}`}
                     {e?.note ? <span style={{ color: MUTE }}> · {e.note}</span> : null}
+                    {e?.recap ? <div style={{ color: MUTE, fontSize: 12.5, marginTop: 2, whiteSpace: "pre-wrap" }}>📝 {e.recap}</div> : null}
                   </div>
                   {!locked ? (
                     <button style={{ ...ghost, padding: "5px 10px", fontSize: 12 }} onClick={() => setEditing(editing === d.work_date ? "" : d.work_date)}>
@@ -791,6 +972,96 @@ function QuickEdit({ day, onSave }) {
         {e ? <button style={{ ...ghost, color: RED, borderColor: "#fecaca" }} disabled={busy}
           onClick={async () => { setBusy(true); await onSave({ work_date: day.work_date, delete: true }); setBusy(false); }}>Clear</button> : null}
       </div>
+    </div>
+  );
+}
+
+// The manager's daily read: who's on, who never checked in, and what each
+// person got done. This is the thing they open every evening.
+function TeamViewToggle({ view, setView, needsSignoff }) {
+  const b = (k, label, badge) => (
+    <button onClick={() => setView(k)} style={{
+      ...ghost, flex: 1, padding: "10px 8px",
+      background: view === k ? NAVY : "#fff", color: view === k ? "#fff" : NAVY, borderColor: view === k ? NAVY : LINE,
+    }}>{label}{badge ? <span style={{ marginLeft: 6, background: view === k ? "#fff" : RED, color: view === k ? RED : "#fff", borderRadius: 999, padding: "1px 7px", fontSize: 11, fontWeight: 900 }}>!</span> : null}</button>
+  );
+  return <div style={{ display: "flex", gap: 8 }}>{b("today", "Today")}{b("week", "Week sign-off", needsSignoff)}</div>;
+}
+
+function TeamToday({ api, onErr }) {
+  const [d, setD] = useState(null);
+  const [date, setDate] = useState("");        // "" = each person's current shift day
+  const load = useCallback(async () => {
+    const r = await api("team_today", date ? { work_date: date } : {});
+    if (r.ok) setD(r); else onErr(r.error || "Couldn't load your team's day.");
+  }, [api, onErr, date]);
+  useEffect(() => { load(); }, [load]);
+
+  const STATE = {
+    working: { label: "on shift", color: NAVY },
+    done: { label: "recapped", color: GREEN },
+    off: { label: "off", color: "#0369a1" },
+    not_started: { label: "no check-in", color: AMBER },
+  };
+
+  return (
+    <div style={{ display: "grid", gap: 12 }}>
+      <div style={{ ...card, display: "flex", gap: 9, alignItems: "flex-end", flexWrap: "wrap" }}>
+        <Field label="Day">
+          <input style={fld} type="date" value={date} max={todayET()} onChange={(e) => setDate(e.target.value)} />
+        </Field>
+        {date ? <button style={ghost} onClick={() => setDate("")}>Back to now</button> : <div style={{ fontSize: 12.5, color: MUTE, paddingBottom: 10 }}>Showing each person's current shift day — night shifts included.</div>}
+      </div>
+
+      {(d?.departments || []).map((dep) => (
+        <div key={dep.department.id} style={{ display: "grid", gap: 10 }}>
+          <div style={{ ...card, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <div style={{ fontWeight: 900, fontSize: 17, color: NAVY }}>{dep.department.name}</div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {dep.counts.working ? <Pill color={NAVY}>{dep.counts.working} on shift</Pill> : null}
+              {dep.counts.done ? <Pill color={GREEN}>{dep.counts.done} recapped</Pill> : null}
+              {dep.counts.off ? <Pill color="#0369a1">{dep.counts.off} off</Pill> : null}
+              {dep.counts.missing ? <Pill color={AMBER}>{dep.counts.missing} no check-in</Pill> : null}
+            </div>
+          </div>
+
+          {dep.members.map((m) => {
+            const e = m.entry;
+            const st = STATE[m.state] || STATE.not_started;
+            const offType = e && e.day_type !== "worked" ? (DT[e.day_type] || null) : null;
+            return (
+              <div key={m.employee.id} style={{ ...card, display: "grid", gap: 8 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "flex-start", flexWrap: "wrap" }}>
+                  <div>
+                    <div style={{ fontWeight: 900, fontSize: 15 }}>{m.employee.name}</div>
+                    <div style={{ fontSize: 12, color: MUTE }}>
+                      {m.shift ? `${m.shift.name} · ${hhmm(m.shift.start_time)}–${hhmm(m.shift.end_time)}` : "no shift set"} · {prettyLong(m.work_date)}
+                    </div>
+                  </div>
+                  <div style={{ textAlign: "right" }}>
+                    <Pill color={st.color}>{offType ? `${offType.emoji} ${offType.label}` : st.label}</Pill>
+                    <div style={{ fontSize: 12.5, color: MUTE, marginTop: 3 }}>
+                      {m.state === "working" && m.elapsed_minutes != null ? `in ${hhmm(e.time_in)} · ${Math.floor(m.elapsed_minutes / 60)}h ${m.elapsed_minutes % 60}m`
+                        : m.state === "done" ? `${e.hours}h · ${hhmm(e.time_in)}–${hhmm(e.time_out)}`
+                          : ""}
+                      {e?.late_minutes ? ` · ${fmtMins(e.late_minutes)} late` : ""}
+                    </div>
+                  </div>
+                </div>
+                {e?.recap ? (
+                  <div style={{ background: "#f8fafc", border: `1px solid ${LINE}`, borderRadius: 10, padding: "10px 12px", fontSize: 14, whiteSpace: "pre-wrap", lineHeight: 1.45 }}>{e.recap}</div>
+                ) : m.state === "working" ? (
+                  <div style={{ fontSize: 13, color: MUTE }}>Recap comes in when they end their shift.</div>
+                ) : m.state === "not_started" ? (
+                  <div style={{ fontSize: 13, color: AMBER }}>Hasn't checked in. They get a text once their shift start passes.</div>
+                ) : null}
+              </div>
+            );
+          })}
+          {!dep.members.length ? <div style={{ ...card, color: MUTE }}>Nobody on this team yet.</div> : null}
+        </div>
+      ))}
+      {d && !d.departments.length ? <div style={{ ...card, color: MUTE }}>You don't manage a department yet — the office sets that.</div> : null}
     </div>
   );
 }

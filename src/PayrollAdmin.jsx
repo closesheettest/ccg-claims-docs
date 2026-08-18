@@ -2,12 +2,15 @@
 //
 // EMPLOYEE PAYROLL — the office screen  (/?mode=payroll)
 //
-// The HR/office half of timekeeping. Employees keep their own time card at
-// /?mode=timecard and their department manager signs the week off Monday
-// morning; THIS page is where the office sets all of that up and takes the
+// The HR/office half of timekeeping. Employees check in at the start of their
+// shift and file a recap of what they got done at the end (/?mode=timecard);
+// their department manager reads those daily and signs the week off Monday
+// morning. THIS page is where the office sets all of that up and takes the
 // numbers out at the end:
 //
 //   Sign-off   which departments have signed last week, which haven't
+//   Daily      every recap for one day, company-wide
+//   Shifts     the named shifts (Day, Night) and their expected times
 //   People     the roster — pay setup, PTO allotment, logins
 //   Teams      departments + who signs each one off
 //   Time Off   every request, company-wide
@@ -40,9 +43,16 @@ const pretty = (s) => { if (!s) return ""; const [, m, d] = s.split("-"); return
 const money = (n) => `$${(Number(n) || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 const TABS = [
-  ["signoff", "Sign-off"], ["people", "People"], ["teams", "Teams"],
+  ["signoff", "Sign-off"], ["daily", "Daily"], ["people", "People"], ["teams", "Teams"], ["shifts", "Shifts"],
   ["timeoff", "Time Off"], ["balances", "Balances"], ["holidays", "Holidays"], ["export", "Export"],
 ];
+
+const STATE_LABEL = {
+  working: { label: "on shift", color: "#0f2a4a" },
+  done: { label: "recapped", color: "#15803d" },
+  off: { label: "off", color: "#0369a1" },
+  not_started: { label: "no check-in", color: "#b45309" },
+};
 
 function Pill({ children, color = MUTE }) {
   return <span style={{ display: "inline-block", padding: "3px 9px", borderRadius: 999, fontSize: 11.5, fontWeight: 800, color, background: `${color}18`, whiteSpace: "nowrap" }}>{children}</span>;
@@ -120,6 +130,8 @@ export default function PayrollAdmin() {
 
         <Err>{err}</Err>
         {tab === "signoff" && <SignOff api={api} onErr={setErr} />}
+        {tab === "daily" && <Daily api={api} onErr={setErr} />}
+        {tab === "shifts" && <Shifts api={api} onErr={setErr} />}
         {tab === "people" && <People api={api} onErr={setErr} />}
         {tab === "teams" && <Teams api={api} onErr={setErr} />}
         {tab === "timeoff" && <TimeOffAll api={api} onErr={setErr} />}
@@ -279,7 +291,7 @@ function DrillRow({ d, onSave }) {
 // ── PEOPLE ──────────────────────────────────────────────────────────────
 const BLANK_EMP = {
   first_name: "", last_name: "", email: "", phone: "", department_id: "", title: "",
-  pay_type: "hourly", hourly_rate: "", annual_salary: "", standard_day_hours: 8, standard_week_hours: 40,
+  shift_id: "", pay_type: "hourly", hourly_rate: "", annual_salary: "", standard_day_hours: 8, standard_week_hours: 40,
   hire_date: "", pto_days_per_year: 0, pto_carryover_days: 0, sick_days_per_year: 0,
   paid_holidays: true, is_manager: false, is_admin: false, active: true, notes: "",
 };
@@ -287,12 +299,13 @@ const BLANK_EMP = {
 function People({ api, onErr }) {
   const [rows, setRows] = useState(null);
   const [depts, setDepts] = useState([]);
+  const [shifts, setShifts] = useState([]);
   const [showInactive, setShowInactive] = useState(false);
   const [edit, setEdit] = useState(null);
 
   const load = useCallback(async () => {
     const d = await api("employees", { include_inactive: showInactive });
-    if (d.ok) { setRows(d.employees); setDepts(d.departments); } else onErr(d.error || "Couldn't load the roster.");
+    if (d.ok) { setRows(d.employees); setDepts(d.departments); setShifts(d.shifts || []); } else onErr(d.error || "Couldn't load the roster.");
   }, [api, showInactive, onErr]);
   useEffect(() => { load(); }, [load]);
 
@@ -325,6 +338,12 @@ function People({ api, onErr }) {
               <select style={fld} value={edit.department_id || ""} onChange={(e) => setEdit({ ...edit, department_id: e.target.value })}>
                 <option value="">— none —</option>
                 {depts.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+              </select>
+            </Field>
+            <Field label="Shift">
+              <select style={fld} value={edit.shift_id || ""} onChange={(e) => setEdit({ ...edit, shift_id: e.target.value })}>
+                <option value="">— none —</option>
+                {shifts.map((x) => <option key={x.id} value={x.id}>{x.name} ({x.start_time}–{x.end_time})</option>)}
               </select>
             </Field>
             <Field label="Title"><input style={fld} value={edit.title || ""} onChange={(e) => setEdit({ ...edit, title: e.target.value })} /></Field>
@@ -364,7 +383,7 @@ function People({ api, onErr }) {
       <div style={{ ...card, padding: 0, overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 860 }}>
           <thead><tr>
-            <th style={th}>Name</th><th style={th}>Department</th><th style={th}>Pay</th><th style={th}>Vac/yr</th>
+            <th style={th}>Name</th><th style={th}>Department</th><th style={th}>Shift</th><th style={th}>Pay</th><th style={th}>Vac/yr</th>
             <th style={th}>Role</th><th style={th}>Login</th><th style={th}></th>
           </tr></thead>
           <tbody>
@@ -372,6 +391,7 @@ function People({ api, onErr }) {
               <tr key={e.id} style={{ opacity: e.active ? 1 : 0.5 }}>
                 <td style={{ ...td, fontWeight: 800 }}>{e.last_name}, {e.first_name}<div style={{ fontWeight: 500, fontSize: 12, color: MUTE }}>{e.title || e.email}</div></td>
                 <td style={td}>{e.department_name || <Pill color={AMBER}>none</Pill>}</td>
+                <td style={td}>{e.shift_name || <Pill color={AMBER}>none</Pill>}</td>
                 <td style={td}>{e.pay_type === "hourly" ? `${money(e.hourly_rate)}/hr` : `${money(e.annual_salary)}/yr`}</td>
                 <td style={td}>{e.pto_days_per_year}{e.pto_carryover_days ? ` +${e.pto_carryover_days}` : ""}</td>
                 <td style={td}>{e.is_admin ? <Pill color={NAVY}>office</Pill> : e.is_manager ? <Pill color="#0369a1">manager</Pill> : <span style={{ color: MUTE }}>employee</span>}</td>
@@ -387,7 +407,7 @@ function People({ api, onErr }) {
                 </td>
               </tr>
             ))}
-            {rows && !rows.length ? <tr><td style={{ ...td, color: MUTE }} colSpan={7}>Nobody on the roster yet.</td></tr> : null}
+            {rows && !rows.length ? <tr><td style={{ ...td, color: MUTE }} colSpan={8}>Nobody on the roster yet.</td></tr> : null}
           </tbody>
         </table>
       </div>
@@ -652,6 +672,126 @@ function Export({ api, onErr }) {
           <div style={{ fontSize: 12.5, color: MUTE }}>{d.note}</div>
         </>
       ) : null}
+    </div>
+  );
+}
+
+// ── SHIFTS ──────────────────────────────────────────────────────────────
+function Shifts({ api, onErr }) {
+  const [rows, setRows] = useState(null);
+  const [edit, setEdit] = useState(null);
+  const load = useCallback(async () => {
+    const d = await api("shifts");
+    if (d.ok) setRows(d.shifts); else onErr(d.error || "Couldn't load shifts.");
+  }, [api, onErr]);
+  useEffect(() => { load(); }, [load]);
+
+  const save = async () => {
+    const d = await api("shift_save", edit);
+    if (!d.ok) { onErr(d.error || "Save failed."); return; }
+    setEdit(null); load();
+  };
+
+  return (
+    <div style={{ display: "grid", gap: 12 }}>
+      <div style={{ ...card, fontSize: 13.5, color: MUTE }}>
+        A shift sets when someone is expected and when the two nudge texts go out. If the end time is
+        <b> earlier than</b> the start (6:00p → 6:00a), it's a night shift: the whole span is filed under the day it
+        <b> started</b>, so one night is one day on the time card, and the 6am recap lands on the right date.
+      </div>
+      <div style={{ display: "flex", justifyContent: "flex-end" }}>
+        <button style={btn(NAVY)} onClick={() => setEdit({ name: "", start_time: "07:00", end_time: "15:30", grace_minutes: 15, active: true, sort_order: (rows?.length || 0) + 1 })}>+ Add shift</button>
+      </div>
+      {edit ? (
+        <div style={{ ...card, display: "grid", gap: 10, borderColor: "#bfdbfe", background: "#f8fbff" }}>
+          <div style={{ fontWeight: 900 }}>{edit.id ? "Edit shift" : "New shift"}</div>
+          <div style={{ display: "flex", gap: 9, flexWrap: "wrap" }}>
+            <Field label="Name" w={160}><input style={fld} value={edit.name} onChange={(e) => setEdit({ ...edit, name: e.target.value })} placeholder="Day, Night, Swing…" /></Field>
+            <Field label="Starts" w={120}><input style={fld} type="time" value={edit.start_time} onChange={(e) => setEdit({ ...edit, start_time: e.target.value })} /></Field>
+            <Field label="Ends" w={120}><input style={fld} type="time" value={edit.end_time} onChange={(e) => setEdit({ ...edit, end_time: e.target.value })} /></Field>
+            <Field label="Grace (min late)" w={120}><input style={fld} type="number" min="0" max="120" value={edit.grace_minutes} onChange={(e) => setEdit({ ...edit, grace_minutes: e.target.value })} /></Field>
+          </div>
+          {edit.end_time <= edit.start_time ? <div style={{ fontSize: 13, color: "#0369a1", fontWeight: 700 }}>🌙 Crosses midnight — this is a night shift.</div> : null}
+          <div style={{ display: "flex", gap: 8 }}>
+            <button style={btn(NAVY)} onClick={save}>Save</button>
+            <button style={ghost} onClick={() => setEdit(null)}>Cancel</button>
+          </div>
+        </div>
+      ) : null}
+      <div style={{ ...card, padding: 0, overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 560 }}>
+          <thead><tr><th style={th}>Shift</th><th style={th}>Hours</th><th style={th}>Grace</th><th style={th}>People</th><th style={th}></th></tr></thead>
+          <tbody>
+            {(rows || []).map((r) => (
+              <tr key={r.id} style={{ opacity: r.active ? 1 : 0.5 }}>
+                <td style={{ ...td, fontWeight: 800 }}>{r.name} {r.crosses_midnight ? <Pill color="#0369a1">🌙 overnight</Pill> : null}</td>
+                <td style={td}>{r.start_time} – {r.end_time}</td>
+                <td style={td}>{r.grace_minutes} min</td>
+                <td style={td}>{r.headcount}</td>
+                <td style={{ ...td, whiteSpace: "nowrap" }}>
+                  <button style={{ ...ghost, padding: "6px 10px" }} onClick={() => setEdit({ id: r.id, name: r.name, start_time: r.start_time, end_time: r.end_time, grace_minutes: r.grace_minutes, active: r.active, sort_order: r.sort_order })}>Edit</button>
+                  <button style={{ ...ghost, padding: "6px 10px", marginLeft: 5, color: RED, borderColor: "#fecaca" }}
+                    onClick={async () => { if (!window.confirm(`Delete the ${r.name} shift?`)) return; const d = await api("shift_delete", { id: r.id }); if (!d.ok) onErr(d.error); load(); }}>Delete</button>
+                </td>
+              </tr>
+            ))}
+            {rows && !rows.length ? <tr><td style={{ ...td, color: MUTE }} colSpan={5}>No shifts yet.</td></tr> : null}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ── DAILY: every recap for one day, company-wide ────────────────────────
+function Daily({ api, onErr }) {
+  const [date, setDate] = useState(todayET());
+  const [d, setD] = useState(null);
+  const [only, setOnly] = useState("");     // "" | done | not_started | working | off
+
+  const load = useCallback(async () => {
+    const r = await api("day_review", { work_date: date });
+    if (r.ok) setD(r); else onErr(r.error || "Couldn't load that day.");
+  }, [api, onErr, date]);
+  useEffect(() => { load(); }, [load]);
+
+  const rows = (d?.rows || []).filter((r) => !only || r.state === only);
+  return (
+    <div style={{ display: "grid", gap: 12 }}>
+      <div style={{ ...card, display: "flex", gap: 12, alignItems: "flex-end", flexWrap: "wrap" }}>
+        <Field label="Day" w={160}><input style={fld} type="date" value={date} onChange={(e) => setDate(e.target.value)} /></Field>
+        <button style={ghost} onClick={() => setDate(addDays(date, -1))}>← previous</button>
+        <button style={ghost} disabled={date >= todayET()} onClick={() => setDate(addDays(date, 1))}>next →</button>
+        <div style={{ display: "flex", gap: 7, flexWrap: "wrap", marginLeft: "auto" }}>
+          {[["", "Everyone"], ["done", "Recapped"], ["working", "On shift"], ["not_started", "No check-in"], ["off", "Off"]].map(([k, l]) => (
+            <button key={k} onClick={() => setOnly(k)} style={{ ...ghost, background: only === k ? NAVY : "#fff", color: only === k ? "#fff" : NAVY }}>
+              {l}{k && d ? ` ${d.counts[k] ?? 0}` : ""}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div style={{ display: "grid", gap: 10 }}>
+        {rows.map((r) => {
+          const st = STATE_LABEL[r.state] || STATE_LABEL.not_started;
+          return (
+            <div key={r.id} style={{ ...card, display: "grid", gap: 7 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+                <div>
+                  <span style={{ fontWeight: 800 }}>{r.name}</span>
+                  <span style={{ color: MUTE, fontSize: 13 }}> · {r.department} · {r.shift}</span>
+                </div>
+                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  {r.late_minutes ? <Pill color={AMBER}>{r.late_minutes} min late</Pill> : null}
+                  <Pill color={st.color}>{r.state === "off" ? (r.day_type || "off") : st.label}</Pill>
+                  <span style={{ fontWeight: 800, minWidth: 44, textAlign: "right" }}>{r.hours ? `${r.hours}h` : ""}</span>
+                </div>
+              </div>
+              {r.recap ? <div style={{ background: "#f8fafc", border: `1px solid ${LINE}`, borderRadius: 10, padding: "9px 11px", fontSize: 13.5, whiteSpace: "pre-wrap", lineHeight: 1.45 }}>{r.recap}</div> : null}
+            </div>
+          );
+        })}
+        {d && !rows.length ? <div style={{ ...card, color: MUTE }}>Nobody matches that filter for {date}.</div> : null}
+      </div>
     </div>
   );
 }
