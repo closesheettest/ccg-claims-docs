@@ -13,7 +13,7 @@ Two screens, one system:
 
 | Who | Where | What they do there |
 |---|---|---|
-| Employee | `/?mode=timecard` | Check in at shift start, recap at shift end, or mark the day off. See holidays and what's left of their vacation days. |
+| Employee | `/?mode=timecard` | Sign in with their **mobile number** + a passcode they set. Check in at shift start, recap at shift end, or mark the day off. See holidays and what's left of their vacation days. |
 | Department manager | same screen, **Team** tab | **Today:** who's on shift, who never checked in, and every recap. **Week sign-off:** Monday morning, review last week, fix anything wrong, sign it off. Also approves time-off requests. |
 | Office / HR | `/?mode=payroll` (manager PIN) | Shifts, the roster, departments and who signs each one off, PTO allotments, holidays, a company-wide daily recap board, and the payroll export. |
 
@@ -31,10 +31,29 @@ Both are also tiles in **My Tools** (`/?mode=mytools`) under *People & Payroll*.
      is forgiven before it's recorded as late.
    - **Teams** → add each department (Warehouse, Production, Office…). Leave the
      manager blank for now.
-   - **People** → add each employee. The *work email is their login*, and their
-     **phone** is how the nudge texts reach them. Assign a **shift**, set pay type +
-     rate and vacation days per year, and tick **can sign off a department** for
-     anyone who runs a team (and **office/HR** for whoever should see everyone).
+   - **People** → add each employee, or use **⬆ Import roster** to paste a whole
+     spreadsheet at once (see below). Their **mobile number is their login** and where
+     the nudge texts go — without one they cannot sign in at all. Email is optional.
+     Assign a **shift**, set pay type + rate and vacation days per year, and tick
+     **can sign off a department** for anyone who runs a team (and **office/HR** for
+     whoever should see everyone).
+
+### Importing a roster
+
+**People → ⬆ Import roster** takes a paste straight out of a spreadsheet — headers and
+all, tabs or commas. It reads *name, dept, who to ask, mobile*, and optionally *email*
+and *title*, in any column order; names can be `LAST, FIRST` or `First Last`, and
+ALL-CAPS gets tidied to normal case.
+
+It **always previews first** and writes nothing until you press the button. The preview
+tells you who will be added, who is already on the roster, who has no mobile number,
+which departments will be created, and — because one person signs off a whole
+department — who ends up signing each one. If a department's rows name different
+people, the most common name wins and every row that disagrees is listed for you.
+
+A manager named in the sheet who isn't themselves a row (an owner, or someone in
+another department) can't be linked automatically: add them on the People tab, then set
+that department's manager on **Teams**.
    - **Teams** again → set each department's manager now that they exist.
 4. **Tell people to open `/?mode=timecard`.** First sign-in: they type their work
    email, then pick their own 4–8 digit passcode. If they forget it, the office hits

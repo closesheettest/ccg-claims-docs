@@ -18,7 +18,8 @@
 //   department_save  { id?, name, manager_employee_id?, active? }
 //   department_delete{ id }
 //   employees        { include_inactive? }  →  { employees }
-//   employee_save    { id?, first_name, last_name, email, ...pay + PTO fields }
+//   employee_save    { id?, first_name, last_name, phone, ...pay + PTO fields }
+//   import_roster    { text, commit? }  paste a roster → preview, then create
 //   employee_delete  { id }                 →  deactivates (keeps history)
 //   reset_passcode   { id }                 →  clears it; next login sets a new one
 //   holidays         →  { holidays }
@@ -61,6 +62,105 @@ export const handler = async (event) => {
 
   const action = String(b.action || "").trim();
   try {
+    // ── Bulk roster import ─────────────────────────────────────────
+    // Paste the roster straight out of a spreadsheet. Always previews first;
+    // nothing is written unless commit:true comes back.
+    if (action === "import_roster") {
+      const parsed = parseRoster(String(b.text || ""));
+      if (!parsed.rows.length) return cors(400, j({ ok: false, error: parsed.error || "Nothing to import — paste rows with a name, and ideally a department, who signs off, and a mobile number." }));
+
+      const [existing, depts] = await Promise.all([
+        get("payroll_employees?select=id,first_name,last_name,phone,phone_key,department_id,active"),
+        get("payroll_departments?select=id,name"),
+      ]);
+      const byKey = Object.fromEntries(existing.filter((e) => e.phone_key).map((e) => [e.phone_key, e]));
+      const byName = {};
+      for (const e of existing) byName[`${e.first_name} ${e.last_name}`.toLowerCase()] = e;
+      const deptByName = Object.fromEntries(depts.map((d) => [d.name.toLowerCase(), d]));
+
+      // Each department is signed off by ONE person: whoever the most rows in
+      // that department name. Rows that name someone else are reported, not lost.
+      const votes = {};
+      for (const r of parsed.rows) {
+        if (!r.department || !r.manager) continue;
+        votes[r.department] = votes[r.department] || {};
+        votes[r.department][r.manager] = (votes[r.department][r.manager] || 0) + 1;
+      }
+      const deptManager = {};
+      for (const [d, v] of Object.entries(votes)) {
+        deptManager[d] = Object.entries(v).sort((a, c) => c[1] - a[1])[0][0];
+      }
+
+      const warnings = [];
+      const rows = parsed.rows.map((r) => {
+        const key = phoneKey(r.phone);
+        const dupeInSheet = parsed.rows.filter((x) => x !== r && key && phoneKey(x.phone) === key).length > 0;
+        const already = key ? byKey[key] : byName[`${r.first_name} ${r.last_name}`.toLowerCase()];
+        const differs = r.manager && deptManager[r.department] && r.manager.toLowerCase() !== deptManager[r.department].toLowerCase();
+        return {
+          ...r,
+          status: already ? "exists" : !key ? "needs_phone" : dupeInSheet ? "duplicate" : "new",
+          existing_name: already ? `${already.first_name} ${already.last_name}` : null,
+          signs_off: deptManager[r.department] || null,
+          manager_overridden: differs ? deptManager[r.department] : null,
+        };
+      });
+
+      // Resolve each department's manager to somebody who will actually exist.
+      const deptPlan = Object.entries(deptManager).map(([name, mgr]) => {
+        const inSheet = parsed.rows.find((r) => r.first_name.toLowerCase() === mgr.toLowerCase());
+        const inRoster = Object.values(byName).find((e) => e.first_name.toLowerCase() === mgr.toLowerCase());
+        const resolved = inSheet ? `${inSheet.first_name} ${inSheet.last_name}` : inRoster ? `${inRoster.first_name} ${inRoster.last_name}` : null;
+        if (!resolved) warnings.push(`"${mgr}" signs off ${name} but isn't on this list — add them as an employee, then set ${name}'s manager on the Teams tab.`);
+        return { name, manager_first: mgr, manager_name: resolved, exists: !!deptByName[name.toLowerCase()] };
+      });
+      for (const r of rows) {
+        if (r.status === "needs_phone") warnings.push(`${r.first_name} ${r.last_name} has no mobile number — they can't sign in or be texted until the office adds one.`);
+        if (r.manager_overridden) warnings.push(`Your sheet says ${r.first_name} ${r.last_name} reports to ${r.manager}, but ${r.department} is signed off by ${r.manager_overridden} — that's who will sign their week.`);
+      }
+
+      const counts = {
+        new: rows.filter((r) => r.status === "new").length,
+        exists: rows.filter((r) => r.status === "exists").length,
+        needs_phone: rows.filter((r) => r.status === "needs_phone").length,
+        duplicate: rows.filter((r) => r.status === "duplicate").length,
+        departments_new: deptPlan.filter((d) => !d.exists).length,
+      };
+
+      if (!b.commit) return cors(200, j({ ok: true, preview: true, rows, departments: deptPlan, warnings, counts }));
+
+      // ── commit ──
+      const madeDept = {};
+      for (const d of deptPlan) {
+        if (deptByName[d.name.toLowerCase()]) { madeDept[d.name] = deptByName[d.name.toLowerCase()].id; continue; }
+        const ins = await postRow("payroll_departments", { name: d.name, active: true });
+        if (ins?.id) { madeDept[d.name] = ins.id; }
+      }
+      const created = [];
+      for (const r of rows) {
+        if (r.status !== "new") continue;
+        const ins = await postRow("payroll_employees", {
+          first_name: r.first_name, last_name: r.last_name,
+          phone: r.phone || null, email: r.email || null,
+          department_id: madeDept[r.department] || null,
+          title: r.title || null, pay_type: "hourly", active: true,
+        }).catch(() => null);
+        if (ins?.id) created.push({ id: ins.id, name: `${r.first_name} ${r.last_name}` });
+      }
+      // Now that everyone exists, point each department at its manager.
+      const all = await get("payroll_employees?select=id,first_name,last_name");
+      const linked = [];
+      for (const d of deptPlan) {
+        if (!d.manager_name || !madeDept[d.name]) continue;
+        const m = all.find((e) => `${e.first_name} ${e.last_name}`.toLowerCase() === d.manager_name.toLowerCase());
+        if (!m) continue;
+        await patch(`payroll_departments?id=eq.${madeDept[d.name]}`, { manager_employee_id: m.id });
+        await patch(`payroll_employees?id=eq.${m.id}`, { is_manager: true, updated_at: nowIso() });
+        linked.push({ department: d.name, manager: d.manager_name });
+      }
+      return cors(200, j({ ok: true, imported: created.length, created, departments_linked: linked, warnings, counts }));
+    }
+
     // ── Shifts ─────────────────────────────────────────────────────
     if (action === "shifts") {
       const [shifts, emps] = await Promise.all([
@@ -157,13 +257,13 @@ export const handler = async (event) => {
       }
       if (!b.id) {
         if (!row.first_name || !row.last_name) return cors(400, j({ ok: false, error: "First and last name are required." }));
-        if (!row.email) return cors(400, j({ ok: false, error: "An email is required — it's how they log in." }));
+        if (!phoneKey(row.phone)) return cors(400, j({ ok: false, error: "A mobile number is required — it's how they log in and how the check-in/recap texts reach them." }));
       }
       row.updated_at = nowIso();
       if (b.id) await patch(`payroll_employees?id=eq.${str(b.id, 64)}`, row);
       else {
-        const dupe = await get(`payroll_employees?email=eq.${encodeURIComponent(row.email)}&select=id&limit=1`);
-        if (dupe.length) return cors(400, j({ ok: false, error: "Someone on the roster already uses that email." }));
+        const dupe = await get(`payroll_employees?phone_key=eq.${phoneKey(row.phone)}&select=id,first_name,last_name&limit=1`);
+        if (dupe.length) return cors(400, j({ ok: false, error: `That number is already on the roster (${dupe[0].first_name} ${dupe[0].last_name}).` }));
         await post("payroll_employees", row);
       }
       return cors(200, j({ ok: true }));
@@ -431,6 +531,79 @@ function totalsFor(entries, emps, weeks = 1) {
   };
 }
 
+// ── roster paste parsing ─────────────────────────────────────────────
+// Takes whatever comes off a spreadsheet — tabs or commas, header row or not —
+// and returns clean {first_name, last_name, department, manager, phone, email}.
+function parseRoster(text) {
+  const lines = String(text || "").split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  if (!lines.length) return { rows: [], error: "Nothing pasted." };
+  const delim = lines[0].includes("\t") ? "\t" : ",";
+  const split = (l) => l.split(delim).map((c) => c.trim().replace(/^"|"$/g, ""));
+
+  let cols = { name: 0, department: 1, manager: 2, phone: 3, email: 4, title: -1 };
+  let start = 0;
+  const head = split(lines[0]).map((h) => h.toLowerCase());
+  const looksLikeHeader = head.some((h) => /^name$/.test(h) || /(^|\b)(dept|department)\b/.test(h) || /who to ask/.test(h));
+  if (looksLikeHeader) {
+    start = 1;
+    cols = { name: -1, department: -1, manager: -1, phone: -1, email: -1, title: -1 };
+    head.forEach((h, i) => {
+      if (/name/.test(h) && cols.name < 0) cols.name = i;
+      else if (/dept|department/.test(h)) cols.department = i;
+      else if (/who to ask|manager|signs|supervisor|reports/.test(h)) cols.manager = i;
+      else if (/phone|mobile|cell/.test(h)) cols.phone = i;
+      else if (/email|e-mail/.test(h)) cols.email = i;
+      else if (/title|role|position/.test(h)) cols.title = i;
+    });
+    if (cols.name < 0) cols.name = 0;
+  }
+
+  const rows = [];
+  for (let i = start; i < lines.length; i++) {
+    const c = split(lines[i]);
+    const rawName = (cols.name >= 0 ? c[cols.name] : c[0]) || "";
+    if (!rawName) continue;
+    const { first, last } = splitName(rawName);
+    if (!first && !last) continue;
+    rows.push({
+      first_name: first, last_name: last,
+      department: titleCase(pick(c, cols.department)),
+      manager: titleCase(pick(c, cols.manager)),
+      phone: pick(c, cols.phone),
+      email: (pick(c, cols.email) || "").toLowerCase() || null,
+      title: pick(c, cols.title) || null,
+    });
+  }
+  return { rows };
+}
+function pick(cells, i) { return i >= 0 && cells[i] != null ? String(cells[i]).trim() : ""; }
+// "ADAMS, ANGELA" → Adams / Angela.  "VON GRAUPEN, JENNIFER S" → Von Graupen /
+// Jennifer (a lone trailing initial is dropped). "Jonathan Bagley" also works.
+function splitName(raw) {
+  const v = String(raw || "").replace(/\s+/g, " ").trim();
+  if (!v) return { first: "", last: "" };
+  if (v.includes(",")) {
+    const [l, r = ""] = v.split(",");
+    return { last: titleCase(l), first: titleCase(dropInitial(r)) };
+  }
+  const parts = v.split(" ");
+  if (parts.length === 1) return { first: titleCase(parts[0]), last: "—" };
+  return { first: titleCase(parts[0]), last: titleCase(parts.slice(1).join(" ")) };
+}
+function dropInitial(s) {
+  const parts = String(s).trim().split(/\s+/);
+  if (parts.length > 1 && parts[parts.length - 1].replace(".", "").length === 1) parts.pop();
+  return parts.join(" ");
+}
+// ALL-CAPS spreadsheets read badly on a phone; anything already mixed-case is left alone.
+function titleCase(s) {
+  const v = String(s || "").trim();
+  if (!v) return "";
+  if (v !== v.toUpperCase()) return v;
+  return v.toLowerCase().replace(/\b[a-z]/g, (m) => m.toUpperCase());
+}
+const phoneKey = (v) => { const d = String(v || "").replace(/\D/g, ""); return d.length >= 10 ? d.slice(-10) : ""; };
+
 async function okToken(token) {
   const t = String(token || "").trim();
   if (!t) return false;
@@ -468,6 +641,12 @@ async function get(path) {
   const r = await fetch(`${SB_URL}/rest/v1/${path}`, { headers: H });
   if (!r.ok) return [];
   return r.json().catch(() => []);
+}
+async function postRow(table, row) {
+  const r = await fetch(`${SB_URL}/rest/v1/${table}`, { method: "POST", headers: { ...H, Prefer: "return=representation" }, body: JSON.stringify(row) });
+  if (!r.ok) throw new Error(`${table} insert ${r.status}: ${(await r.text()).slice(0, 160)}`);
+  const out = await r.json().catch(() => []);
+  return out[0] || null;
 }
 async function post(table, row) {
   const r = await fetch(`${SB_URL}/rest/v1/${table}`, { method: "POST", headers: { ...H, Prefer: "return=minimal" }, body: JSON.stringify(row) });

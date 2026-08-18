@@ -11,17 +11,20 @@
 // (Day 7:00a–3:30p, Night 6:00p–6:00a); a night shift's whole span is filed
 // under the date it STARTED, so one night is one row on one work date.
 //
-// Login: email + a 4–8 digit passcode. The FIRST time a person logs in,
-// whatever they type becomes their passcode (same idea as My Tools), and
-// it's stored salted+hashed — never in the clear, because this app's
-// Supabase key is public. A login returns an opaque session token
-// (payroll_sessions, 30 days) that every other call carries.
+// Login: THEIR PHONE NUMBER + a 4–8 digit passcode. Most of the field crew have
+// no company email, so the phone is the identifier — any formatting works, it
+// matches on the last 10 digits (an office person can still sign in with their
+// email if they'd rather). The FIRST time a person logs in, whatever passcode
+// they type becomes theirs (same idea as My Tools), stored salted+hashed — never
+// in the clear, because this app's Supabase key is public. A login returns an
+// opaque session token (payroll_sessions, 30 days) that every other call carries.
 //
 //   POST { action, token, ... }
 //
 //   ── anyone ──────────────────────────────────────────────────────────
-//   "who"           { email }                    → { found, passcode_set, name }
-//   "login"         { email, passcode }          → { token, me }
+//   "who"           { login }                    → { found, passcode_set, name }
+//   "login"         { login, passcode }          → { token, me }
+//                   ("login" is a phone number, or an email for office staff)
 //   "logout"        { token }
 //   "set_passcode"  { token, passcode }
 //   "me"            { token }                    → me + balances + holidays + shift
@@ -66,6 +69,10 @@ const EMP_SEL =
   "standard_day_hours,standard_week_hours,hire_date,pto_days_per_year,pto_carryover_days," +
   "sick_days_per_year,paid_holidays,shift_id,is_manager,is_admin,active,passcode_hash";
 
+// Everything after the digits is noise: "813-955-5126", "(813) 955-5126" and
+// "+1 813 955 5126" are one person. Matches the DB's generated phone_key.
+const phoneKey = (v) => { const d = String(v || "").replace(/\D/g, ""); return d.length >= 10 ? d.slice(-10) : ""; };
+
 // Day types an employee can put on their own timecard. "holiday" is filled in
 // automatically from the holiday calendar; "no_show" is manager/office only.
 const SELF_DAY_TYPES = ["worked", "pto", "sick", "doctor", "unpaid", "bereavement", "jury", "other"];
@@ -89,15 +96,15 @@ export const handler = async (event) => {
   try {
     // ── Pre-auth: does this email have a passcode yet? ──────────────
     if (action === "who") {
-      const emp = await empByEmail(body.email);
+      const emp = await empByLogin(body.login ?? body.phone ?? body.email);
       if (!emp) return cors(200, j({ ok: true, found: false }));
       return cors(200, j({ ok: true, found: true, passcode_set: !!emp.passcode_hash, name: emp.first_name }));
     }
 
     if (action === "login") {
-      const emp = await empByEmail(body.email);
+      const emp = await empByLogin(body.login ?? body.phone ?? body.email);
       const pass = String(body.passcode || "").trim();
-      if (!emp) return cors(404, j({ ok: false, error: "We don't have that email on the payroll roster. Check with the office." }));
+      if (!emp) return cors(404, j({ ok: false, error: "We don't have that number on the payroll roster. Check with the office." }));
       if (!emp.active) return cors(403, j({ ok: false, error: "That employee record is inactive. Check with the office." }));
       if (!/^\d{4,8}$/.test(pass)) return cors(400, j({ ok: false, error: "Passcode must be 4–8 digits." }));
       if (!emp.passcode_hash) {
@@ -693,10 +700,14 @@ function nowET() {
 
 // ══ small helpers ════════════════════════════════════════════════════
 
-async function empByEmail(email) {
-  const e = String(email || "").trim().toLowerCase();
-  if (!e) return null;
-  return (await get(`payroll_employees?email=eq.${encodeURIComponent(e)}&select=${EMP_SEL}&limit=1`))[0] || null;
+// Sign in with a phone number, or an email for whoever has one.
+async function empByLogin(raw) {
+  const v = String(raw || "").trim();
+  if (!v) return null;
+  const key = phoneKey(v);
+  if (key) return (await get(`payroll_employees?phone_key=eq.${key}&select=${EMP_SEL}&limit=1`))[0] || null;
+  if (v.includes("@")) return (await get(`payroll_employees?email=eq.${encodeURIComponent(v.toLowerCase())}&select=${EMP_SEL}&limit=1`))[0] || null;
+  return null;
 }
 async function session(token) {
   const t = String(token || "").trim();

@@ -9,7 +9,9 @@
 -- What it holds
 --   payroll_shifts         the named shifts (Day, Night) + their expected times
 --   payroll_departments    a team + the employee who signs off its hours
---   payroll_employees      the roster, pay setup, PTO allotment, login passcode
+--   payroll_employees      the roster, pay setup, PTO allotment, login passcode.
+--                          LOGIN IS THE PHONE NUMBER — most of the field crew
+--                          have no company email, so email is optional.
 --   payroll_time_entries   ONE row per employee per WORK DATE — their check-in,
 --                          their end-of-shift recap, or a day off. A night shift
 --                          that runs 6pm→6am belongs to the date it STARTED.
@@ -64,8 +66,8 @@ create table if not exists public.payroll_employees (
   id                  uuid primary key default gen_random_uuid(),
   first_name          text not null,
   last_name           text not null,
-  email               text unique,           -- this is their login
-  phone               text,
+  phone               text,                  -- THIS IS THEIR LOGIN (and where nudges go)
+  email               text unique,           -- optional; office staff only
   department_id       uuid references public.payroll_departments(id) on delete set null,
   title               text,
 
@@ -101,6 +103,15 @@ do $$ begin
     foreign key (manager_employee_id) references public.payroll_employees(id) on delete set null;
 exception when duplicate_object then null; end $$;
 
+-- The login key: the last 10 digits of whatever was typed into `phone`, so
+-- "813-955-5126", "(813) 955-5126" and "+18139555126" are all the same person.
+-- Generated, so it can never drift from the phone the office edits.
+alter table public.payroll_employees
+  add column if not exists phone_key text
+  generated always as (nullif(right(regexp_replace(coalesce(phone, ''), '\D', '', 'g'), 10), '')) stored;
+
+create unique index if not exists payroll_employees_phone_key_idx
+  on public.payroll_employees(phone_key) where phone_key is not null;
 create index if not exists payroll_employees_dept_idx on public.payroll_employees(department_id) where active;
 create index if not exists payroll_employees_email_idx on public.payroll_employees(lower(email));
 

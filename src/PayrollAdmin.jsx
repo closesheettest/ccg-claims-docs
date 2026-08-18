@@ -11,7 +11,7 @@
 //   Sign-off   which departments have signed last week, which haven't
 //   Daily      every recap for one day, company-wide
 //   Shifts     the named shifts (Day, Night) and their expected times
-//   People     the roster — pay setup, PTO allotment, logins
+//   People     the roster — pay setup, PTO allotment, logins, bulk import
 //   Teams      departments + who signs each one off
 //   Time Off   every request, company-wide
 //   Balances   vacation left and sick days used, per person
@@ -169,7 +169,7 @@ function SignOff({ api, onErr }) {
         </div>
         {d ? (
           <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
-            <div><div style={{ fontSize: 11, color: MUTE, fontWeight: 800 }}>SIGNED OFF</div><div style={{ fontSize: 19, fontWeight: 900, color: d.approved_count === d.departments.length ? GREEN : AMBER }}>{d.approved_count}/{d.departments.length}</div></div>
+            <div><div style={{ fontSize: 11, color: MUTE, fontWeight: 800 }}>SIGNED OFF</div><div style={{ fontSize: 19, fontWeight: 900, color: d.approved_count === (d.departments || []).length ? GREEN : AMBER }}>{d.approved_count}/{(d.departments || []).length}</div></div>
             <div><div style={{ fontSize: 11, color: MUTE, fontWeight: 800 }}>HOURS WORKED</div><div style={{ fontSize: 19, fontWeight: 900 }}>{d.company.worked}</div></div>
             <div><div style={{ fontSize: 11, color: MUTE, fontWeight: 800 }}>OVERTIME</div><div style={{ fontSize: 19, fontWeight: 900, color: d.company.overtime ? AMBER : INK }}>{d.company.overtime}</div></div>
             <div><div style={{ fontSize: 11, color: MUTE, fontWeight: 800 }}>PAID TIME OFF</div><div style={{ fontSize: 19, fontWeight: 900 }}>{(d.company.pto + d.company.sick + d.company.holiday).toFixed(2).replace(/\.00$/, "")}</div></div>
@@ -205,7 +205,7 @@ function SignOff({ api, onErr }) {
                 </td>
               </tr>
             ))}
-            {d && !d.departments.length ? <tr><td style={{ ...td, color: MUTE }} colSpan={7}>No departments yet — add them on the Teams tab.</td></tr> : null}
+            {d && !(d.departments || []).length ? <tr><td style={{ ...td, color: MUTE }} colSpan={7}>No departments yet — add them on the Teams tab.</td></tr> : null}
           </tbody>
         </table>
       </div>
@@ -302,6 +302,7 @@ function People({ api, onErr }) {
   const [shifts, setShifts] = useState([]);
   const [showInactive, setShowInactive] = useState(false);
   const [edit, setEdit] = useState(null);
+  const [importing, setImporting] = useState(false);
 
   const load = useCallback(async () => {
     const d = await api("employees", { include_inactive: showInactive });
@@ -315,13 +316,18 @@ function People({ api, onErr }) {
     setEdit(null); load();
   };
 
+  if (importing) return <ImportRoster api={api} onErr={onErr} onDone={() => { setImporting(false); load(); }} />;
+
   return (
     <div style={{ display: "grid", gap: 12 }}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
         <label style={{ fontSize: 13.5, fontWeight: 600, display: "flex", gap: 7, alignItems: "center" }}>
           <input type="checkbox" checked={showInactive} onChange={(e) => setShowInactive(e.target.checked)} /> show inactive
         </label>
-        <button style={btn(NAVY)} onClick={() => setEdit({ ...BLANK_EMP })}>+ Add employee</button>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button style={ghost} onClick={() => setImporting(true)}>⬆ Import roster</button>
+          <button style={btn(NAVY)} onClick={() => setEdit({ ...BLANK_EMP })}>+ Add employee</button>
+        </div>
       </div>
 
       {edit ? (
@@ -330,8 +336,8 @@ function People({ api, onErr }) {
           <div style={{ display: "flex", gap: 9, flexWrap: "wrap" }}>
             <Field label="First name"><input style={fld} value={edit.first_name} onChange={(e) => setEdit({ ...edit, first_name: e.target.value })} /></Field>
             <Field label="Last name"><input style={fld} value={edit.last_name} onChange={(e) => setEdit({ ...edit, last_name: e.target.value })} /></Field>
-            <Field label="Work email (their login)" w={220}><input style={fld} type="email" value={edit.email || ""} onChange={(e) => setEdit({ ...edit, email: e.target.value })} /></Field>
-            <Field label="Phone"><input style={fld} value={edit.phone || ""} onChange={(e) => setEdit({ ...edit, phone: e.target.value })} /></Field>
+            <Field label="Mobile (their login)" w={170}><input style={fld} type="tel" value={edit.phone || ""} onChange={(e) => setEdit({ ...edit, phone: e.target.value })} placeholder="(813) 555-0123" /></Field>
+            <Field label="Email (optional)" w={200}><input style={fld} type="email" value={edit.email || ""} onChange={(e) => setEdit({ ...edit, email: e.target.value })} /></Field>
           </div>
           <div style={{ display: "flex", gap: 9, flexWrap: "wrap" }}>
             <Field label="Department">
@@ -389,13 +395,17 @@ function People({ api, onErr }) {
           <tbody>
             {(rows || []).map((e) => (
               <tr key={e.id} style={{ opacity: e.active ? 1 : 0.5 }}>
-                <td style={{ ...td, fontWeight: 800 }}>{e.last_name}, {e.first_name}<div style={{ fontWeight: 500, fontSize: 12, color: MUTE }}>{e.title || e.email}</div></td>
+                <td style={{ ...td, fontWeight: 800 }}>{e.last_name}, {e.first_name}<div style={{ fontWeight: 500, fontSize: 12, color: MUTE }}>{e.title || e.email || ""}</div></td>
                 <td style={td}>{e.department_name || <Pill color={AMBER}>none</Pill>}</td>
                 <td style={td}>{e.shift_name || <Pill color={AMBER}>none</Pill>}</td>
                 <td style={td}>{e.pay_type === "hourly" ? `${money(e.hourly_rate)}/hr` : `${money(e.annual_salary)}/yr`}</td>
                 <td style={td}>{e.pto_days_per_year}{e.pto_carryover_days ? ` +${e.pto_carryover_days}` : ""}</td>
                 <td style={td}>{e.is_admin ? <Pill color={NAVY}>office</Pill> : e.is_manager ? <Pill color="#0369a1">manager</Pill> : <span style={{ color: MUTE }}>employee</span>}</td>
-                <td style={td}>{e.passcode_set_at ? <Pill color={GREEN}>set</Pill> : <Pill color={MUTE}>not set up</Pill>}</td>
+                <td style={td}>
+                  {!e.phone ? <Pill color={RED}>no mobile</Pill>
+                    : e.passcode_set_at ? <Pill color={GREEN}>set</Pill> : <Pill color={MUTE}>not set up</Pill>}
+                  <div style={{ fontSize: 11.5, color: MUTE, marginTop: 2 }}>{e.phone || ""}</div>
+                </td>
                 <td style={{ ...td, whiteSpace: "nowrap" }}>
                   <button style={{ ...ghost, padding: "6px 10px" }} onClick={() => setEdit({ ...BLANK_EMP, ...e })}>Edit</button>
                   <button style={{ ...ghost, padding: "6px 10px", marginLeft: 5 }} title="Clear their passcode so they can set a new one"
@@ -792,6 +802,140 @@ function Daily({ api, onErr }) {
         })}
         {d && !rows.length ? <div style={{ ...card, color: MUTE }}>Nobody matches that filter for {date}.</div> : null}
       </div>
+    </div>
+  );
+}
+
+// ── IMPORT ROSTER ───────────────────────────────────────────────────────
+// Paste straight out of the spreadsheet. Always previews first — nothing is
+// written until the office reads the warnings and presses the button.
+function ImportRoster({ api, onErr, onDone }) {
+  const [text, setText] = useState("");
+  const [p, setP] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState(null);
+
+  const preview = async () => {
+    setBusy(true); onErr(""); setDone(null);
+    const d = await api("import_roster", { text });
+    setBusy(false);
+    if (!d.ok) { onErr(d.error || "Couldn't read that."); return; }
+    setP(d);
+  };
+  const commit = async () => {
+    setBusy(true); onErr("");
+    const d = await api("import_roster", { text, commit: true });
+    setBusy(false);
+    if (!d.ok) { onErr(d.error || "Import failed."); return; }
+    setDone(d);
+  };
+
+  const STATUS = {
+    new: { label: "will add", color: GREEN },
+    exists: { label: "already on roster", color: MUTE },
+    needs_phone: { label: "no mobile", color: AMBER },
+    duplicate: { label: "duplicate number", color: RED },
+  };
+
+  if (done) {
+    return (
+      <div style={{ display: "grid", gap: 12 }}>
+        <div style={{ ...card, display: "grid", gap: 8 }}>
+          <div style={{ fontSize: 19, fontWeight: 900, color: GREEN }}>✅ Added {done.imported} {done.imported === 1 ? "person" : "people"}</div>
+          {done.departments_linked?.length ? (
+            <div style={{ fontSize: 13.5 }}>
+              Departments now signed off by: {done.departments_linked.map((d) => `${d.department} → ${d.manager}`).join(" · ")}
+            </div>
+          ) : null}
+          {done.warnings?.length ? (
+            <ul style={{ margin: 0, paddingLeft: 20, fontSize: 13, color: AMBER }}>
+              {done.warnings.map((w, i) => <li key={i} style={{ marginBottom: 3 }}>{w}</li>)}
+            </ul>
+          ) : null}
+          <button style={btn(NAVY)} onClick={onDone}>Back to the roster</button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: "grid", gap: 12 }}>
+      <div style={{ ...card, display: "grid", gap: 10 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <div style={{ fontWeight: 900, fontSize: 17 }}>Import a roster</div>
+          <button style={ghost} onClick={onDone}>Cancel</button>
+        </div>
+        <div style={{ fontSize: 13.5, color: MUTE }}>
+          Copy the rows out of your spreadsheet and paste them here — headers and all. It reads
+          <b> name</b>, <b>dept</b>, <b>who to ask</b>, <b>mobile</b>, and optionally <b>email</b> and <b>title</b>,
+          in any column order. Names can be “LAST, FIRST” or “First Last”. Nothing is saved until you've seen the preview.
+        </div>
+        <textarea style={{ ...fld, minHeight: 180, fontFamily: "ui-monospace, Menlo, monospace", fontSize: 12.5, resize: "vertical" }}
+          value={text} onChange={(e) => setText(e.target.value)}
+          placeholder={"NAME\tDEPT\tWho to ask\tMobile\nADAMS, ANGELA\tInside\tNikki\t813-555-0123"} />
+        <div style={{ display: "flex", gap: 8 }}>
+          <button style={btn(NAVY)} disabled={busy || !text.trim()} onClick={preview}>{busy ? "Reading…" : "Preview"}</button>
+        </div>
+      </div>
+
+      {p ? (
+        <>
+          <div style={{ ...card, display: "flex", gap: 18, flexWrap: "wrap" }}>
+            <div><div style={{ fontSize: 11, color: MUTE, fontWeight: 800 }}>WILL ADD</div><div style={{ fontSize: 21, fontWeight: 900, color: GREEN }}>{p.counts.new}</div></div>
+            <div><div style={{ fontSize: 11, color: MUTE, fontWeight: 800 }}>ALREADY THERE</div><div style={{ fontSize: 21, fontWeight: 900 }}>{p.counts.exists}</div></div>
+            <div><div style={{ fontSize: 11, color: MUTE, fontWeight: 800 }}>NO MOBILE</div><div style={{ fontSize: 21, fontWeight: 900, color: p.counts.needs_phone ? AMBER : INK }}>{p.counts.needs_phone}</div></div>
+            <div><div style={{ fontSize: 11, color: MUTE, fontWeight: 800 }}>NEW DEPARTMENTS</div><div style={{ fontSize: 21, fontWeight: 900 }}>{p.counts.departments_new}</div></div>
+          </div>
+
+          <div style={{ ...card, display: "grid", gap: 7 }}>
+            <div style={{ fontWeight: 900 }}>Departments &amp; who signs each one off</div>
+            <div style={{ fontSize: 12.5, color: MUTE }}>Whoever the most rows name in a department signs that whole department.</div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 4 }}>
+              {p.departments.map((d) => (
+                <div key={d.name} style={{ border: `1px solid ${LINE}`, borderRadius: 10, padding: "8px 11px", fontSize: 13 }}>
+                  <b>{d.name}</b> → {d.manager_name || <span style={{ color: RED }}>{d.manager_first} (not on the list)</span>}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {p.warnings?.length ? (
+            <div style={{ ...card, background: "#fffbeb", borderColor: "#fde68a" }}>
+              <div style={{ fontWeight: 900, marginBottom: 6 }}>⚠️ Read these first ({p.warnings.length})</div>
+              <ul style={{ margin: 0, paddingLeft: 20, fontSize: 13, lineHeight: 1.5 }}>
+                {p.warnings.map((w, i) => <li key={i}>{w}</li>)}
+              </ul>
+            </div>
+          ) : null}
+
+          <div style={{ ...card, padding: 0, overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 640 }}>
+              <thead><tr><th style={th}>Name</th><th style={th}>Department</th><th style={th}>Mobile</th><th style={th}>Signs their week</th><th style={th}></th></tr></thead>
+              <tbody>
+                {p.rows.map((r, i) => {
+                  const st = STATUS[r.status] || STATUS.new;
+                  return (
+                    <tr key={i}>
+                      <td style={{ ...td, fontWeight: 700 }}>{r.last_name}, {r.first_name}</td>
+                      <td style={td}>{r.department || <span style={{ color: AMBER }}>none</span>}</td>
+                      <td style={td}>{r.phone || <span style={{ color: AMBER }}>—</span>}</td>
+                      <td style={td}>{r.signs_off || "—"}{r.manager_overridden ? <span style={{ color: MUTE }}> (sheet said {r.manager})</span> : ""}</td>
+                      <td style={td}><Pill color={st.color}>{st.label}</Pill></td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          <div style={{ display: "flex", gap: 8 }}>
+            <button style={btn(GREEN)} disabled={busy || !p.counts.new} onClick={commit}>
+              {busy ? "Importing…" : `Import ${p.counts.new} ${p.counts.new === 1 ? "person" : "people"}`}
+            </button>
+            <button style={ghost} onClick={() => setP(null)}>Back to the paste box</button>
+          </div>
+        </>
+      ) : null}
     </div>
   );
 }
