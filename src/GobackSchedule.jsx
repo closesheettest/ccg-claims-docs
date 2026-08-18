@@ -130,6 +130,11 @@ function GobackReport() {
   const [open, setOpen] = useState(false);
   const [period, setPeriod] = useState("30d");
   const [openReps, setOpenReps] = useState(() => new Set());
+  // Group by REP to hand someone their call list; by DAY to compare message
+  // versions. Neal changes the wording, so the only way to tell whether a new
+  // message pulls better is to line the days up and read the book rate down the
+  // column — impossible when everything is bucketed under a rep.
+  const [groupBy, setGroupBy] = useState('rep');
   const load = (p) => {
     setData(null);
     fetch(`/.netlify/functions/goback-report?period=${encodeURIComponent(p)}`)
@@ -141,12 +146,16 @@ function GobackReport() {
   const when = (iso) => { try { return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" }); } catch { return ""; } };
   const S = data?.summary || { texted: 0, opened: 0, booked: 0, rate: 0, open_rate: 0, warm: 0 };
 
-  // One block per rep — their own homeowners, warm ones first.
+  // One block per rep (their own homeowners, warm first) — or per DAY, newest
+  // first, so a change of wording can be read straight down the book-rate column.
+  const dayOf = (r) => (r.first_sent || "").slice(0, 10);
   const byRep = [];
   for (const r of (data?.rows || [])) {
-    const g = byRep.find((x) => x.rep === r.rep);
-    (g ? g.rows : (byRep.push({ rep: r.rep, rows: [] }), byRep[byRep.length - 1].rows)).push(r);
+    const key = groupBy === 'day' ? (dayOf(r) || "—") : r.rep;
+    const g = byRep.find((x) => x.rep === key);
+    (g ? g.rows : (byRep.push({ rep: key, rows: [] }), byRep[byRep.length - 1].rows)).push(r);
   }
+  if (groupBy === 'day') byRep.sort((a, b) => (b.rep || "").localeCompare(a.rep || ""));
 
   const PERIODS = [["today", "Today"], ["week", "This week"], ["lastweek", "Last week"], ["30d", "30 days"], ["all", "All"]];
   const stat = (l, v, c, hint) => (
@@ -175,6 +184,15 @@ function GobackReport() {
               </button>
             ))}
           </div>
+          <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 12 }}>
+            <span style={{ fontSize: 11.5, fontWeight: 800, textTransform: "uppercase", color: "#94a3b8" }}>Group by</span>
+            {[["rep", "Rep"], ["day", "Day sent"]].map(([k, label]) => (
+              <button key={k} type="button" onClick={() => { setGroupBy(k); setOpenReps(new Set()); }}
+                style={{ border: "1px solid " + (groupBy === k ? "#0f2a4a" : "#e5e7eb"), background: groupBy === k ? "#0f2a4a" : "#fff", color: groupBy === k ? "#fff" : "#475569", borderRadius: 999, padding: "5px 12px", fontSize: 12, fontWeight: 800, cursor: "pointer" }}>
+                {label}
+              </button>
+            ))}
+          </div>
           <p style={{ color: "#64748b", fontSize: 12.5, margin: "0 0 12px" }}>
             Bucketed by the day we <b>first</b> reached them. <b>Opened</b> = they clicked the link and saw the times.
             <b> Warm</b> = opened and didn&rsquo;t book — the shortlist worth a call.
@@ -198,8 +216,17 @@ function GobackReport() {
                   <button type="button"
                     onClick={() => setOpenReps((s) => { const n = new Set(s); n.has(g.rep) ? n.delete(g.rep) : n.add(g.rep); return n; })}
                     style={{ width: "100%", textAlign: "left", background: "#f8fafc", border: "none", padding: "10px 14px", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                    <span style={{ fontWeight: 800, color: "#0f172a", fontSize: 14 }}>{g.rep}</span>
+                    <span style={{ fontWeight: 800, color: "#0f172a", fontSize: 14 }}>
+                      {groupBy === 'day' && g.rep !== '—'
+                        ? new Date(g.rep + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })
+                        : g.rep}
+                    </span>
                     <span style={{ fontSize: 12, color: "#64748b" }}>{g.rows.length} contacted</span>
+                    {/* Book rate per group — read it down the day column to see
+                        whether a new message is pulling better. */}
+                    <span style={{ fontSize: 12, fontWeight: 800, color: "#0f172a", background: "#f1f5f9", borderRadius: 999, padding: "1px 9px" }}>
+                      {Math.round((g.rows.filter((r) => r.booked).length / g.rows.length) * 100)}% booked
+                    </span>
                     {bookedN > 0 && <span style={{ fontSize: 12, fontWeight: 800, color: "#16a34a" }}>{bookedN} booked</span>}
                     {warm > 0 && <span style={{ fontSize: 12, fontWeight: 800, color: "#b45309", background: "#fffbeb", border: "1px solid #fcd34d", borderRadius: 999, padding: "1px 9px" }}>{warm} to call</span>}
                     <span style={{ marginLeft: "auto", color: "#94a3b8" }}>{isOpen ? "▾" : "▸"}</span>
