@@ -122,6 +122,31 @@ export default function GobackSchedule() {
   );
 }
 
+
+// Insert a heading row before each rep's homeowners, with that rep's own
+// contacted / booked / to-call figures.
+function withRepHeadings(rows) {
+  const byRep = [];
+  for (const r of rows) {
+    const g = byRep.find((x) => x.rep === r.rep);
+    (g ? g.rows : (byRep.push({ rep: r.rep, rows: [] }), byRep[byRep.length - 1].rows)).push(r);
+  }
+  byRep.sort((a, b) => (a.rep || "").localeCompare(b.rep || ""));
+  const out = [];
+  for (const g of byRep) {
+    const booked = g.rows.filter((x) => x.booked).length;
+    out.push({
+      __repHeading: true, rep: g.rep, __n: g.rows.length,
+      __pct: Math.round((booked / g.rows.length) * 100),
+      __warm: g.rows.filter((x) => x.opened_at && !x.booked).length,
+    });
+    // warm first inside a rep, same as the rep view
+    out.push(...g.rows.slice().sort((a, b) =>
+      Number(!!b.opened_at && !b.booked) - Number(!!a.opened_at && !a.booked)));
+  }
+  return out;
+}
+
 // The funnel report — who the sequence reached (text + email), who OPENED their
 // booking page, and who self-scheduled. Collapsed by default: it's a page for
 // editing the messages, and a long table under it buries the Save button.
@@ -246,7 +271,22 @@ function GobackReport() {
                           {["Homeowner", "Sent", "First", "Last", "Opened", "Booked?"].map((h) => <th key={h} style={{ padding: "8px 12px", fontSize: 10.5, fontWeight: 800, textTransform: "uppercase", letterSpacing: ".04em", color: "#94a3b8", whiteSpace: "nowrap" }}>{h}</th>)}
                         </tr></thead>
                         <tbody>
-                          {g.rows.map((r, i) => (
+                          {/* In the TEAM view the rep still has to be visible —
+                              grouping by team alone left a wall of homeowners
+                              with no idea whose they were. A separator row per
+                              rep keeps the team as the outer sort while giving
+                              each rep their own block underneath. */}
+                          {(groupBy === 'team' ? withRepHeadings(g.rows) : g.rows).map((r, i) => (
+                            r.__repHeading ? (
+                              <tr key={`h${i}`} style={{ borderTop: "1px solid #e2e8f0", background: "#f8fafc" }}>
+                                <td colSpan={6} style={{ padding: "7px 12px" }}>
+                                  <span style={{ fontSize: 12.5, fontWeight: 800, color: "#0f172a" }}>{r.rep}</span>
+                                  <span style={{ fontSize: 11.5, color: "#64748b" }}> · {r.__n} contacted</span>
+                                  <span style={{ fontSize: 11.5, fontWeight: 800, color: "#0f172a" }}> · {r.__pct}% booked</span>
+                                  {r.__warm > 0 && <span style={{ fontSize: 11.5, fontWeight: 800, color: "#b45309" }}> · {r.__warm} to call</span>}
+                                </td>
+                              </tr>
+                            ) : (
                             <tr key={i} style={{ borderTop: "1px solid #eef2f7", background: r.booked ? "#f0fdf4" : (r.opened_at ? "#fffbeb" : "#fff") }}>
                               <td style={{ padding: "9px 12px" }}><div style={{ fontWeight: 700, color: "#0f172a" }}>{r.name}</div><div style={{ fontSize: 11.5, color: "#94a3b8" }}>{r.phone}</div></td>
                               <td style={{ padding: "9px 12px", fontWeight: 700, textAlign: "center" }}>{r.texts}</td>
@@ -255,6 +295,7 @@ function GobackReport() {
                               <td style={{ padding: "9px 12px", whiteSpace: "nowrap" }}>{r.opened_at ? <span style={{ color: "#1d4ed8", fontWeight: 800 }}>👀 {when(r.opened_at)}</span> : <span style={{ color: "#cbd5e1" }}>—</span>}</td>
                               <td style={{ padding: "9px 12px", whiteSpace: "nowrap" }}>{r.booked ? <span style={{ color: "#16a34a", fontWeight: 800 }}>✓ {when(r.review_appt_at)}</span> : (r.opened_at ? <span style={{ color: "#b45309", fontWeight: 800 }}>call them</span> : <span style={{ color: "#cbd5e1" }}>—</span>)}</td>
                             </tr>
+                            )
                           ))}
                         </tbody>
                       </table>
