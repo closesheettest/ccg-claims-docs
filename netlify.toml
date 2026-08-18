@@ -284,5 +284,5 @@
 # weeks and flipped Week 1's winner days after it ended. Fridays 1 AM ET, once
 # Wed+Thu can no longer score. (In-file schedule alone does NOT fire in this
 # project — it must be declared here.)
-[functions."contest-freeze"]
+[functions."cron-contest-freeze"]
   schedule = "0 5 * * 5"

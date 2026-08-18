@@ -125,5 +125,6 @@ function json(status, body) {
   return { statusCode: status, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) };
 }
 
-// Friday 5:00 UTC = 1 AM ET — the week's Wed+Thu are over, nothing more can score.
-export const config = { schedule: "0 5 * * 5" };
+// NOT a scheduled function on purpose: Netlify 403s HTTP calls to those, and this
+// has to be callable (to backfill Week 1, and to re-freeze after a correction).
+// cron-contest-freeze.js is the thin scheduled wrapper that pokes it on Fridays.
