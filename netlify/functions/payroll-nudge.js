@@ -15,6 +15,11 @@
 // Night shifts are handled by work DATE, not calendar date: a 6pm–6am shift
 // belongs to the day it started, so the 6am recap text lands on the right row.
 //
+// SMS is the primary channel — a phone is the one thing everybody here has. But
+// a number can be unsubscribed at the SMS provider, which fails silently from
+// the employee's point of view, so anyone with an email gets it there instead
+// when the text doesn't go through.
+//
 // This is the WORKER — a plain HTTP function, NOT scheduled. Netlify returns 403
 // for a manual call to a scheduled function, so the schedule lives in the thin
 // wrapper cron-shift-nudge, which calls this. That keeps the dry run usable.
@@ -83,24 +88,36 @@ export const handler = async (event) => {
       else if (wantRecap && entry?.recap_at) skipped.push({ who: name(e), why: "recap already filed" });
       continue;
     }
-    if (!e.phone) { skipped.push({ who: name(e), why: `${kind} due but no phone on file` }); continue; }
+    if (!e.phone && !e.email) { skipped.push({ who: name(e), why: `${kind} due but no phone or email on file` }); continue; }
 
     const link = `${BASE}/?mode=timecard`;
     const msg = kind === "checkin"
       ? `Good ${greeting(shift)} ${e.first_name} — you're not checked in for your ${shift.name.toLowerCase()} shift yet. Tap to check in: ${link}`
       : `${e.first_name}, wrapping up? Take 30 seconds and tell us what you got done today: ${link}`;
 
-    if (dry) { sent.push({ who: name(e), shift: shift.name, work_date: wd, kind, phone: e.phone, dry: true }); continue; }
+    if (dry) { sent.push({ who: name(e), shift: shift.name, work_date: wd, kind, phone: e.phone || null, email: e.email || null, dry: true }); continue; }
 
-    const ok = await postOk("ghl-sms", { to: e.phone, name: name(e), message: msg });
-    // Stamp it even if the text failed, so a broken number doesn't get retried
+    const via = { sms: false, email: false };
+    if (e.phone) via.sms = await postOk("ghl-sms", { to: e.phone, name: name(e), message: msg });
+    // Text didn't go (no number, or the number is unsubscribed at the provider) —
+    // fall back to email so the nudge isn't lost in silence.
+    if (!via.sms && e.email) {
+      const subject = kind === "checkin" ? `Check in — ${shift.name} shift` : "What did you get done today?";
+      via.email = await postOk("send-email", {
+        to: e.email, subject,
+        html: `<p>Hi ${e.first_name},</p><p>${msg.replace(link, "")}</p>` +
+          `<p><a href="${link}" style="display:inline-block;padding:12px 22px;background:#0f2a4a;color:#fff;text-decoration:none;border-radius:8px;font-weight:700;">Open my time card →</a></p>` +
+          `<p style="color:#64748b;font-size:13px;">U.S. Shingle &amp; Metal time cards</p>`,
+      });
+    }
+    // Stamp it even if both failed, so a broken address doesn't get retried
     // every 15 minutes all shift long.
     await upsert({
       employee_id: e.id, work_date: wd,
       ...(kind === "checkin" ? { checkin_nudged_at: nowIso() } : { recap_nudged_at: nowIso() }),
       ...(entry ? {} : { day_type: "worked", shift_id: shift.id, source: "auto" }),
     });
-    sent.push({ who: name(e), shift: shift.name, work_date: wd, kind, ok });
+    sent.push({ who: name(e), shift: shift.name, work_date: wd, kind, via });
   }
 
   return out(200, { ok: true, now, dry, sent, skipped });
