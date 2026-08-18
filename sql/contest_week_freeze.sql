@@ -18,7 +18,8 @@
 create table if not exists contest_week_results (
   week_no    int primary key,
   label      text not null,
-  range      text,
+  -- "range" is a keyword-ish name in Postgres, so spell it out
+  week_range text,
   -- the full { window, attributes, teams } the report would have returned
   payload    jsonb not null,
   -- set when the rep counts came from an operator rather than the live roster
@@ -40,4 +41,4 @@ drop policy if exists contest_week_results_insert on contest_week_results;
 create policy contest_week_results_insert on contest_week_results for insert with check (true);
 
 -- Verify — after the first freeze, one row per closed week:
---   select week_no, label, range, reps_note, frozen_at from contest_week_results order by week_no;
+--   select week_no, label, week_range, reps_note, frozen_at from contest_week_results order by week_no;

@@ -83,12 +83,12 @@ export const handler = async (event) => {
   const standing = (payload.teams || []).map((t) => ({ team: t.team, zone: t.zone, avg: t.avg, points: t.points, activeReps: t.activeReps }));
   const winner = standing[0] || null;
 
-  if (dry) return json(200, { ok: true, dry_run: true, week: w.label, range: payload.window?.range, winner, standing });
+  if (dry) return json(200, { ok: true, dry_run: true, week: w.label, week_range: payload.window?.range, winner, standing });
 
   const row = {
     week_no: weekNo,
     label: w.label,
-    range: payload.window?.range || null,
+    week_range: payload.window?.range || null,
     payload,
     reps_note: qp.reps ? `rep divisor supplied by operator: ${qp.reps}` : null,
   };
@@ -99,7 +99,7 @@ export const handler = async (event) => {
   });
   if (!put.ok) return json(500, { ok: false, error: `write failed: ${put.status} ${await put.text().catch(() => "")}` });
 
-  return json(200, { ok: true, frozen: w.label, range: row.range, winner, standing, reps_note: row.reps_note });
+  return json(200, { ok: true, frozen: w.label, week_range: row.week_range, winner, standing, reps_note: row.reps_note });
 };
 
 async function sbGet(path) {
