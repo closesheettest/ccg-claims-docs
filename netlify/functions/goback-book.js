@@ -139,6 +139,11 @@ async function createApptTask(insp, startMs) {
     date_start: Math.floor(startMs / 1000), date_end: Math.floor(endMs / 1000),
     related: [{ id: insp.jn_job_id, type: "job" }],
     ...(insp.sales_rep_id ? { owners: [{ id: insp.sales_rep_id }] } : {}),
+    // JobNimbus hides API-created tasks from the calendar unless told not to.
+    // Everything else about these was right — owner, type, times — and they
+    // still appeared nowhere, which is exactly what Neal saw when he opened
+    // Tim Rush's map and found no 11 AM appointment (2026-08-18).
+    hide_from_calendarview: false,
   };
   const r = await fetch(`${JN_BASE}/tasks`, {
     method: "POST",

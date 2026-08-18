@@ -71,8 +71,9 @@ export const handler = async (event) => {
         record_type_name: existing.record_type_name || null,
         date_start: existing.date_start || null,
         date_end: existing.date_end || null,
-        owners: (existing.owners || []).length,
-        shows_on_calendar: !!(existing.date_start && existing.date_end),
+        owners: (existing.owners || []).map((o) => o.id),
+        hidden_from_calendar: !!existing.hide_from_calendarview,
+        shows_on_calendar: !!(existing.date_start && existing.date_end && !existing.hide_from_calendarview),
       } : null,
       // Full task as JN holds it, when asked for — so "why isn't it on the
       // calendar" can be answered from the record instead of guessed at.
@@ -83,7 +84,7 @@ export const handler = async (event) => {
       const res = await createApptTask(r, startMs);
       rec.created = res.ok;
       if (!res.ok) rec.error = res.error;
-    } else if (existing && live && (!existing.date_end || !String(existing.title || "").startsWith(apptTitle(r)))) {
+    } else if (existing && live && (!existing.date_end || existing.hide_from_calendarview || !String(existing.title || "").startsWith(apptTitle(r)))) {
       // The task is there and owned by the right rep — it just has no end time,
       // so JN never gives it a calendar slot. Add one rather than creating a
       // second task, which would put a duplicate on the rep's day.
@@ -126,6 +127,11 @@ async function createApptTask(insp, startMs) {
     date_start: Math.floor(startMs / 1000), date_end: Math.floor(endMs / 1000),
     related: [{ id: insp.jn_job_id, type: "job" }],
     ...(insp.sales_rep_id ? { owners: [{ id: insp.sales_rep_id }] } : {}),
+    // JobNimbus hides API-created tasks from the calendar unless told not to.
+    // Everything else about these was right — owner, type, times — and they
+    // still appeared nowhere, which is exactly what Neal saw when he opened
+    // Tim Rush's map and found no 11 AM appointment (2026-08-18).
+    hide_from_calendarview: false,
   };
   const r = await fetch(`${JN_BASE}/tasks`, { method: "POST", headers: jnH, body: JSON.stringify(body) });
   const txt = await r.text();
@@ -142,6 +148,11 @@ async function addEndTime(task, startMs, insp) {
   const body = {
     ...task, jnid: id, date_start: start, date_end: start + APPT_MIN * 60,
     ...(insp ? { title: `${apptTitle(insp)} — ${insp.client_name || "homeowner"}` } : {}),
+    hide_from_calendarview: false,
+    // Re-assert the owner: these were landing on the job's ORIGINAL rep rather
+    // than the current one, so the rep who actually has the appointment saw
+    // nothing on their map (it filters by their own JobNimbus id).
+    ...(insp && insp.sales_rep_id ? { owners: [{ id: insp.sales_rep_id }] } : {}),
   };
   const r = await fetch(`${JN_BASE}/tasks/${encodeURIComponent(id)}`, { method: "PUT", headers: jnH, body: JSON.stringify(body) });
   const txt = await r.text();
