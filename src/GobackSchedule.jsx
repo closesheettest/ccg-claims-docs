@@ -149,9 +149,10 @@ function GobackReport() {
   // One block per rep (their own homeowners, warm first) — or per DAY, newest
   // first, so a change of wording can be read straight down the book-rate column.
   const dayOf = (r) => (r.first_sent || "").slice(0, 10);
+  const teamOf = (r) => (r.team ? `${r.team} (${r.zone})` : "No team on file");
   const byRep = [];
   for (const r of (data?.rows || [])) {
-    const key = groupBy === 'day' ? (dayOf(r) || "—") : r.rep;
+    const key = groupBy === 'day' ? (dayOf(r) || "—") : groupBy === 'team' ? teamOf(r) : r.rep;
     const g = byRep.find((x) => x.rep === key);
     (g ? g.rows : (byRep.push({ rep: key, rows: [] }), byRep[byRep.length - 1].rows)).push(r);
   }
@@ -186,7 +187,7 @@ function GobackReport() {
           </div>
           <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 12 }}>
             <span style={{ fontSize: 11.5, fontWeight: 800, textTransform: "uppercase", color: "#94a3b8" }}>Group by</span>
-            {[["rep", "Rep"], ["day", "Day sent"]].map(([k, label]) => (
+            {[["rep", "Rep"], ["team", "Team"], ["day", "Day sent"]].map(([k, label]) => (
               <button key={k} type="button" onClick={() => { setGroupBy(k); setOpenReps(new Set()); }}
                 style={{ border: "1px solid " + (groupBy === k ? "#0f2a4a" : "#e5e7eb"), background: groupBy === k ? "#0f2a4a" : "#fff", color: groupBy === k ? "#fff" : "#475569", borderRadius: 999, padding: "5px 12px", fontSize: 12, fontWeight: 800, cursor: "pointer" }}>
                 {label}
@@ -221,6 +222,11 @@ function GobackReport() {
                         ? new Date(g.rep + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })
                         : g.rep}
                     </span>
+                    {groupBy === 'rep' && g.rows[0]?.team && (
+                      <span style={{ fontSize: 11, fontWeight: 800, textTransform: "uppercase", letterSpacing: ".03em", color: "#6d28d9", background: "#f5f3ff", border: "1px solid #ddd6fe", borderRadius: 999, padding: "1px 8px" }}>
+                        {g.rows[0].team}
+                      </span>
+                    )}
                     <span style={{ fontSize: 12, color: "#64748b" }}>{g.rows.length} contacted</span>
                     {/* Book rate per group — read it down the day column to see
                         whether a new message is pulling better. */}

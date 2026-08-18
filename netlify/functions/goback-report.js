@@ -20,11 +20,33 @@ const SB_URL = process.env.VITE_SUPABASE_URL;
 const SB_KEY = process.env.VITE_SUPABASE_ANON_KEY;
 const sb = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` };
 
+// Rep → zone/team, so the report can be read by team without anyone having to
+// remember who's on what. Names come from the TMS rep-zones feed, matched
+// loosely because our sales_rep_name can carry extra spacing or a second
+// surname (see the rep-name matching gotcha).
+const ZONE_TEAMS = { "Zone 1": "SQUAD", "Zone 2": "SitSold", "Zone 3": "SHARKS", "Zone 4": "HURRICANE" };
+const normName = (s) => String(s || "").toLowerCase().replace(/[^a-z ]+/g, " ").replace(/\s+/g, " ").trim();
+async function repZones() {
+  try {
+    const r = await fetch("https://trainingmanagementsys.netlify.app/.netlify/functions/rep-zones?include_inactive=1");
+    if (!r.ok) return {};
+    const reps = (await r.json()).reps || [];
+    const m = {};
+    for (const x of reps) {
+      if (!x.name || !x.zone) continue;
+      m[normName(x.name)] = x.zone;
+    }
+    return m;
+  } catch { return {}; }
+}
+
+
 export const handler = async (event) => {
   const period = String(((event && event.queryStringParameters) || {}).period || "30d").trim();
   if (!SB_URL || !SB_KEY) return resp(500, { ok: false, error: "env missing" });
   try {
     const since = periodStart(period);   // null = all time
+    const zones = await repZones();
     const logs = await sbGetAll("goback_text_log?ok=eq.true&select=inspection_id,msg_idx,sent_at&order=sent_at.asc");
     const byInsp = new Map(); // id → { texts, first, last }
     for (const l of logs) {
@@ -64,8 +86,10 @@ export const handler = async (event) => {
       if (isBooked) booked++;
       if (isOpen) opened++;
       if (isOpen && !isBooked) warm++;
+      const zone = zones[normName(i.sales_rep_name)] || null;
       return {
         name: i.client_name || "—", phone: i.mobile || "", rep: i.sales_rep_name || "—",
+        zone, team: zone ? (ZONE_TEAMS[zone] || zone) : null,
         texts: e.texts, first_sent: e.first, last_sent: e.last,
         opened_at: i.goback_opened_at || null, booked: isBooked, review_appt_at: i.review_appt_at || null,
       };
@@ -73,6 +97,7 @@ export const handler = async (event) => {
       // Grouped by rep, and inside a rep the WARM ones first — the whole point is
       // to hand a rep their own short call list, not a wall of names.
       .sort((a, b) =>
+        (a.team || "zzz").localeCompare(b.team || "zzz") ||
         (a.rep || "").localeCompare(b.rep || "") ||
         (Number(b.opened_at && !b.booked) - Number(a.opened_at && !a.booked)) ||
         (b.last_sent || "").localeCompare(a.last_sent || ""));
