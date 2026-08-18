@@ -62,6 +62,15 @@ const CONTEST = {
   salePoints: 6, // flat, per roof sold in JN, on top of the ramp
 };
 
+// "Aug 12–13" from the contest week's two ET dates (same month collapses the
+// second month name). Noon UTC keeps the date off a timezone boundary.
+function etRangeLabel(startIso, endIso) {
+  const f = (iso, withMonth) => new Date(`${iso}T12:00:00Z`).toLocaleDateString("en-US",
+    withMonth ? { month: "short", day: "numeric", timeZone: "UTC" } : { day: "numeric", timeZone: "UTC" });
+  const sameMonth = startIso.slice(0, 7) === endIso.slice(0, 7);
+  return `${f(startIso, true)}\u2013${f(endIso, !sameMonth)}`;
+}
+
 const ZONE_TEAMS = { "Zone 1": "SQUAD", "Zone 2": "SitSold", "Zone 3": "SHARKS", "Zone 4": "HURRICANE" };
 // Reps excluded from the CONTEST only (still active everywhere else). They don't count
 // for OR against their team — dropped from the roster so they never dilute the average.
@@ -112,14 +121,18 @@ export const handler = async (event) => {
     if (!active) active = weeksWithBounds[0];
     let contestStart = active.startUTC, contestEnd = active.endUTC, weekLabel = active.label;
 
-    // Owner preview while the contest is still OFF: score the trailing 7 days so
-    // there's real activity to look at. (Once it's live/enabled, preview shows the
-    // actual contest window instead.)
-    if (preview && !enabled) {
-      contestEnd = now;
-      contestStart = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-      weekLabel = "Preview · last 7 days";
-    }
+    // WED + THU ONLY, always. There used to be a "preview = trailing 7 days"
+    // window here so there'd be activity to look at while the contest was off.
+    // That silently scored Mon/Tue/Fri work that can never earn a contest point,
+    // so every number it produced was wrong — and it was wrong on the regional
+    // managers' dashboards, which is reporting (Neal, 2026-08-18). `preview` now
+    // means one thing only: compute even though the rep-facing toggle is off. It
+    // never changes the window.
+    //
+    // So the board always shows a REAL contest week: the one in progress while
+    // it's Wed/Thu, and the most recent completed one the rest of the time.
+    const live = now >= contestStart && now <= contestEnd;
+    weekLabel = `${active.label} · ${etRangeLabel(active.start, active.end)}`;
 
     // Attributes come from the map activity in the window (paged — 1000 cap).
     const rows = await sbGetAll(
@@ -238,7 +251,7 @@ export const handler = async (event) => {
     zones.forEach((z, i) => { z.rank = i + 1; });
 
     const payload = {
-      ok: true, enabled, contest: CONTEST.name, week: weekLabel,
+      ok: true, enabled, live, contest: CONTEST.name, week: weekLabel,
       range: { start: contestStart.toISOString(), end: contestEnd.toISOString() }, zones,
     };
     if (qp.debug === "1") {
