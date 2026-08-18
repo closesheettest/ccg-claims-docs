@@ -54,6 +54,19 @@ export const handler = async (event) => {
       when: new Date(startMs).toLocaleString("en-US", { timeZone: "America/New_York", weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }),
       jn_url: `https://app.jobnimbus.com/job/${r.jn_job_id}`,
       already_on_calendar: !!existing,
+      // WHY it may not show on a calendar even though the task exists: JN needs a
+      // date_end (and type "task") to give it a slot. A task with only a
+      // date_start sits in the job's task list and never appears on the calendar
+      // a manager checks before assigning work.
+      task: existing ? {
+        id: existing.jnid || existing.id || null,
+        type: existing.type || null,
+        record_type_name: existing.record_type_name || null,
+        date_start: existing.date_start || null,
+        date_end: existing.date_end || null,
+        owners: (existing.owners || []).length,
+        shows_on_calendar: !!(existing.date_start && existing.date_end),
+      } : null,
       no_rep_on_record: !r.sales_rep_id,   // it'd land on the job but nobody's calendar
     };
     if (!existing && live) {
