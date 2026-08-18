@@ -71,7 +71,9 @@ that department's manager on **Teams**.
 - **Nudges.** A cron runs every 15 minutes and texts only the people who haven't done
   it yet: one text once their shift start + grace has passed with no check-in, and one
   after their shift ends if they checked in but never recapped. Each fires at most
-  once per person per day, and never to someone marked off or on a paid holiday.
+  once per person per day, and never to someone marked off or on a paid holiday. Text
+  is the primary channel; if it fails — a number unsubscribed at the SMS provider fails
+  silently from the employee's side — anyone with an email gets it there instead.
 - **The manager** opens **Team → Today** any time: who's on shift, who never checked
   in, who's off, and every recap in full.
 
