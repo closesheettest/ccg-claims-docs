@@ -313,7 +313,7 @@ export const handler = async (event) => {
         get("payroll_departments?active=is.true&select=id,name,manager_employee_id&order=name.asc"),
         get("payroll_employees?active=is.true&select=id,first_name,last_name,department_id,pay_type,hourly_rate,standard_day_hours,standard_week_hours"),
         get(`payroll_time_entries?work_date=gte.${ws}&work_date=lte.${we}&select=*`),
-        get(`payroll_week_approvals?week_start=eq.${ws}&select=*`),
+        get(`payroll_week_approvals?week_start=gte.${ws}&week_start=lte.${we}&select=*`),
         get(`payroll_week_submits?week_start=eq.${ws}&select=employee_id`),
       ]);
       const name = Object.fromEntries(emps.map((e) => [e.id, `${e.first_name} ${e.last_name}`.trim()]));
@@ -321,7 +321,8 @@ export const handler = async (event) => {
       const rows = depts.map((d) => {
         const team = emps.filter((e) => e.department_id === d.id);
         const mine = entries.filter((x) => team.some((t) => t.id === x.employee_id));
-        const appr = approvals.find((a) => a.department_id === d.id) || null;
+        const mineAppr = approvals.filter((a) => a.department_id === d.id && a.status === "approved");
+        const appr = mineAppr.slice().sort((a, b) => String(b.week_start).localeCompare(String(a.week_start)))[0] || null;
         return {
           id: d.id, name: d.name,
           manager_name: d.manager_employee_id ? name[d.manager_employee_id] || null : null,
@@ -329,7 +330,9 @@ export const handler = async (event) => {
           headcount: team.length,
           submitted: team.filter((t) => submitted.has(t.id)).length,
           totals: totalsFor(mine, team),
-          status: appr?.status === "approved" ? "approved" : "open",
+          days_signed: mineAppr.length,
+          days_signed_dates: mineAppr.map((a) => a.week_start).sort(),
+          status: mineAppr.length >= 5 ? "approved" : mineAppr.length ? "partial" : "open",
           approved_by_name: appr?.approved_by_name || null,
           approved_at: appr?.approved_at || null,
         };
@@ -339,6 +342,7 @@ export const handler = async (event) => {
         ok: true, week_start: ws, week_end: we, departments: rows, unassigned,
         company: totalsFor(entries, emps),
         approved_count: rows.filter((r) => r.status === "approved").length,
+        days_signed_total: rows.reduce((s, r) => s + r.days_signed, 0),
       }));
     }
 
@@ -390,6 +394,7 @@ export const handler = async (event) => {
         get("payroll_shifts?select=id,name,start_time,end_time"),
         get(`payroll_time_entries?work_date=eq.${d}&select=*`),
       ]);
+      const dayAppr = await get(`payroll_week_approvals?week_start=eq.${d}&select=department_id,status,approved_by_name,approved_at`);
       const dn = Object.fromEntries(depts.map((x) => [x.id, x.name]));
       const sn = Object.fromEntries(shifts.map((x) => [x.id, x.name]));
       const rows = emps.map((e) => {
@@ -403,11 +408,13 @@ export const handler = async (event) => {
           department: dn[e.department_id] || "—", shift: sn[e.shift_id] || "—",
           state, day_type: en?.day_type || null, time_in: en?.time_in || null, time_out: en?.time_out || null,
           hours: en ? Number(en.hours || 0) : 0, late_minutes: en?.late_minutes || 0,
+          off_hours: en ? Number(en.off_hours || 0) : 0, note: en?.note || null,
           recap: en?.recap || null, recap_at: en?.recap_at || null,
         };
       });
       return cors(200, j({
         ok: true, work_date: d, rows,
+        signed_off: dayAppr.filter((a) => a.status === "approved").map((a) => ({ department: dn[a.department_id] || "—", by: a.approved_by_name, at: a.approved_at })),
         counts: {
           done: rows.filter((r) => r.state === "done").length,
           working: rows.filter((r) => r.state === "working").length,
