@@ -414,7 +414,13 @@ exports.handler = async (event) => {
     // This canNOT reintroduce the Ariel Alvarez bug: it requires an ASSIGNED PA
     // in an active stage, and "Needs assigning" is bucketed on having NO pa_id.
     // A BTR / Not-Interested deal has no PA, so it still leaves the pool.
-    const liveStages = `("active","waiting_docs","signed")`;
+    // "rescheduling" belongs here. A PA marking "homeowner needs to reschedule"
+    // is LIVE work — it's the PA saying they still have to get back out there —
+    // but leaving it out dropped the deal off their own portal the moment they
+    // set it, so there was no way to pick it back up. Five Star hit exactly this
+    // on a sold-retail claim: their PA had been out to the house, marked it
+    // rescheduling, and then couldn't find it again (Neal, 2026-08-18).
+    const liveStages = `("active","waiting_docs","signed","rescheduling")`;
     for (const d of (await get(`${SB_URL}/rest/v1/inspections?result=eq.retail&pa_id=in.${encodeURIComponent(inList)}&pa_stage=in.${encodeURIComponent(liveStages)}&${sel}&order=signed_at.desc&limit=500`, sb)) || []) dealMap[d.id] = d;
   }
   // Drop cancelled + dead, then newest-signed first.
