@@ -56,18 +56,18 @@ export const handler = async (event) => {
     let rows = await sbGet(`inspections?select=${SEL_BASE},review_availability,referral_outcome,retail_outcome,result_task_at,manager_assigned_to_rep_at${tail}`);
     if (!rows.length) rows = await sbGet(`inspections?select=${SEL_BASE}${tail}`);
 
-    // A SELF-SCHEDULED APPOINTMENT BEATS THE GO-BACK FORMULA.
+    // A SELF-SCHEDULED APPOINTMENT BEATS THE GO-BACK FORMULA — but the deal
+    // MUST STAY ON THE LIST.
     //
-    // The go-back lists guess when to come back — "when are they typically
-    // home" — and hand the rep a suggested slot. Once the HOMEOWNER has picked a
-    // date and time themselves, that guess is not just redundant, it's wrong:
-    // the rep sees a 12 PM go-back for someone who booked 11 AM, and a manager
-    // looking at the same board can hand them a company appointment on top of it
-    // (Neal, 2026-08-18).
+    // First attempt dropped these rows entirely, which was wrong: this list is
+    // also what gives the rep their action panel at the door (damage → book the
+    // PA, retail → the retail outcomes). Dropping them meant a rep arriving at a
+    // self-scheduled appointment with no way to work it — the exact thing Neal
+    // asked about (2026-08-18).
     //
-    // So anything with review_appt_at leaves the go-back lists entirely. It's an
-    // appointment now, and it shows on the map as one.
-    rows = rows.filter((r) => !r.review_appt_at);
+    // So they stay, and review_appt_at rides along. The map uses it in place of
+    // the "when are they typically home" guess, so the card shows the time the
+    // homeowner actually chose instead of a formula slot.
 
     // Damage list: the rep goes back to (re)schedule the Public-Adjuster appointment.
     // Appointment-driven via the shared classifier (_btpa.js): show only deals that
@@ -136,7 +136,7 @@ export const handler = async (event) => {
       return {
         inspection_id: r.id, client_name: r.client_name, address: r.address, city: r.city, state: r.state, zip: r.zip,
         mobile: r.mobile, email: r.email, jn_job_id: r.jn_job_id, latitude: r.latitude, longitude: r.longitude,
-        distance_mi: dist, result: r.result, result_at: r.result_at, pa_id: r.pa_id, review_availability: r.review_availability, result_task_at: r.result_task_at,
+        distance_mi: dist, result: r.result, result_at: r.result_at, pa_id: r.pa_id, review_availability: r.review_availability, result_task_at: r.result_task_at, review_appt_at: r.review_appt_at,
         pa_notes_log: Array.isArray(r.pa_notes_log) ? r.pa_notes_log : null,
         goback_reason: r._goback_reason || null,
       };

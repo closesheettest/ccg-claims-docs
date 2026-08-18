@@ -838,8 +838,11 @@ function gobackIcon(bucket, due) {
 // review_availability = the homeowner's soft day/time preference ("Mon, Wed · 2pm").
 function visitDueStatus(v) {
   const todayKey = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
-  if (v.result_task_at) {
-    const dt = new Date(v.result_task_at);
+  // A time the HOMEOWNER picked outranks both the booked PA task and the
+  // "typically home" guess — they said when they'd be there.
+  const hard = v.review_appt_at || v.result_task_at;
+  if (hard) {
+    const dt = new Date(hard);
     if (isNaN(dt)) return "none";
     const k = dt.toLocaleDateString("en-CA", { timeZone: "America/New_York" });
     return k < todayKey ? "overdue" : k === todayKey ? "today" : "later";
@@ -853,9 +856,15 @@ function visitDueStatus(v) {
   return "none";
 }
 function visitWhenLabel(v) {
-  if (v.result_task_at) {
-    const dt = new Date(v.result_task_at);
-    if (!isNaN(dt)) return dt.toLocaleString("en-US", { timeZone: "America/New_York", weekday: "short", month: "numeric", day: "numeric", hour: "numeric", hour12: true });
+  const hard = v.review_appt_at || v.result_task_at;
+  if (hard) {
+    const dt = new Date(hard);
+    if (!isNaN(dt)) {
+      const when = dt.toLocaleString("en-US", { timeZone: "America/New_York", weekday: "short", month: "numeric", day: "numeric", hour: "numeric", hour12: true });
+      // Say it's THEIRS — a rep treats an appointment the homeowner set
+      // differently from a slot we guessed at.
+      return v.review_appt_at ? `${when} · they booked it` : when;
+    }
   }
   return v.review_availability || "";
 }
