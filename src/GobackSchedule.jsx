@@ -123,6 +123,24 @@ export default function GobackSchedule() {
 }
 
 
+
+// Damage / No damage / Retail at a glance — the same colours the rest of the
+// app uses for these, so a rep reads them without thinking.
+const RESULT_TAG = {
+  damage:    { label: "Damage",    bg: "#fef2f2", bd: "#fecaca", fg: "#b91c1c" },
+  no_damage: { label: "No damage", bg: "#f0fdf4", bd: "#bbf7d0", fg: "#15803d" },
+  retail:    { label: "Retail",    bg: "#fff7ed", bd: "#fed7aa", fg: "#b45309" },
+};
+function ResultTag({ result }) {
+  const t = RESULT_TAG[String(result || "").toLowerCase()];
+  if (!t) return null;
+  return (
+    <span style={{ fontSize: 10.5, fontWeight: 800, textTransform: "uppercase", letterSpacing: ".03em", background: t.bg, border: `1px solid ${t.bd}`, color: t.fg, borderRadius: 999, padding: "1px 7px" }}>
+      {t.label}
+    </span>
+  );
+}
+
 // Insert a heading row before each rep's homeowners, with that rep's own
 // contacted / booked / to-call figures.
 function withRepHeadings(rows) {
@@ -288,7 +306,13 @@ function GobackReport() {
                               </tr>
                             ) : (
                             <tr key={i} style={{ borderTop: "1px solid #eef2f7", background: r.booked ? "#f0fdf4" : (r.opened_at ? "#fffbeb" : "#fff") }}>
-                              <td style={{ padding: "9px 12px" }}><div style={{ fontWeight: 700, color: "#0f172a" }}>{r.name}</div><div style={{ fontSize: 11.5, color: "#94a3b8" }}>{r.phone}</div></td>
+                              <td style={{ padding: "9px 12px" }}>
+                                <div style={{ fontWeight: 700, color: "#0f172a", display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                                  {r.name}
+                                  {r.result && <ResultTag result={r.result} />}
+                                </div>
+                                <div style={{ fontSize: 11.5, color: "#94a3b8" }}>{r.phone}</div>
+                              </td>
                               <td style={{ padding: "9px 12px", fontWeight: 700, textAlign: "center" }}>{r.texts}</td>
                               <td style={{ padding: "9px 12px", color: "#64748b", whiteSpace: "nowrap" }}>{when(r.first_sent)}</td>
                               <td style={{ padding: "9px 12px", color: "#64748b", whiteSpace: "nowrap" }}>{when(r.last_sent)}</td>

@@ -71,7 +71,7 @@ export const handler = async (event) => {
       // inspections and rendered every homeowner as "—". Ask for it, and fall
       // back to the same query without it so a pre-migration database still
       // shows names — it just can't show opens yet.
-      const SEL = "id,client_name,mobile,sales_rep_name,review_appt_at,result_at";
+      const SEL = "id,client_name,mobile,sales_rep_name,review_appt_at,result_at,result";
       let chunkRows = await sbGetAll(`inspections?id=in.(${chunk})&select=${SEL},goback_opened_at`);
       if (!chunkRows.length) chunkRows = await sbGetAll(`inspections?id=in.(${chunk})&select=${SEL}`);
       insps.push(...chunkRows);
@@ -90,6 +90,9 @@ export const handler = async (event) => {
       return {
         name: i.client_name || "—", phone: i.mobile || "", rep: i.sales_rep_name || "—",
         zone, team: zone ? (ZONE_TEAMS[zone] || zone) : null,
+        // What the inspection found — a damage go-back and a retail go-back are
+        // different conversations, and the rep should see which at a glance.
+        result: i.result || null,
         texts: e.texts, first_sent: e.first, last_sent: e.last,
         opened_at: i.goback_opened_at || null, booked: isBooked, review_appt_at: i.review_appt_at || null,
       };
