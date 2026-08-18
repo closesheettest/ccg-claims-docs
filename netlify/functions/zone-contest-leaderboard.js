@@ -307,7 +307,13 @@ async function fetchZoneResolver() {
   const rosterByZone = {};
   const seen = new Set();
   for (const r of reps) {
-    if (!r.name || !r.zone || r.active === false) continue;
+    // Still in FIELD TRAINING → not in the contest, for or against the team.
+    // They haven't graduated, so they shouldn't lift a team's average or drag it
+    // down as a non-scoring head in the divisor. Checked on the raw flag rather
+    // than `pregrad`, because a record can carry is_field_trainee AND
+    // is_active_sales_rep at once and then reads as an ordinary rep — which is
+    // how Danny Pasicolan ended up scoring for SQUAD (Neal, 2026-08-18).
+    if (!r.name || !r.zone || r.active === false || r.in_training === true || r.pregrad === true) continue;
     const norm = normalizeName(r.name);
     if (CONTEST_EXCLUDE.has(norm)) continue; // excluded from the contest — not in the divisor
     if (seen.has(norm)) continue;
