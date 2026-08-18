@@ -22,7 +22,8 @@
 // A week already frozen is left alone (the primary key would reject it anyway) —
 // re-freezing needs ?refreeze=1 AND an explicit ?reps= or nothing would change.
 //
-// Env: VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY, CRON_SECRET.
+// Env: VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY. CRON_SECRET optional —
+// enforced only when it's set.
 // Requires sql/contest_week_freeze.sql to have been run.
 
 const SB_URL = process.env.VITE_SUPABASE_URL;
@@ -41,8 +42,11 @@ const SELF = process.env.URL || process.env.DEPLOY_URL || "https://free-roof-ins
 
 export const handler = async (event) => {
   const qp = event.queryStringParameters || {};
-  const provided = event.headers?.["x-cron-secret"] || qp.secret;
-  if (!process.env.CRON_SECRET || provided !== process.env.CRON_SECRET) {
+  // Same guard the other CCG crons use: a scheduled invocation has no httpMethod,
+  // and a manual GET must carry the secret ONLY IF one is configured. CRON_SECRET
+  // isn't set on this project, so the check is a no-op here — declaring it 401 when
+  // unset (the TMS convention) just locked the endpoint out of its own backfill.
+  if (event.httpMethod && process.env.CRON_SECRET && qp.secret !== process.env.CRON_SECRET) {
     return json(401, { ok: false, error: "Unauthorized" });
   }
   if (!SB_URL || !SB_KEY) return json(500, { ok: false, error: "env missing" });

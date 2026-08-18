@@ -10,10 +10,9 @@
 const SELF = process.env.URL || process.env.DEPLOY_URL || "https://free-roof-inspections.netlify.app";
 
 export const handler = async () => {
-  if (!process.env.CRON_SECRET) {
-    return { statusCode: 500, body: JSON.stringify({ ok: false, error: "CRON_SECRET not set" }) };
-  }
-  const r = await fetch(`${SELF}/.netlify/functions/contest-freeze?secret=${encodeURIComponent(process.env.CRON_SECRET)}`);
+  // CRON_SECRET is optional on this project; pass it when it exists.
+  const q = process.env.CRON_SECRET ? `?secret=${encodeURIComponent(process.env.CRON_SECRET)}` : "";
+  const r = await fetch(`${SELF}/.netlify/functions/contest-freeze${q}`);
   const body = await r.text().catch(() => "");
   return { statusCode: 200, body: JSON.stringify({ ok: true, worker_status: r.status, worker: body.slice(0, 800) }) };
 };
