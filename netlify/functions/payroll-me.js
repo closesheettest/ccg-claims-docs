@@ -1,7 +1,7 @@
 // netlify/functions/payroll-me.js
 //
 // The EMPLOYEE side of payroll/timekeeping (?mode=timecard), plus the
-// department manager's daily review and Monday-morning sign-off. One login
+// department manager's DAILY review and sign-off. One login
 // serves both: a manager is just an employee with is_manager, and sees an
 // extra Team tab.
 //
@@ -30,9 +30,12 @@
 //   "me"            { token }                    → me + balances + holidays + shift
 //   "today"         { token }                    → my current shift-day + its state
 //   "check_in"      { token }                    → stamp the start of my shift
+//   "undo_check_in" { token }                    → checked in by mistake, take it back
+//   "break"         { token, minutes, reason }   → step away mid-shift, with a why
 //   "check_out"     { token, recap, ... }        → recap + close the day out
+//   "reopen_day"    { token }                    → ended the shift too early, carry on
 //   "save_recap"    { token, work_date?, recap } → fix a recap afterwards
-//   "day_off"       { token, day_type, ... }     → "I'm off today" (no request needed)
+//   "day_off"       { token, day_type, reason }  → "I'm off today" (a reason is required)
 //   "week"          { token, week_start? }       → my 7 days + totals + lock state
 //   "save_day"      { token, work_date, ... }    → upsert one day of my timecard
 //   "submit_week"   { token, week_start }        → "my week is done"
@@ -45,14 +48,16 @@
 //                                                              everyone got done today
 //   "team_week"     { token, week_start?, department_id? }  → every member's week
 //   "team_save_day" { token, employee_id, work_date, ... }  → fix a member's day
-//   "approve_week"  { token, week_start, sign_name, note? } → SIGN OFF + lock
-//   "reopen_week"   { token, week_start, department_id? }   → admin only
+//   "approve_day"   { token, work_date, sign_name, note? }  → SIGN OFF that day + lock
+//   "reopen_signoff"{ token, work_date, department_id? }     → admin only
 //   "off_queue"     { token }                               → pending requests
 //   "decide_off"    { token, id, decision, note? }          → approve / deny
 //
-// Approving a week does two things: it locks every entry in it so the numbers
-// can't move after payroll sees them, and it snapshots the totals onto the
-// approval row.
+// Sign-off is PER DAY, not per week: each morning a manager reviews the day
+// that just finished for their department and signs it, which locks those
+// entries so the numbers can't move after payroll sees them, and snapshots the
+// totals. (The approvals table is keyed by department + date; its column is
+// still called week_start from when sign-off was weekly.)
 //
 // Env: VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY.
 
@@ -63,6 +68,7 @@ const SB_KEY = process.env.VITE_SUPABASE_ANON_KEY;
 const H = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, "Content-Type": "application/json" };
 const TZ = "America/New_York";
 const SESSION_DAYS = 30;
+const BASE = (process.env.URL || "https://free-roof-inspections.netlify.app").replace(/\/$/, "");
 
 const EMP_SEL =
   "id,first_name,last_name,email,phone,department_id,title,pay_type,hourly_rate,annual_salary," +
@@ -78,6 +84,9 @@ const phoneKey = (v) => { const d = String(v || "").replace(/\D/g, ""); return d
 // automatically from the holiday calendar; "no_show" is manager/office only.
 const SELF_DAY_TYPES = ["worked", "pto", "sick", "doctor", "unpaid", "bereavement", "jury", "other"];
 const OFF_TYPES = ["", "pto", "sick", "doctor", "unpaid", "other"];
+// What a mid-shift break can be. "personal" is filed as an "other" absence so it
+// never lands in the PTO or sick buckets.
+const BREAK_TYPES = ["personal", "doctor", "unpaid"];
 const OFF_REQUEST_TYPES = ["pto", "sick", "doctor", "unpaid", "bereavement", "jury", "other"];
 // A time-off request type → the day_type it writes onto the timecard.
 const REQ_TO_DAY = { pto: "pto", sick: "sick", doctor: "doctor", unpaid: "unpaid", bereavement: "bereavement", jury: "jury", other: "other" };
@@ -160,6 +169,59 @@ export const handler = async (event) => {
       return cors(200, j({ ok: true, ...(await todayFor(me)) }));
     }
 
+    // Tapped check-in when they meant something else. Wipes the stamp; if that
+    // leaves an otherwise empty day, the row goes too, so it reads as untouched.
+    if (action === "undo_check_in") {
+      const t = await todayFor(me);
+      if (t.locked) return cors(400, j({ ok: false, error: "That day is already signed off." }));
+      const e = t.entry;
+      if (!e) return cors(200, j({ ok: true, ...(await todayFor(me)) }));
+      if (e.recap_at) return cors(400, j({ ok: false, error: "You've already closed this day out — reopen it first." }));
+      const bare = !e.recap && !Number(e.off_hours || 0) && !e.note;
+      if (bare) await del(`payroll_time_entries?employee_id=eq.${me.id}&work_date=eq.${t.work_date}`);
+      else {
+        await patch(`payroll_time_entries?employee_id=eq.${me.id}&work_date=eq.${t.work_date}`, {
+          checked_in_at: null, time_in: null, late_minutes: 0, hours: 0, updated_at: nowIso(),
+        });
+      }
+      return cors(200, j({ ok: true, ...(await todayFor(me)) }));
+    }
+
+    // Stepping away mid-shift. Each break is minutes + a reason; they stack up on
+    // the day, come off the hours worked, and the manager sees every one.
+    if (action === "break") {
+      const t = await todayFor(me);
+      if (t.locked) return cors(400, j({ ok: false, error: "That day is already signed off." }));
+      if (!t.entry?.checked_in_at) return cors(400, j({ ok: false, error: "Check in first." }));
+      const minutes = Math.round(clampNum(body.minutes, 1, 720));
+      const reason = str(body.reason, 200);
+      if (!minutes) return cors(400, j({ ok: false, error: "How long were you away?" }));
+      if (reason.length < 2) return cors(400, j({ ok: false, error: "Add a quick reason for the break." }));
+      const kind = BREAK_TYPES.includes(body.break_type) ? body.break_type : "personal";
+      const now = nowET();
+      const line = `🕑 ${now.time} · ${minutes} min ${kind} break — ${reason}`;
+      await upsert("payroll_time_entries", {
+        employee_id: me.id, work_date: t.work_date,
+        off_type: kind === "personal" ? "other" : kind,
+        off_hours: round2(Number(t.entry.off_hours || 0) + minutes / 60),
+        note: [t.entry.note, line].filter(Boolean).join("\n").slice(0, 2000),
+        updated_at: nowIso(),
+      }, "employee_id,work_date");
+      return cors(200, j({ ok: true, ...(await todayFor(me)) }));
+    }
+
+    // Ended the shift early by mistake — put them back on the clock. The recap
+    // they already wrote is kept; ending again overwrites it.
+    if (action === "reopen_day") {
+      const t = await todayFor(me);
+      if (t.locked) return cors(400, j({ ok: false, error: "That day is already signed off — ask the office." }));
+      if (!t.entry?.recap_at) return cors(400, j({ ok: false, error: "That day isn't closed out." }));
+      await patch(`payroll_time_entries?employee_id=eq.${me.id}&work_date=eq.${t.work_date}`, {
+        checked_out_at: null, time_out: null, recap_at: null, left_early_minutes: 0, hours: 0, updated_at: nowIso(),
+      });
+      return cors(200, j({ ok: true, ...(await todayFor(me)) }));
+    }
+
     // The recap IS the clock-out — you can't close a day without saying what
     // you got done, which is the whole point of the evening step.
     if (action === "check_out") {
@@ -170,7 +232,9 @@ export const handler = async (event) => {
       if (!t.entry?.checked_in_at) return cors(400, j({ ok: false, error: "You never checked in today — check in first, or mark the day off." }));
       const now = nowET();
       const lunch = clampNum(body.lunch_minutes, 0, 240) || Number(t.entry.lunch_minutes || 0);
-      const hours = hoursBetween(t.entry.checked_in_at, new Date().toISOString(), lunch);
+      // Time away — lunch plus any breaks logged during the shift — isn't worked.
+      const awayMinutes = lunch + Math.round(Number(t.entry.off_hours || 0) * 60);
+      const hours = hoursBetween(t.entry.checked_in_at, new Date().toISOString(), awayMinutes);
       await upsert("payroll_time_entries", {
         employee_id: me.id, work_date: t.work_date, day_type: t.entry.day_type || "worked",
         checked_out_at: nowIso(), time_out: now.time, lunch_minutes: lunch, hours,
@@ -201,6 +265,9 @@ export const handler = async (event) => {
       const t = await todayFor(me);
       const wd = dstr(body.work_date) || t.work_date;
       const dayType = SELF_DAY_TYPES.includes(body.day_type) && body.day_type !== "worked" ? body.day_type : "pto";
+      // A day off always carries a why — it's what the manager reads on their board.
+      const reason = str(body.reason ?? body.note, 500);
+      if (reason.length < 3) return cors(400, j({ ok: false, error: "Add a short reason for the day off." }));
       const ex = (await get(`payroll_time_entries?employee_id=eq.${me.id}&work_date=eq.${wd}&select=id,locked&limit=1`))[0];
       if (ex?.locked) return cors(400, j({ ok: false, error: "That week is signed off." }));
       await upsert("payroll_time_entries", {
@@ -208,8 +275,14 @@ export const handler = async (event) => {
         hours: 0, off_type: null, off_hours: Number(me.standard_day_hours || 8) || 8,
         time_in: null, time_out: null, checked_in_at: null, checked_out_at: null,
         late_minutes: 0, left_early_minutes: 0,
-        note: str(body.note, 500) || null, source: "employee", updated_at: nowIso(),
+        note: reason, source: "employee", updated_at: nowIso(),
       }, "employee_id,work_date");
+      await notifyManager(me, {
+        subject: `${fullName(me)} is off ${pretty(wd)}`,
+        line: `${fullName(me)} marked ${pretty(wd)} as ${LABEL[dayType] || dayType}.`,
+        detail: reason,
+        cta: "See the day",
+      });
       return cors(200, j({ ok: true, ...(await todayFor(me)) }));
     }
 
@@ -247,7 +320,14 @@ export const handler = async (event) => {
         total_days: totalDays, total_hours: round2(perDay * days.length),
         note: str(body.note, 500) || null, status: "pending",
       }, true))[0];
-      return cors(200, j({ ok: true, request: row }));
+      const when = start === end ? pretty(start) : `${pretty(start)}–${pretty(end)}`;
+      const sent = await notifyManager(me, {
+        subject: `Time off requested — ${fullName(me)}`,
+        line: `${fullName(me)} requested ${totalDays} ${totalDays === 1 ? "day" : "days"} ${LABEL[type] || type} on ${when}.`,
+        detail: str(body.note, 500),
+        cta: "Approve or deny",
+      });
+      return cors(200, j({ ok: true, request: row, manager_notified: sent }));
     }
 
     if (action === "cancel_off") {
@@ -295,25 +375,26 @@ export const handler = async (event) => {
       return cors(out.ok ? 200 : 400, j(out));
     }
 
-    if (action === "approve_week") {
-      const ws = weekStart(body.week_start || lastWeekStart());
+    if (action === "approve_day") {
+      const wd = dstr(body.work_date) || addDays(todayET(), -1);
       const signName = str(body.sign_name, 120);
       if (!signName) return cors(400, j({ ok: false, error: "Type your name to sign off." }));
       const depts = await myDepartments(me, body.department_id);
       if (!depts.length) return cors(400, j({ ok: false, error: "You don't manage a department yet — the office sets that." }));
       const done = [];
-      for (const d of depts) done.push(await approveDepartmentWeek(me, d, ws, signName, str(body.note, 500)));
+      for (const d of depts) done.push(await approveDepartmentDay(me, d, wd, signName, str(body.note, 500)));
       return cors(200, j({ ok: true, approved: done }));
     }
 
-    if (action === "reopen_week") {
-      if (!me.is_admin) return cors(403, j({ ok: false, error: "Only the office can reopen a signed-off week." }));
-      const ws = weekStart(body.week_start || lastWeekStart());
+    if (action === "reopen_signoff") {
+      if (!me.is_admin) return cors(403, j({ ok: false, error: "Only the office can reopen a signed-off day." }));
+      const wd = dstr(body.work_date);
+      if (!wd) return cors(400, j({ ok: false, error: "Which day?" }));
       const depts = await myDepartments(me, body.department_id);
       for (const d of depts) {
         const ids = (await get(`payroll_employees?department_id=eq.${d.id}&select=id`)).map((e) => e.id);
-        if (ids.length) await patch(`payroll_time_entries?employee_id=in.(${ids.join(",")})&work_date=gte.${ws}&work_date=lte.${addDays(ws, 6)}`, { locked: false });
-        await patch(`payroll_week_approvals?department_id=eq.${d.id}&week_start=eq.${ws}`, { status: "open", approved_at: null, approved_by: null, approved_by_name: null, updated_at: nowIso() });
+        if (ids.length) await patch(`payroll_time_entries?employee_id=in.(${ids.join(",")})&work_date=eq.${wd}`, { locked: false });
+        await patch(`payroll_week_approvals?department_id=eq.${d.id}&week_start=eq.${wd}`, { status: "open", approved_at: null, approved_by: null, approved_by_name: null, updated_at: nowIso() });
       }
       return cors(200, j({ ok: true }));
     }
@@ -339,6 +420,14 @@ export const handler = async (event) => {
       });
       let placed = 0;
       if (decision === "approved") placed = await materializeTimeOff(req);
+      const emp = (await get(`payroll_employees?id=eq.${req.employee_id}&select=first_name,last_name,phone,email&limit=1`))[0];
+      if (emp) {
+        const when = req.start_date === req.end_date ? pretty(req.start_date) : `${pretty(req.start_date)}–${pretty(req.end_date)}`;
+        const verb = decision === "approved" ? "approved" : "not approved";
+        const txt = `US Shingle: your time off for ${when} was ${verb} by ${fullName(me)}.` + (str(body.note, 300) ? ` ${str(body.note, 300)}` : "");
+        if (emp.phone) await sendSms(emp.phone, fullName(emp), txt);
+        if (emp.email) await sendEmail(emp.email, `Time off ${verb} — ${when}`, `<p>${txt}</p>`);
+      }
       return cors(200, j({ ok: true, status: decision, days_placed: placed }));
     }
 
@@ -410,25 +499,25 @@ async function weekFor(emp, ws) {
     get(`payroll_time_entries?employee_id=eq.${emp.id}&work_date=gte.${ws}&work_date=lte.${we}&select=*&order=work_date.asc`),
     get(`payroll_holidays?active=is.true&holiday_date=gte.${ws}&holiday_date=lte.${we}&select=holiday_date,name,paid,hours`),
     get(`payroll_week_submits?employee_id=eq.${emp.id}&week_start=eq.${ws}&select=submitted_at&limit=1`),
-    emp.department_id ? get(`payroll_week_approvals?department_id=eq.${emp.department_id}&week_start=eq.${ws}&select=*&limit=1`) : [],
+    emp.department_id ? get(`payroll_week_approvals?department_id=eq.${emp.department_id}&week_start=gte.${ws}&week_start=lte.${we}&select=*`) : [],
   ]);
   const byDate = Object.fromEntries(rows.map((r) => [r.work_date, r]));
   const holByDate = Object.fromEntries(hols.map((h) => [h.holiday_date, h]));
+  const apprByDate = Object.fromEntries((appr || []).map((a) => [a.week_start, a]));
   const days = [];
   for (let i = 0; i < 7; i++) {
     const d = addDays(ws, i);
-    const hol = holByDate[d] || null;
     days.push({
-      work_date: d, weekday: weekdayName(d), holiday: hol,
-      entry: byDate[d] || null,
+      work_date: d, weekday: weekdayName(d), holiday: holByDate[d] || null,
+      entry: byDate[d] || null, approval: apprByDate[d] || null,
     });
   }
   return {
     week_start: ws, week_end: we, days,
     totals: weekTotals(days.map((d) => d.entry).filter(Boolean), emp),
     submitted_at: submit[0]?.submitted_at || null,
-    approval: appr[0] || null,
-    locked: rows.some((r) => r.locked) || appr[0]?.status === "approved",
+    days_signed: (appr || []).filter((a) => a.status === "approved").length,
+    locked: rows.some((r) => r.locked),
   };
 }
 
@@ -515,7 +604,7 @@ async function departmentWeek(dept, ws) {
   const [entries, submits, appr, hols] = await Promise.all([
     ids.length ? get(`payroll_time_entries?employee_id=in.(${ids.join(",")})&work_date=gte.${ws}&work_date=lte.${we}&select=*`) : [],
     ids.length ? get(`payroll_week_submits?employee_id=in.(${ids.join(",")})&week_start=eq.${ws}&select=employee_id,submitted_at`) : [],
-    get(`payroll_week_approvals?department_id=eq.${dept.id}&week_start=eq.${ws}&select=*&limit=1`),
+    get(`payroll_week_approvals?department_id=eq.${dept.id}&week_start=gte.${ws}&week_start=lte.${we}&select=*`),
     get(`payroll_holidays?active=is.true&holiday_date=gte.${ws}&holiday_date=lte.${we}&select=holiday_date,name,paid,hours`),
   ]);
   const subBy = Object.fromEntries(submits.map((s) => [s.employee_id, s.submitted_at]));
@@ -537,9 +626,14 @@ async function departmentWeek(dept, ws) {
       flags: flagsFor(mine, e, ws),
     };
   });
+  const signedDates = new Set((appr || []).filter((a) => a.status === "approved").map((a) => a.week_start));
+  const day_status = Array.from({ length: 7 }, (_, i) => {
+    const d = addDays(ws, i);
+    return { work_date: d, weekday: weekdayName(d), signed: signedDates.has(d) };
+  });
   return {
     department: { id: dept.id, name: dept.name }, week_start: ws, week_end: we,
-    holidays: hols, approval: appr[0] || null, members,
+    holidays: hols, day_status, days_signed: signedDates.size, members,
     totals: rollup(members.map((m) => m.totals)),
   };
 }
@@ -560,21 +654,28 @@ function flagsFor(entries, emp, ws) {
   return out;
 }
 
-// Sign off: snapshot the totals and lock every entry in the week so the numbers
-// can't drift after payroll sees them.
-async function approveDepartmentWeek(actor, dept, ws, signName, note) {
-  const we = addDays(ws, 6);
-  const snap = await departmentWeek(dept, ws);
-  const ids = snap.members.map((m) => m.employee.id);
-  if (ids.length) await patch(`payroll_time_entries?employee_id=in.(${ids.join(",")})&work_date=gte.${ws}&work_date=lte.${we}`, { locked: true });
+// Sign off ONE DAY: snapshot its totals and lock that day's entries so the
+// numbers can't drift after payroll sees them.
+async function approveDepartmentDay(actor, dept, wd, signName, note) {
+  const day = await departmentDay(dept, wd);
+  const ids = day.members.map((m) => m.employee.id);
+  const entries = ids.length
+    ? await get(`payroll_time_entries?employee_id=in.(${ids.join(",")})&work_date=eq.${wd}&select=*`)
+    : [];
+  if (ids.length) await patch(`payroll_time_entries?employee_id=in.(${ids.join(",")})&work_date=eq.${wd}`, { locked: true });
+
+  const emps = ids.length ? await get(`payroll_employees?id=in.(${ids.join(",")})&select=${EMP_SEL}`) : [];
+  // One day's totals. weekTotals' OT split is a no-op here (a single day can't
+  // exceed a week), so this is just the day's worked / off / paid buckets.
+  const totals = weekTotals(entries, emps[0]);
 
   await upsert("payroll_week_approvals", {
-    department_id: dept.id, week_start: ws, status: "approved",
+    department_id: dept.id, week_start: wd, status: "approved",
     approved_by: actor.id, approved_by_name: signName, approved_at: nowIso(),
-    note: note || null, totals: snap.totals, updated_at: nowIso(),
+    note: note || null, totals, updated_at: nowIso(),
   }, "department_id,week_start");
 
-  return { department: dept.name, week_start: ws, employees: ids.length, totals: snap.totals };
+  return { department: dept.name, work_date: wd, employees: ids.length, totals };
 }
 
 // An approved request becomes real days on the timecard (weekends + holidays
@@ -608,7 +709,7 @@ async function todayFor(emp) {
   const [rows, hols, appr] = await Promise.all([
     get(`payroll_time_entries?employee_id=eq.${emp.id}&work_date=eq.${wd}&select=*&limit=1`),
     get(`payroll_holidays?active=is.true&holiday_date=eq.${wd}&select=holiday_date,name,paid,hours&limit=1`),
-    emp.department_id ? get(`payroll_week_approvals?department_id=eq.${emp.department_id}&week_start=eq.${weekStart(wd)}&select=status&limit=1`) : [],
+    emp.department_id ? get(`payroll_week_approvals?department_id=eq.${emp.department_id}&week_start=eq.${wd}&select=status&limit=1`) : [],
   ]);
   const entry = rows[0] || null;
   const state = !entry ? "not_started"
@@ -646,9 +747,13 @@ async function departmentDay(dept, wantDate) {
         ? Math.max(0, Math.round((Date.now() - new Date(entry.checked_in_at).getTime()) / 60000)) : null,
     });
   }
+  const dates = [...new Set(members.map((m) => m.work_date))];
+  const appr = dates.length
+    ? (await get(`payroll_week_approvals?department_id=eq.${dept.id}&week_start=in.(${dates.join(",")})&select=*`))[0] || null
+    : null;
   return {
     department: { id: dept.id, name: dept.name },
-    work_date: wantDate || null, members,
+    work_date: wantDate || dates[0] || null, approval: appr, members,
     counts: {
       working: members.filter((m) => m.state === "working").length,
       done: members.filter((m) => m.state === "done").length,
@@ -698,6 +803,49 @@ function nowET() {
   }).formatToParts(new Date()).map((p) => [p.type, p.value]));
   return { date: `${parts.year}-${parts.month}-${parts.day}`, time: `${parts.hour}:${parts.minute}` };
 }
+
+// ── telling people things ────────────────────────────────────────────
+// Everything an employee does that a manager needs to know about goes to the
+// manager of that employee's DEPARTMENT — email if they have one, text either
+// way, since a phone is the one thing everybody here has.
+async function notifyManager(emp, { subject, line, detail, cta }) {
+  const out = { email: false, sms: false, manager: null };
+  if (!emp.department_id) return out;
+  const dept = (await get(`payroll_departments?id=eq.${emp.department_id}&select=name,manager_employee_id&limit=1`))[0];
+  if (!dept?.manager_employee_id || dept.manager_employee_id === emp.id) return out;
+  const mgr = (await get(`payroll_employees?id=eq.${dept.manager_employee_id}&select=first_name,last_name,email,phone,active&limit=1`))[0];
+  if (!mgr || !mgr.active) return out;
+  out.manager = fullName(mgr);
+
+  const link = `${BASE}/?mode=timecard`;
+  const body = [line, detail ? `"${detail}"` : "", `${cta}: ${link}`].filter(Boolean).join(" ");
+  if (mgr.phone) out.sms = await sendSms(mgr.phone, fullName(mgr), body);
+  if (mgr.email) {
+    out.email = await sendEmail(mgr.email, subject,
+      `<p>Hi ${mgr.first_name},</p><p>${line}</p>` +
+      (detail ? `<blockquote style="margin:12px 0;padding:8px 14px;border-left:3px solid #cbd5e1;color:#475569;">${detail}</blockquote>` : "") +
+      `<p><a href="${link}" style="display:inline-block;padding:11px 20px;background:#0f2a4a;color:#fff;text-decoration:none;border-radius:8px;font-weight:700;">${cta} →</a></p>` +
+      `<p style="color:#64748b;font-size:13px;">${dept.name} · U.S. Shingle &amp; Metal time cards</p>`);
+  }
+  return out;
+}
+async function sendSms(to, name, message) {
+  try {
+    const r = await fetch(`${BASE}/.netlify/functions/ghl-sms`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ to, name, message }) });
+    return r.ok;
+  } catch { return false; }
+}
+async function sendEmail(to, subject, html) {
+  try {
+    const r = await fetch(`${BASE}/.netlify/functions/send-email`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ to, subject, html }) });
+    return r.ok;
+  } catch { return false; }
+}
+const LABEL = {
+  pto: "vacation", sick: "sick", doctor: "a doctor visit", unpaid: "unpaid time",
+  comp: "a comp day", bereavement: "bereavement", jury: "jury duty", other: "time off",
+};
+const pretty = (d) => { const [, m, day] = String(d || "").split("-"); return m ? `${+m}/${+day}` : d; };
 
 // ══ small helpers ════════════════════════════════════════════════════
 

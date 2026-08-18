@@ -170,7 +170,7 @@ function SignOff({ api, onErr }) {
         </div>
         {d ? (
           <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
-            <div><div style={{ fontSize: 11, color: MUTE, fontWeight: 800 }}>SIGNED OFF</div><div style={{ fontSize: 19, fontWeight: 900, color: d.approved_count === (d.departments || []).length ? GREEN : AMBER }}>{d.approved_count}/{(d.departments || []).length}</div></div>
+            <div><div style={{ fontSize: 11, color: MUTE, fontWeight: 800 }}>DAYS SIGNED</div><div style={{ fontSize: 19, fontWeight: 900, color: d.approved_count === (d.departments || []).length ? GREEN : AMBER }}>{d.days_signed_total ?? 0}</div></div>
             <div><div style={{ fontSize: 11, color: MUTE, fontWeight: 800 }}>HOURS WORKED</div><div style={{ fontSize: 19, fontWeight: 900 }}>{d.company.worked}</div></div>
             <div><div style={{ fontSize: 11, color: MUTE, fontWeight: 800 }}>OVERTIME</div><div style={{ fontSize: 19, fontWeight: 900, color: d.company.overtime ? AMBER : INK }}>{d.company.overtime}</div></div>
             <div><div style={{ fontSize: 11, color: MUTE, fontWeight: 800 }}>PAID TIME OFF</div><div style={{ fontSize: 19, fontWeight: 900 }}>{(d.company.pto + d.company.sick + d.company.holiday).toFixed(2).replace(/\.00$/, "")}</div></div>
@@ -188,7 +188,7 @@ function SignOff({ api, onErr }) {
         <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 640 }}>
           <thead><tr>
             <th style={th}>Department</th><th style={th}>Signs off</th><th style={th}>Team</th>
-            <th style={th}>Marked done</th><th style={th}>Worked</th><th style={th}>OT</th><th style={th}>Status</th>
+            <th style={th}>Worked</th><th style={th}>OT</th><th style={th}>Days signed</th>
           </tr></thead>
           <tbody>
             {(d?.departments || []).map((r) => (
@@ -196,17 +196,15 @@ function SignOff({ api, onErr }) {
                 <td style={{ ...td, fontWeight: 800 }}>{r.name}</td>
                 <td style={td}>{r.manager_name || <Pill color={RED}>no manager set</Pill>}</td>
                 <td style={td}>{r.headcount}</td>
-                <td style={td}>{r.submitted}/{r.headcount}</td>
                 <td style={{ ...td, fontWeight: 700 }}>{r.totals.worked}h</td>
                 <td style={{ ...td, color: r.totals.overtime ? AMBER : MUTE }}>{r.totals.overtime}h</td>
                 <td style={td}>
-                  {r.status === "approved"
-                    ? <Pill color={GREEN}>✓ {r.approved_by_name || "signed"}</Pill>
-                    : <Pill color={AMBER}>waiting</Pill>}
+                  <Pill color={r.days_signed >= 5 ? GREEN : r.days_signed ? AMBER : MUTE}>{r.days_signed} of 5</Pill>
+                  {r.approved_by_name ? <div style={{ fontSize: 11.5, color: MUTE, marginTop: 2 }}>last by {r.approved_by_name}</div> : null}
                 </td>
               </tr>
             ))}
-            {d && !(d.departments || []).length ? <tr><td style={{ ...td, color: MUTE }} colSpan={7}>No departments yet — add them on the Teams tab.</td></tr> : null}
+            {d && !(d.departments || []).length ? <tr><td style={{ ...td, color: MUTE }} colSpan={6}>No departments yet — add them on the Teams tab.</td></tr> : null}
           </tbody>
         </table>
       </div>
@@ -797,6 +795,11 @@ function Daily({ api, onErr }) {
                   <span style={{ fontWeight: 800, minWidth: 44, textAlign: "right" }}>{r.hours ? `${r.hours}h` : ""}</span>
                 </div>
               </div>
+              {r.note ? (
+                <div style={{ background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 10, padding: "8px 10px", fontSize: 12.5, whiteSpace: "pre-wrap", lineHeight: 1.4 }}>
+                  {r.day_type === "worked" && r.off_hours ? <b>{Math.round(Number(r.off_hours) * 60)} min away · </b> : null}{r.note}
+                </div>
+              ) : null}
               {r.recap ? <div style={{ background: "#f8fafc", border: `1px solid ${LINE}`, borderRadius: 10, padding: "9px 11px", fontSize: 13.5, whiteSpace: "pre-wrap", lineHeight: 1.45 }}>{r.recap}</div> : null}
             </div>
           );

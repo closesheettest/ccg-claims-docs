@@ -264,7 +264,8 @@ function Today({ me, api, onErr, onChanged }) {
   const [busy, setBusy] = useState(false);
   const [recap, setRecap] = useState("");
   const [lunch, setLunch] = useState(30);
-  const [pickOff, setPickOff] = useState(false);
+  const [pickOff, setPickOff] = useState(null);        // null | { day_type, reason }
+  const [breaking, setBreaking] = useState(null);      // null | { minutes, reason }
   const [editingRecap, setEditingRecap] = useState(false);
   const [tick, setTick] = useState(0);
 
@@ -282,7 +283,7 @@ function Today({ me, api, onErr, onChanged }) {
     const r = await api(action, extra);
     setBusy(false);
     if (!r.ok) { onErr(r.error || "That didn't go through."); return false; }
-    setD(r); setRecap(r.entry?.recap || ""); setPickOff(false); setEditingRecap(false);
+    setD(r); setRecap(r.entry?.recap || ""); setPickOff(null); setBreaking(null); setEditingRecap(false);
     onChanged();
     return true;
   };
@@ -329,6 +330,7 @@ function Today({ me, api, onErr, onChanged }) {
           <div style={{ fontSize: 34 }}>{offType?.emoji || "—"}</div>
           <div style={{ fontSize: 19, fontWeight: 900 }}>{offType?.label || e.day_type}</div>
           <div style={{ fontSize: 13.5, color: MUTE }}>You're marked off for {prettyLong(d.work_date)}. Your manager sees it on their board.</div>
+          {e.note ? <div style={{ background: "#f8fafc", border: `1px solid ${LINE}`, borderRadius: 10, padding: "9px 11px", fontSize: 13.5 }}>{e.note}</div> : null}
           {!d.locked ? <button style={ghost} disabled={busy} onClick={() => call("check_in")}>Actually, I'm working — check me in</button> : null}
         </div>
       ) : d.state === "done" ? (
@@ -361,7 +363,12 @@ function Today({ me, api, onErr, onChanged }) {
               </>
             )}
           </div>
-          {d.locked ? <div style={{ fontSize: 12.5, color: MUTE }}>🔒 This week is signed off.</div> : null}
+          {d.locked
+            ? <div style={{ fontSize: 12.5, color: MUTE }}>🔒 This week is signed off.</div>
+            : <button style={{ ...ghost, border: "none", color: MUTE, justifySelf: "start" }} disabled={busy}
+                onClick={() => { if (window.confirm("Put yourself back on the clock for this day?")) call("reopen_day"); }}>
+                Ended too early? Reopen my day
+              </button>}
         </div>
       ) : d.state === "working" ? (
         <div style={{ ...card, display: "grid", gap: 12 }}>
@@ -383,7 +390,53 @@ function Today({ me, api, onErr, onChanged }) {
             onClick={() => call("check_out", { recap: recap.trim(), lunch_minutes: Number(lunch) || 0 })}>
             {busy ? "…" : "End shift & send recap"}
           </button>
-          <div style={{ fontSize: 12, color: MUTE, textAlign: "center" }}>Your hours come from your check-in to right now, minus breaks.</div>
+          <div style={{ fontSize: 12, color: MUTE, textAlign: "center" }}>Your hours come from your check-in to right now, minus lunch and any breaks.</div>
+
+          <div style={{ borderTop: `1px solid ${LINE}`, paddingTop: 11, display: "grid", gap: 9 }}>
+            {breaking ? (
+              <div style={{ display: "grid", gap: 9 }}>
+                <div style={{ fontWeight: 800, fontSize: 14 }}>Stepping away</div>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
+                  {[15, 30, 45, 60].map((m) => (
+                    <button key={m} onClick={() => setBreaking((b) => ({ ...b, minutes: m }))} style={{
+                      ...ghost, padding: "8px 14px",
+                      background: Number(breaking.minutes) === m ? NAVY : "#fff",
+                      color: Number(breaking.minutes) === m ? "#fff" : NAVY,
+                      borderColor: Number(breaking.minutes) === m ? NAVY : LINE,
+                    }}>{m} min</button>
+                  ))}
+                  <Field label="or"><input style={fld} type="number" min="1" max="720" value={breaking.minutes}
+                    onChange={(ev) => setBreaking((b) => ({ ...b, minutes: ev.target.value }))} /></Field>
+                </div>
+                <Field label="Reason (your manager sees this)">
+                  <input style={fld} value={breaking.reason} maxLength={200} placeholder="Doctor, school pickup, personal errand…"
+                    onChange={(ev) => setBreaking((b) => ({ ...b, reason: ev.target.value }))} />
+                </Field>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button style={btn(NAVY, { flex: 1 })} disabled={busy || !Number(breaking.minutes) || breaking.reason.trim().length < 2}
+                    onClick={() => call("break", { minutes: Number(breaking.minutes), reason: breaking.reason.trim() })}>
+                    {busy ? "…" : "Log the break"}
+                  </button>
+                  <button style={ghost} onClick={() => setBreaking(null)}>Cancel</button>
+                </div>
+              </div>
+            ) : pickOff ? (
+              <OffPicker value={pickOff} setValue={setPickOff} busy={busy}
+                onSubmit={() => call("day_off", { day_type: pickOff.day_type, reason: pickOff.reason.trim() })} />
+            ) : (
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "center" }}>
+                <button style={{ ...ghost, fontSize: 13 }} onClick={() => setBreaking({ minutes: 30, reason: "" })}>☕ Took a break</button>
+                <button style={{ ...ghost, fontSize: 13 }} onClick={() => setPickOff({ day_type: "pto", reason: "" })}>I'm actually off today</button>
+                <button style={{ ...ghost, fontSize: 13, color: RED, borderColor: "#fecaca" }} disabled={busy}
+                  onClick={() => { if (window.confirm("Undo your check-in for today?")) call("undo_check_in"); }}>Checked in by mistake</button>
+              </div>
+            )}
+            {Number(e.off_hours) ? (
+              <div style={{ background: "#f8fafc", border: `1px solid ${LINE}`, borderRadius: 10, padding: "9px 11px", fontSize: 12.5, color: MUTE, whiteSpace: "pre-wrap" }}>
+                <b style={{ color: INK }}>{Math.round(Number(e.off_hours) * 60)} min away so far</b>{e.note ? `\n${e.note}` : ""}
+              </div>
+            ) : null}
+          </div>
         </div>
       ) : (
         <div style={{ ...card, display: "grid", gap: 12, textAlign: "center" }}>
@@ -395,21 +448,43 @@ function Today({ me, api, onErr, onChanged }) {
             {busy ? "…" : "✋ Check in"}
           </button>
           {!pickOff ? (
-            <button style={{ ...ghost, border: "none", color: MUTE }} disabled={d.locked} onClick={() => setPickOff(true)}>I'm off today</button>
+            <button style={{ ...ghost, border: "none", color: MUTE }} disabled={d.locked} onClick={() => setPickOff({ day_type: "pto", reason: "" })}>I'm off today</button>
           ) : (
-            <div style={{ display: "grid", gap: 8 }}>
-              <div style={{ fontSize: 12.5, color: MUTE }}>What kind of day off?</div>
-              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "center" }}>
-                {DAY_TYPES.filter((t) => t.key !== "worked").map((t) => (
-                  <button key={t.key} style={{ ...ghost, padding: "8px 12px", fontSize: 13 }} disabled={busy}
-                    onClick={() => call("day_off", { day_type: t.key })}>{t.emoji} {t.label}</button>
-                ))}
-              </div>
-              <button style={{ ...ghost, border: "none", color: MUTE }} onClick={() => setPickOff(false)}>Never mind</button>
-            </div>
+            <OffPicker value={pickOff} setValue={setPickOff} busy={busy}
+              onSubmit={() => call("day_off", { day_type: pickOff.day_type, reason: pickOff.reason.trim() })} />
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+// Marking a day off: pick what kind, and say why — the reason is what the
+// manager reads on their board, so it isn't optional.
+function OffPicker({ value, setValue, onSubmit, busy }) {
+  return (
+    <div style={{ display: "grid", gap: 9, textAlign: "left" }}>
+      <div style={{ fontSize: 12.5, color: MUTE, textAlign: "center" }}>What kind of day off?</div>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "center" }}>
+        {DAY_TYPES.filter((t) => t.key !== "worked").map((t) => (
+          <button key={t.key} onClick={() => setValue((v) => ({ ...v, day_type: t.key }))} style={{
+            ...ghost, padding: "8px 12px", fontSize: 13,
+            background: value.day_type === t.key ? t.color : "#fff",
+            color: value.day_type === t.key ? "#fff" : INK,
+            borderColor: value.day_type === t.key ? t.color : LINE,
+          }}>{t.emoji} {t.label}</button>
+        ))}
+      </div>
+      <Field label="Reason (required)">
+        <input style={fld} value={value.reason} maxLength={200} placeholder="Your manager sees this"
+          onChange={(e) => setValue((v) => ({ ...v, reason: e.target.value }))} />
+      </Field>
+      <div style={{ display: "flex", gap: 8 }}>
+        <button style={btn(NAVY, { flex: 1 })} disabled={busy || value.reason.trim().length < 3} onClick={onSubmit}>
+          {busy ? "…" : "Mark the day off"}
+        </button>
+        <button style={ghost} onClick={() => setValue(null)}>Never mind</button>
+      </div>
     </div>
   );
 }
@@ -760,12 +835,11 @@ function TimeOff({ me, api, onErr, onChanged }) {
 // ── TEAM (department manager sign-off) ──────────────────────────────────
 function Team({ me, api, onErr }) {
   const [view, setView] = useState("today");     // today | week
-  const [ws, setWs] = useState(() => addDays(mondayOf(todayET()), -7));   // default: the week that just closed
+  const [jumpDate, setJumpDate] = useState("");  // set when a day chip is tapped in the week view
+  const [ws, setWs] = useState(() => mondayOf(todayET()));   // sign-off is daily; this view is the week's progress
   const [data, setData] = useState(null);
   const [queue, setQueue] = useState([]);
   const [openEmp, setOpenEmp] = useState("");
-  const [sign, setSign] = useState(`${me.first_name} ${me.last_name}`.trim());
-  const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async (week) => {
@@ -777,15 +851,6 @@ function Team({ me, api, onErr }) {
   }, [api, onErr]);
   useEffect(() => { load(ws); }, [ws, load]);
 
-  const approve = async () => {
-    if (!sign.trim()) { onErr("Type your name to sign off."); return; }
-    setBusy(true); onErr("");
-    const d = await api("approve_week", { week_start: ws, sign_name: sign.trim(), note });
-    setBusy(false);
-    if (!d.ok) { onErr(d.error || "Sign-off failed."); return; }
-    setNote(""); load(ws);
-  };
-
   const decide = async (id, decision) => {
     const d = await api("decide_off", { id, decision });
     if (!d.ok) { onErr(d.error || "Couldn't record that."); return; }
@@ -793,14 +858,14 @@ function Team({ me, api, onErr }) {
   };
 
   const thisWeek = mondayOf(todayET());
-  const allSigned = (data?.departments || []).every((d) => d.approval?.status === "approved");
-  const needsSignoff = data && !allSigned && ws === addDays(thisWeek, -7);
+  const allSigned = (data?.departments || []).every((d) => (d.days_signed || 0) >= 5);
+  const needsSignoff = data && !allSigned;
 
   if (view === "today") {
     return (
       <div style={{ display: "grid", gap: 12 }}>
         <TeamViewToggle view={view} setView={setView} needsSignoff={needsSignoff} />
-        <TeamToday api={api} onErr={onErr} />
+        <TeamToday me={me} api={api} onErr={onErr} initialDate={jumpDate} />
       </div>
     );
   }
@@ -812,7 +877,7 @@ function Team({ me, api, onErr }) {
         <button style={{ ...ghost, padding: "8px 12px" }} onClick={() => setWs(addDays(ws, -7))}>←</button>
         <div style={{ textAlign: "center", lineHeight: 1.2 }}>
           <div style={{ fontWeight: 900, fontSize: 15 }}>{pretty(ws)} – {pretty(addDays(ws, 6))}</div>
-          <div style={{ fontSize: 11.5, color: MUTE }}>{ws === addDays(thisWeek, -7) ? "Last week — sign this off" : ws === thisWeek ? "This week (still running)" : "Past week"}</div>
+          <div style={{ fontSize: 11.5, color: MUTE }}>{ws === thisWeek ? "This week" : ws === addDays(thisWeek, -7) ? "Last week" : "Past week"}</div>
         </div>
         <button style={{ ...ghost, padding: "8px 12px" }} disabled={ws >= thisWeek} onClick={() => setWs(addDays(ws, 7))}>→</button>
       </div>
@@ -846,7 +911,7 @@ function Team({ me, api, onErr }) {
             <div>
               <div style={{ fontWeight: 900, fontSize: 17, color: NAVY }}>{dep.department.name}</div>
               <div style={{ fontSize: 12.5, color: MUTE }}>
-                {(dep.members || []).length} on the team · {(dep.members || []).filter((m) => m.submitted_at).length} marked done
+                {(dep.members || []).length} on the team · {dep.days_signed || 0} of 7 days signed
               </div>
             </div>
             <div style={{ textAlign: "right" }}>
@@ -866,23 +931,20 @@ function Team({ me, api, onErr }) {
               }} />
           ))}
 
-          {dep.approval?.status === "approved" ? (
-            <div style={{ background: "#ecfdf5", border: "1px solid #a7f3d0", color: "#065f46", borderRadius: 12, padding: "12px 14px", fontWeight: 700, fontSize: 14 }}>
-              ✅ Signed off by {dep.approval.approved_by_name} · {new Date(dep.approval.approved_at).toLocaleString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
-              {dep.approval.note ? <div style={{ fontWeight: 500, marginTop: 4 }}>{dep.approval.note}</div> : null}
+          <div style={{ ...card, display: "grid", gap: 8 }}>
+            <div style={{ fontWeight: 900, fontSize: 15 }}>Days signed this week</div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {(dep.day_status || []).map((x) => (
+                <button key={x.work_date} onClick={() => { setView("today"); setJumpDate(x.work_date); }} style={{
+                  ...ghost, padding: "8px 11px", fontSize: 12.5,
+                  background: x.signed ? "#ecfdf5" : "#fff",
+                  borderColor: x.signed ? "#a7f3d0" : LINE,
+                  color: x.signed ? "#065f46" : NAVY,
+                }}>{x.signed ? "✅" : "○"} {x.weekday.slice(0, 3)} {pretty(x.work_date)}</button>
+              ))}
             </div>
-          ) : (
-            <div style={{ ...card, display: "grid", gap: 10, borderColor: "#bfdbfe", background: "#f8fbff" }}>
-              <div style={{ fontWeight: 900, fontSize: 15 }}>Sign off {dep.department.name} — week of {pretty(ws)}</div>
-              <div style={{ fontSize: 13, color: MUTE }}>
-                Signing locks these hours so payroll can run them. Fix anything that looks wrong first — tap a name to edit their days.
-                {dep.members.some((m) => m.flags.some((f) => f.kind === "missing")) ? " Some days are still blank." : ""}
-              </div>
-              <input style={fld} value={sign} onChange={(e) => setSign(e.target.value)} placeholder="Type your name to sign" />
-              <input style={fld} value={note} maxLength={200} onChange={(e) => setNote(e.target.value)} placeholder="Note (optional)" />
-              <button style={btn(GREEN)} disabled={busy} onClick={approve}>{busy ? "…" : `✍️ Sign off ${dep.members.length} employee${dep.members.length === 1 ? "" : "s"}`}</button>
-            </div>
-          )}
+            <div style={{ fontSize: 12.5, color: MUTE }}>Sign-off happens a day at a time — tap a day to open it on the Today tab.</div>
+          </div>
         </div>
       ))}
 
@@ -998,14 +1060,26 @@ function TeamViewToggle({ view, setView, needsSignoff }) {
   return <div style={{ display: "flex", gap: 8 }}>{b("today", "Today")}{b("week", "Week sign-off", needsSignoff)}</div>;
 }
 
-function TeamToday({ api, onErr }) {
+function TeamToday({ me, api, onErr, initialDate }) {
   const [d, setD] = useState(null);
-  const [date, setDate] = useState("");        // "" = each person's current shift day
+  const [date, setDate] = useState(initialDate || "");   // "" = each person's current shift day
+  const [sign, setSign] = useState(`${me.first_name} ${me.last_name}`.trim());
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
   const load = useCallback(async () => {
     const r = await api("team_today", date ? { work_date: date } : {});
     if (r.ok) setD(r); else onErr(r.error || "Couldn't load your team's day.");
   }, [api, onErr, date]);
   useEffect(() => { load(); }, [load]);
+
+  const signOff = async (dep) => {
+    if (!sign.trim()) { onErr("Type your name to sign off."); return; }
+    setBusy(true); onErr("");
+    const r = await api("approve_day", { work_date: dep.work_date, department_id: dep.department.id, sign_name: sign.trim(), note });
+    setBusy(false);
+    if (!r.ok) { onErr(r.error || "Sign-off failed."); return; }
+    setNote(""); load();
+  };
 
   const STATE = {
     working: { label: "on shift", color: NAVY },
@@ -1020,6 +1094,7 @@ function TeamToday({ api, onErr }) {
         <Field label="Day">
           <input style={fld} type="date" value={date} max={todayET()} onChange={(e) => setDate(e.target.value)} />
         </Field>
+        <button style={ghost} onClick={() => setDate(addDays(date || todayET(), -1))}>← previous day</button>
         {date ? <button style={ghost} onClick={() => setDate("")}>Back to now</button> : <div style={{ fontSize: 12.5, color: MUTE, paddingBottom: 10 }}>Showing each person's current shift day — night shifts included.</div>}
       </div>
 
@@ -1058,6 +1133,11 @@ function TeamToday({ api, onErr }) {
                     </div>
                   </div>
                 </div>
+                {e?.note ? (
+                  <div style={{ background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 10, padding: "9px 11px", fontSize: 13, whiteSpace: "pre-wrap", lineHeight: 1.4 }}>
+                    {e.day_type === "worked" && Number(e.off_hours) ? <b>{Math.round(Number(e.off_hours) * 60)} min away · </b> : null}{e.note}
+                  </div>
+                ) : null}
                 {e?.recap ? (
                   <div style={{ background: "#f8fafc", border: `1px solid ${LINE}`, borderRadius: 10, padding: "10px 12px", fontSize: 14, whiteSpace: "pre-wrap", lineHeight: 1.45 }}>{e.recap}</div>
                 ) : m.state === "working" ? (
@@ -1069,6 +1149,30 @@ function TeamToday({ api, onErr }) {
             );
           })}
           {!dep.members.length ? <div style={{ ...card, color: MUTE }}>Nobody on this team yet.</div> : null}
+
+          {dep.members.length ? (
+            dep.approval?.status === "approved" ? (
+              <div style={{ background: "#ecfdf5", border: "1px solid #a7f3d0", color: "#065f46", borderRadius: 12, padding: "12px 14px", fontWeight: 700, fontSize: 14 }}>
+                ✅ {prettyLong(dep.work_date)} signed off by {dep.approval.approved_by_name}
+                {dep.approval.approved_at ? ` · ${new Date(dep.approval.approved_at).toLocaleString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}` : ""}
+                {dep.approval.note ? <div style={{ fontWeight: 500, marginTop: 4 }}>{dep.approval.note}</div> : null}
+              </div>
+            ) : (
+              <div style={{ ...card, display: "grid", gap: 10, borderColor: "#bfdbfe", background: "#f8fbff" }}>
+                <div style={{ fontWeight: 900, fontSize: 15 }}>Sign off {dep.department.name} — {prettyLong(dep.work_date)}</div>
+                <div style={{ fontSize: 13, color: MUTE }}>
+                  This locks the day's hours so payroll can run them. Fix anything wrong first.
+                  {dep.counts.missing ? ` ${dep.counts.missing} ${dep.counts.missing === 1 ? "person hasn't" : "people haven't"} checked in.` : ""}
+                  {dep.counts.working ? ` ${dep.counts.working} still on shift.` : ""}
+                </div>
+                <input style={fld} value={sign} onChange={(e) => setSign(e.target.value)} placeholder="Type your name to sign" />
+                <input style={fld} value={note} maxLength={200} onChange={(e) => setNote(e.target.value)} placeholder="Note (optional)" />
+                <button style={btn(GREEN)} disabled={busy} onClick={() => signOff(dep)}>
+                  {busy ? "…" : `✍️ Sign off ${dep.members.length} ${dep.members.length === 1 ? "person" : "people"}`}
+                </button>
+              </div>
+            )
+          ) : null}
         </div>
       ))}
       {d && !(d.departments || []).length ? <div style={{ ...card, color: MUTE }}>You don't manage a department yet — the office sets that.</div> : null}

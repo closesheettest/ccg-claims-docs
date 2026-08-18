@@ -14,7 +14,7 @@ Two screens, one system:
 | Who | Where | What they do there |
 |---|---|---|
 | Employee | `/?mode=timecard` | Sign in with their **mobile number** + a passcode they set. Check in at shift start, recap at shift end, or mark the day off. See holidays and what's left of their vacation days. |
-| Department manager | same screen, **Team** tab | **Today:** who's on shift, who never checked in, and every recap. **Week sign-off:** Monday morning, review last week, fix anything wrong, sign it off. Also approves time-off requests. |
+| Department manager | same screen, **Team** tab | **Today:** who's on shift, who never checked in, every recap — and the **sign-off for that day**. **Week sign-off:** which days of the week are signed. Also approves time-off requests. |
 | Office / HR | `/?mode=payroll` (manager PIN) | Shifts, the roster, departments and who signs each one off, PTO allotments, holidays, a company-wide daily recap board, and the payroll export. |
 
 Both are also tiles in **My Tools** (`/?mode=mytools`) under *People & Payroll*.
@@ -107,6 +107,11 @@ worked plus 2 hours at the doctor is one day. Hours come from the in/out times w
 they're filled in, otherwise from a typed number. Arriving late and leaving early are
 minute counts on a worked day, so they show up as flags for the manager without
 changing the hours.
+
+**Breaks.** Mid-shift, an employee can log time stepped away with a required reason
+(school pickup, doctor). It comes off the hours worked and shows on the manager's
+board. They can also undo a check-in they made by mistake, switch the day to a day off,
+or reopen a day they closed too early.
 
 **Time off.** A request goes to the department manager. Approving it writes the days
 straight onto the time card — weekends and company holidays inside the range are
