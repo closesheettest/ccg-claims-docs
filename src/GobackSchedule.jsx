@@ -134,7 +134,9 @@ function GobackReport() {
   // versions. Neal changes the wording, so the only way to tell whether a new
   // message pulls better is to line the days up and read the book rate down the
   // column — impossible when everything is bucketed under a rep.
-  const [groupBy, setGroupBy] = useState('rep');
+  // Team is the default view — Neal reads this report by team, the way every
+  // other report is organised. Rep and Day are still a tap away.
+  const [groupBy, setGroupBy] = useState('team');
   const load = (p) => {
     setData(null);
     fetch(`/.netlify/functions/goback-report?period=${encodeURIComponent(p)}`)
@@ -187,7 +189,7 @@ function GobackReport() {
           </div>
           <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 12 }}>
             <span style={{ fontSize: 11.5, fontWeight: 800, textTransform: "uppercase", color: "#94a3b8" }}>Group by</span>
-            {[["rep", "Rep"], ["team", "Team"], ["day", "Day sent"]].map(([k, label]) => (
+            {[["team", "Team"], ["rep", "Rep"], ["day", "Day sent"]].map(([k, label]) => (
               <button key={k} type="button" onClick={() => { setGroupBy(k); setOpenReps(new Set()); }}
                 style={{ border: "1px solid " + (groupBy === k ? "#0f2a4a" : "#e5e7eb"), background: groupBy === k ? "#0f2a4a" : "#fff", color: groupBy === k ? "#fff" : "#475569", borderRadius: 999, padding: "5px 12px", fontSize: 12, fontWeight: 800, cursor: "pointer" }}>
                 {label}
