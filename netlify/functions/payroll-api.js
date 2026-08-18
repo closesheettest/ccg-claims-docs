@@ -70,10 +70,10 @@ export const handler = async (event) => {
       if (!parsed.rows.length) return cors(400, j({ ok: false, error: parsed.error || "Nothing to import — paste rows with a name, and ideally a department, who signs off, and a mobile number." }));
 
       const [existing, depts] = await Promise.all([
-        get("payroll_employees?select=id,first_name,last_name,phone,phone_key,department_id,active"),
+        get("payroll_employees?select=id,first_name,last_name,phone,department_id,active"),
         get("payroll_departments?select=id,name"),
       ]);
-      const byKey = Object.fromEntries(existing.filter((e) => e.phone_key).map((e) => [e.phone_key, e]));
+      const byKey = Object.fromEntries(existing.filter((e) => phoneKey(e.phone)).map((e) => [phoneKey(e.phone), e]));
       const byName = {};
       for (const e of existing) byName[`${e.first_name} ${e.last_name}`.toLowerCase()] = e;
       const deptByName = Object.fromEntries(depts.map((d) => [d.name.toLowerCase(), d]));
@@ -141,7 +141,7 @@ export const handler = async (event) => {
         if (r.status !== "new") continue;
         const ins = await postRow("payroll_employees", {
           first_name: r.first_name, last_name: r.last_name,
-          phone: r.phone || null, email: r.email || null,
+          phone: phoneKey(r.phone) || null, email: r.email || null,
           department_id: madeDept[r.department] || null,
           title: r.title || null, pay_type: "hourly", active: true,
         }).catch(() => null);
@@ -252,6 +252,7 @@ export const handler = async (event) => {
         else if (k === "hire_date") v = dstr(v) || null;
         else if (k === "email") v = str(v, 160).toLowerCase() || null;
         else if (k === "department_id") v = str(v, 64) || null;
+        else if (k === "phone") v = phoneKey(v) || null;   // stored bare — it's the login
         else v = str(v, k === "notes" ? 2000 : 120) || null;
         row[k] = v;
       }
@@ -262,7 +263,7 @@ export const handler = async (event) => {
       row.updated_at = nowIso();
       if (b.id) await patch(`payroll_employees?id=eq.${str(b.id, 64)}`, row);
       else {
-        const dupe = await get(`payroll_employees?phone_key=eq.${phoneKey(row.phone)}&select=id,first_name,last_name&limit=1`);
+        const dupe = await get(`payroll_employees?phone=eq.${phoneKey(row.phone)}&select=id,first_name,last_name&limit=1`);
         if (dupe.length) return cors(400, j({ ok: false, error: `That number is already on the roster (${dupe[0].first_name} ${dupe[0].last_name}).` }));
         await post("payroll_employees", row);
       }

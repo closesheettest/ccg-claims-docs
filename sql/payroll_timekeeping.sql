@@ -66,7 +66,7 @@ create table if not exists public.payroll_employees (
   id                  uuid primary key default gen_random_uuid(),
   first_name          text not null,
   last_name           text not null,
-  phone               text,                  -- THIS IS THEIR LOGIN (and where nudges go)
+  phone               text,                  -- THEIR LOGIN + where nudges go; stored as bare 10 digits
   email               text unique,           -- optional; office staff only
   department_id       uuid references public.payroll_departments(id) on delete set null,
   title               text,
@@ -103,15 +103,11 @@ do $$ begin
     foreign key (manager_employee_id) references public.payroll_employees(id) on delete set null;
 exception when duplicate_object then null; end $$;
 
--- The login key: the last 10 digits of whatever was typed into `phone`, so
--- "813-955-5126", "(813) 955-5126" and "+18139555126" are all the same person.
--- Generated, so it can never drift from the phone the office edits.
-alter table public.payroll_employees
-  add column if not exists phone_key text
-  generated always as (nullif(right(regexp_replace(coalesce(phone, ''), '\D', '', 'g'), 10), '')) stored;
-
-create unique index if not exists payroll_employees_phone_key_idx
-  on public.payroll_employees(phone_key) where phone_key is not null;
+-- `phone` IS the login. Whatever the office types — "813-955-5126",
+-- "(813) 955-5126", "+1 813 955 5126" — the API stores the bare 10 digits, so a
+-- sign-in matches on an exact compare and no extra column is needed. (The UI
+-- formats it for reading; SMS normalizes it again on the way out.)
+create index if not exists payroll_employees_phone_idx on public.payroll_employees(phone);
 create index if not exists payroll_employees_dept_idx on public.payroll_employees(department_id) where active;
 create index if not exists payroll_employees_email_idx on public.payroll_employees(lower(email));
 

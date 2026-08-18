@@ -70,7 +70,8 @@ const EMP_SEL =
   "sick_days_per_year,paid_holidays,shift_id,is_manager,is_admin,active,passcode_hash";
 
 // Everything after the digits is noise: "813-955-5126", "(813) 955-5126" and
-// "+1 813 955 5126" are one person. Matches the DB's generated phone_key.
+// "+1 813 955 5126" are one person. The office API stores this same bare form,
+// so a login is an exact compare — no extra column, no migration.
 const phoneKey = (v) => { const d = String(v || "").replace(/\D/g, ""); return d.length >= 10 ? d.slice(-10) : ""; };
 
 // Day types an employee can put on their own timecard. "holiday" is filled in
@@ -705,7 +706,7 @@ async function empByLogin(raw) {
   const v = String(raw || "").trim();
   if (!v) return null;
   const key = phoneKey(v);
-  if (key) return (await get(`payroll_employees?phone_key=eq.${key}&select=${EMP_SEL}&limit=1`))[0] || null;
+  if (key) return (await get(`payroll_employees?phone=eq.${key}&select=${EMP_SEL}&limit=1`))[0] || null;
   if (v.includes("@")) return (await get(`payroll_employees?email=eq.${encodeURIComponent(v.toLowerCase())}&select=${EMP_SEL}&limit=1`))[0] || null;
   return null;
 }

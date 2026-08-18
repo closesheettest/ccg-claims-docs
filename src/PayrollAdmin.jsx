@@ -40,6 +40,7 @@ const addDays = (s, n) => { const d = asDate(s); d.setUTCDate(d.getUTCDate() + n
 const todayET = () => new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
 const mondayOf = (s) => { const dow = asDate(s).getUTCDay(); return addDays(s, dow === 0 ? -6 : 1 - dow); };
 const pretty = (s) => { if (!s) return ""; const [, m, d] = s.split("-"); return `${+m}/${+d}`; };
+const fmtPhone = (v) => { const d = String(v || "").replace(/\D/g, ""); return d.length === 10 ? `(${d.slice(0,3)}) ${d.slice(3,6)}-${d.slice(6)}` : (v || ""); };
 const money = (n) => `$${(Number(n) || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 const TABS = [
@@ -336,7 +337,7 @@ function People({ api, onErr }) {
           <div style={{ display: "flex", gap: 9, flexWrap: "wrap" }}>
             <Field label="First name"><input style={fld} value={edit.first_name} onChange={(e) => setEdit({ ...edit, first_name: e.target.value })} /></Field>
             <Field label="Last name"><input style={fld} value={edit.last_name} onChange={(e) => setEdit({ ...edit, last_name: e.target.value })} /></Field>
-            <Field label="Mobile (their login)" w={170}><input style={fld} type="tel" value={edit.phone || ""} onChange={(e) => setEdit({ ...edit, phone: e.target.value })} placeholder="(813) 555-0123" /></Field>
+            <Field label="Mobile (their login)" w={170}><input style={fld} type="tel" value={edit.phone || ""} onChange={(e) => setEdit({ ...edit, phone: e.target.value })} placeholder="(813) 555-0123" /><div style={{ fontSize: 11, color: MUTE, marginTop: 3 }}>Any format — it's stored as digits.</div></Field>
             <Field label="Email (optional)" w={200}><input style={fld} type="email" value={edit.email || ""} onChange={(e) => setEdit({ ...edit, email: e.target.value })} /></Field>
           </div>
           <div style={{ display: "flex", gap: 9, flexWrap: "wrap" }}>
@@ -404,7 +405,7 @@ function People({ api, onErr }) {
                 <td style={td}>
                   {!e.phone ? <Pill color={RED}>no mobile</Pill>
                     : e.passcode_set_at ? <Pill color={GREEN}>set</Pill> : <Pill color={MUTE}>not set up</Pill>}
-                  <div style={{ fontSize: 11.5, color: MUTE, marginTop: 2 }}>{e.phone || ""}</div>
+                  <div style={{ fontSize: 11.5, color: MUTE, marginTop: 2 }}>{fmtPhone(e.phone)}</div>
                 </td>
                 <td style={{ ...td, whiteSpace: "nowrap" }}>
                   <button style={{ ...ghost, padding: "6px 10px" }} onClick={() => setEdit({ ...BLANK_EMP, ...e })}>Edit</button>
