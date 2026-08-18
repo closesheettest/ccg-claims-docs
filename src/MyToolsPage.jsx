@@ -56,6 +56,10 @@ const CATALOG = [
   { key: "installs_map", cat: "Installs", emoji: "🗺️", label: "Installs Map", desc: "Live map of current installs, colored by jobsite foreman.", href: "/?mode=installs" },
   { key: "foreman_links", cat: "Installs", emoji: "🔗", label: "Foreman Links", desc: "Each foreman's personal link, to hand out.", href: "/?mode=foremanlinks" },
 
+  // ── People & Payroll ──
+  { key: "payroll", cat: "People & Payroll", emoji: "🧾", label: "Employee Payroll (office)", desc: "W-2 timekeeping: roster, PTO allotments, holidays, comp days, and who has signed off last week.", href: "/?mode=payroll" },
+  { key: "timecard", cat: "People & Payroll", emoji: "🕒", label: "My Time Card", desc: "Your own days worked, time off and doctor visits — and the Monday sign-off if you run a department.", href: "/?mode=timecard" },
+
   // ── Sales & Settings ──
   { key: "contest", cat: "Sales & Settings", emoji: "🏁", label: "Contest Leaderboard", desc: "Turn the Positive-Effort Contest board on/off + preview standings.", href: "/?mode=contest" },
   { key: "manager_console", cat: "Sales & Settings", emoji: "🛠️", label: "Manager Console (full toolbox)", desc: "Every admin tool in one place — reports, templates, rosters, settings.", href: "/?mode=manager" },
@@ -103,7 +107,7 @@ const CATALOG = [
   { key: "system_map", cat: "Other Apps", emoji: "🗺", label: "System Map", desc: "Interactive flow of the whole system — every text, email, JN push.", external: "/system-map.html" },
 ];
 
-const CATS = ["Door-Knocking", "Inspections", "Public Adjuster", "Installs", "Sales & Settings", "Training (TMS)", "Other Apps"];
+const CATS = ["Door-Knocking", "Inspections", "Public Adjuster", "Installs", "People & Payroll", "Sales & Settings", "Training (TMS)", "Other Apps"];
 const byKey = Object.fromEntries(CATALOG.map((t) => [t.key, t]));
 
 // Manager Console INNER pages (?mode=manager&section=<key>) can be added to a dashboard
@@ -156,6 +160,7 @@ const MODE_TITLES = {
   pareschedule: "Reschedule", installs: "Installs Map", foremanlinks: "Foreman Links",
   contest: "Contest Leaderboard", manager: "Manager Console", setter: "Setter Portal",
   crews: "Crew Onboarding", pa: "PA Portal", inspector: "Inspector App", admin: "Admin",
+  payroll: "Employee Payroll", timecard: "My Time Card",
   roofmeasure: "Roof Measurement", rooftakeoff: "Roof Takeoff", masterinspreport2: "Reports",
 };
 
