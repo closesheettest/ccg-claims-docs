@@ -65,7 +65,7 @@ export const handler = async (event) => {
     const rows = await fetchTable('inspections', {
       select:
         'id,sales_rep_id,sales_rep_name,original_sales_rep_id,original_sales_rep_name,signed_at,result,result_at,' +
-        'client_name,address,zip,jn_status,cancelled_at',
+        'client_name,address,city,zip,jn_status,cancelled_at',
       filter:
         `signed_at=gte.${encodeURIComponent(start.toISOString())}` +
         `&signed_at=lte.${encodeURIComponent(end.toISOString())}` +
@@ -98,7 +98,7 @@ export const handler = async (event) => {
       // inflating the solo card and double-counting their team signings.
       if (/william\s+hernandez/i.test(String(signerName || ''))) {
         williamCount++
-        williamDeals.push({ rep: 'William', label: titleAddr(r.address) || (r.client_name || '').trim() || 'Signed inspection' })
+        williamDeals.push({ rep: 'William', label: titleAddr(r.address) || (r.client_name || '').trim() || 'Signed inspection' , city: (r.city || '').trim() || null })
       }
       const zone =
         (signerId != null && byId[String(signerId)]) ||
@@ -111,7 +111,7 @@ export const handler = async (event) => {
       const rep = (signerName || '—').trim() || '—'
       const m = repsByZone[zone] || (repsByZone[zone] = new Map())
       m.set(rep, (m.get(rep) || 0) + 1)
-      ;(dealsByZone[zone] = dealsByZone[zone] || []).push({ rep, label: titleAddr(r.address) || (r.client_name || '').trim() || 'Signed inspection' })
+      ;(dealsByZone[zone] = dealsByZone[zone] || []).push({ rep, label: titleAddr(r.address) || (r.client_name || '').trim() || 'Signed inspection' , city: (r.city || '').trim() || null })
     }
 
     // Build a row for every known zone (zero included), then rank.
