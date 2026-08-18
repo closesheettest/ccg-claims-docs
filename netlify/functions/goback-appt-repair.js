@@ -23,6 +23,13 @@ const JN_BASE = "https://app.jobnimbus.com/api1";
 const JN_KEY = process.env.JOBNIMBUS_API_KEY;
 const sbH = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, "Content-Type": "application/json" };
 const jnH = { Authorization: `bearer ${JN_KEY}`, "Content-Type": "application/json" };
+
+const RESULT_LABEL = { damage: "Damage", retail: "Retail", no_damage: "No Damage" };
+function apptTitle(insp) {
+  const l = RESULT_LABEL[String(insp.result || "").toLowerCase()];
+  return l ? `Come-Back Review ${l}` : "Come-Back Review";
+}
+
 const APPT_MIN = 60;
 
 export const handler = async (event) => {
@@ -41,7 +48,7 @@ export const handler = async (event) => {
   const rows = await sbGet(
     `inspections?review_appt_at=not.is.null&review_appt_at=gte.${encodeURIComponent(since)}` +
     `&jn_job_id=not.is.null&cancelled_at=is.null` +
-    `&select=id,client_name,address,city,sales_rep_id,sales_rep_name,jn_job_id,review_appt_at&order=review_appt_at.asc`,
+    `&select=id,client_name,address,city,sales_rep_id,sales_rep_name,jn_job_id,review_appt_at,result&order=review_appt_at.asc`,
   );
 
   const out = [];
@@ -73,12 +80,13 @@ export const handler = async (event) => {
       const res = await createApptTask(r, startMs);
       rec.created = res.ok;
       if (!res.ok) rec.error = res.error;
-    } else if (existing && !existing.date_end && live) {
+    } else if (existing && live && (!existing.date_end || !String(existing.title || "").startsWith(apptTitle(r)))) {
       // The task is there and owned by the right rep — it just has no end time,
       // so JN never gives it a calendar slot. Add one rather than creating a
       // second task, which would put a duplicate on the rep's day.
-      const res = await addEndTime(existing, startMs);
+      const res = await addEndTime(existing, startMs, r);
       rec.fixed_end_time = res.ok;
+      rec.retitled = res.ok ? `${apptTitle(r)} — ${r.client_name || "homeowner"}` : null;
       if (!res.ok) rec.error = res.error;
     }
     out.push(rec);
@@ -111,7 +119,7 @@ async function createApptTask(insp, startMs) {
   const endMs = startMs + APPT_MIN * 60000;
   const body = {
     record_type: 17, record_type_name: "Appointment", type: "task",
-    title: `Come-Back Review — ${insp.client_name || "homeowner"}`,
+    title: `${apptTitle(insp)} — ${insp.client_name || "homeowner"}`,
     date_start: Math.floor(startMs / 1000), date_end: Math.floor(endMs / 1000),
     related: [{ id: insp.jn_job_id, type: "job" }],
     ...(insp.sales_rep_id ? { owners: [{ id: insp.sales_rep_id }] } : {}),
@@ -124,11 +132,14 @@ async function createApptTask(insp, startMs) {
 
 // Give an existing task an end time so JN puts it on the calendar. PUT the whole
 // task back with date_end added — JN's task update replaces the record.
-async function addEndTime(task, startMs) {
+async function addEndTime(task, startMs, insp) {
   const id = task.jnid || task.id;
   if (!id) return { ok: false, error: "task has no id" };
   const start = Number(task.date_start) || Math.floor(startMs / 1000);
-  const body = { ...task, jnid: id, date_start: start, date_end: start + APPT_MIN * 60 };
+  const body = {
+    ...task, jnid: id, date_start: start, date_end: start + APPT_MIN * 60,
+    ...(insp ? { title: `${apptTitle(insp)} — ${insp.client_name || "homeowner"}` } : {}),
+  };
   const r = await fetch(`${JN_BASE}/tasks/${encodeURIComponent(id)}`, { method: "PUT", headers: jnH, body: JSON.stringify(body) });
   const txt = await r.text();
   if (!r.ok) return { ok: false, error: `JN ${r.status}: ${txt.slice(0, 160)}` };

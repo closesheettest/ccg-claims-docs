@@ -29,7 +29,7 @@ export const handler = async (event) => {
     const action = String(body.action || "").trim();
     const t = String(body.t || "").trim();
     if (!t) return cors(400, JSON.stringify({ ok: false, error: "This link is missing its code — use the link from your text." }));
-    const insp = (await sbGet(`inspections?goback_token=eq.${encodeURIComponent(t)}&select=id,client_name,address,city,state,zip,mobile,sales_rep_name,sales_rep_id,jn_job_id,review_appt_at,goback_opened_at&limit=1`))[0];
+    const insp = (await sbGet(`inspections?goback_token=eq.${encodeURIComponent(t)}&select=id,client_name,address,city,state,zip,mobile,sales_rep_name,sales_rep_id,jn_job_id,review_appt_at,goback_opened_at,result&limit=1`))[0];
     if (!insp) return cors(404, JSON.stringify({ ok: false, error: "We couldn't find your inspection — please contact the office." }));
 
     // OPENED — stamp the first time the homeowner actually lands on their booking
@@ -118,12 +118,24 @@ function etWeekday(y, mo, d) { return new Date(Date.UTC(y, mo - 1, d, 12, 0, 0))
 // One hour, owned by the rep, related to the job. `type: "task"` and a date_end
 // are both required for JN to put it on a calendar — without them the POST looks
 // accepted and nothing shows up.
+
+// "Come-Back Review Damage" / "Retail" / "No Damage" — a heads-up in the
+// calendar entry itself.
+const RESULT_LABEL = { damage: "Damage", retail: "Retail", no_damage: "No Damage" };
+function apptTitle(insp) {
+  const l = RESULT_LABEL[String(insp.result || "").toLowerCase()];
+  return l ? `Come-Back Review ${l}` : "Come-Back Review";
+}
+
 const APPT_MIN = 60;
 async function createApptTask(insp, startMs) {
   const endMs = startMs + APPT_MIN * 60000;
   const body = {
     record_type: 17, record_type_name: "Appointment", type: "task",
-    title: `Come-Back Review — ${insp.client_name || "homeowner"}`,
+    // Put the RESULT in the name so the rep knows what they're walking into
+    // before they open anything — a damage go-back and a no-damage go-back are
+    // different visits (Neal, 2026-08-18).
+    title: `${apptTitle(insp)} — ${insp.client_name || "homeowner"}`,
     date_start: Math.floor(startMs / 1000), date_end: Math.floor(endMs / 1000),
     related: [{ id: insp.jn_job_id, type: "job" }],
     ...(insp.sales_rep_id ? { owners: [{ id: insp.sales_rep_id }] } : {}),
