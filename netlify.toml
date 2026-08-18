@@ -268,3 +268,12 @@
 # schedule block AND the export const config in cron-shovels-venice-scrub.js.
 # [functions."cron-shovels-venice-scrub"]
 #   schedule = "0 14 * * *"
+
+# Backstop for JN "Lost" → cancelled_at. inspection-checker finds jobs by
+# recency (60 days, 500 max) so anything Lost and then untouched sinks out of
+# its window — nine deals sat uncancelled for months that way. This asks JN
+# which jobs are Lost instead, so the answer doesn't depend on when they were
+# last touched. 6:20 AM ET daily.
+# MUST stay in sync with export config.schedule in the function file.
+[functions."cron-reconcile-lost"]
+  schedule = "20 10 * * *"
