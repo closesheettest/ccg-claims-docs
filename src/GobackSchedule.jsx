@@ -296,12 +296,12 @@ function GobackReport() {
                               each rep their own block underneath. */}
                           {(groupBy === 'team' ? withRepHeadings(g.rows) : g.rows).map((r, i) => (
                             r.__repHeading ? (
-                              <tr key={`h${i}`} style={{ borderTop: "1px solid #e2e8f0", background: "#f8fafc" }}>
-                                <td colSpan={6} style={{ padding: "7px 12px" }}>
-                                  <span style={{ fontSize: 12.5, fontWeight: 800, color: "#0f172a" }}>{r.rep}</span>
-                                  <span style={{ fontSize: 11.5, color: "#64748b" }}> · {r.__n} contacted</span>
-                                  <span style={{ fontSize: 11.5, fontWeight: 800, color: "#0f172a" }}> · {r.__pct}% booked</span>
-                                  {r.__warm > 0 && <span style={{ fontSize: 11.5, fontWeight: 800, color: "#b45309" }}> · {r.__warm} to call</span>}
+                              <tr key={`h${i}`} style={{ background: "#b91c1c" }}>
+                                <td colSpan={6} style={{ padding: "8px 12px" }}>
+                                  <span style={{ fontSize: 13, fontWeight: 800, color: "#fff", fontFamily: OSWALD, letterSpacing: ".01em" }}>{r.rep}</span>
+                                  <span style={{ fontSize: 11.5, color: "rgba(255,255,255,.82)" }}> · {r.__n} contacted</span>
+                                  <span style={{ fontSize: 11.5, fontWeight: 800, color: "#fff" }}> · {r.__pct}% booked</span>
+                                  {r.__warm > 0 && <span style={{ fontSize: 11.5, fontWeight: 800, color: "#fde68a" }}> · {r.__warm} to call</span>}
                                 </td>
                               </tr>
                             ) : (
