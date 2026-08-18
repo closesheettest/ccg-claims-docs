@@ -73,6 +73,13 @@ export const handler = async (event) => {
       const res = await createApptTask(r, startMs);
       rec.created = res.ok;
       if (!res.ok) rec.error = res.error;
+    } else if (existing && !existing.date_end && live) {
+      // The task is there and owned by the right rep — it just has no end time,
+      // so JN never gives it a calendar slot. Add one rather than creating a
+      // second task, which would put a duplicate on the rep's day.
+      const res = await addEndTime(existing, startMs);
+      rec.fixed_end_time = res.ok;
+      if (!res.ok) rec.error = res.error;
     }
     out.push(rec);
   }
@@ -82,6 +89,8 @@ export const handler = async (event) => {
     booked: out.length,
     missing: out.filter((x) => !x.already_on_calendar).length,
     created: out.filter((x) => x.created).length,
+    end_times_fixed: out.filter((x) => x.fixed_end_time).length,
+    no_calendar_slot: out.filter((x) => x.task && !x.task.shows_on_calendar).length,
     rows: out,
   });
 };
@@ -112,6 +121,20 @@ async function createApptTask(insp, startMs) {
   if (!r.ok) return { ok: false, error: `JN ${r.status}: ${txt.slice(0, 160)}` };
   return { ok: true };
 }
+
+// Give an existing task an end time so JN puts it on the calendar. PUT the whole
+// task back with date_end added — JN's task update replaces the record.
+async function addEndTime(task, startMs) {
+  const id = task.jnid || task.id;
+  if (!id) return { ok: false, error: "task has no id" };
+  const start = Number(task.date_start) || Math.floor(startMs / 1000);
+  const body = { ...task, jnid: id, date_start: start, date_end: start + APPT_MIN * 60 };
+  const r = await fetch(`${JN_BASE}/tasks/${encodeURIComponent(id)}`, { method: "PUT", headers: jnH, body: JSON.stringify(body) });
+  const txt = await r.text();
+  if (!r.ok) return { ok: false, error: `JN ${r.status}: ${txt.slice(0, 160)}` };
+  return { ok: true };
+}
+
 async function sbGet(path) {
   const r = await fetch(`${SB_URL}/rest/v1/${path}`, { headers: sbH });
   if (!r.ok) return [];
