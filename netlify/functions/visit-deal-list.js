@@ -48,13 +48,26 @@ export const handler = async (event) => {
   try {
     // review_availability is a newer column; if it hasn't been added yet the
     // SELECT 400s and we'd get zero deals. Try with it, fall back without it.
-    const SEL_BASE = "id,client_name,address,city,state,zip,mobile,email,jn_job_id,latitude,longitude,result,result_at,pa_id,pa_signed_at,pa_opened_at,pa_stage,pa_fields,docs_signed,jn_status,pa_notes_log";
+    const SEL_BASE = "id,client_name,address,city,state,zip,mobile,email,jn_job_id,latitude,longitude,result,result_at,pa_id,pa_signed_at,pa_opened_at,pa_stage,pa_fields,docs_signed,jn_status,pa_notes_log,review_appt_at";
     const repClause = all ? "" : `&or=(${conds.join(",")})`;
     const tail = `&result=eq.${result}&cancelled_at=is.null${repClause}&order=result_at.desc&limit=${all ? 2000 : 500}`;
     // manager_assigned_to_rep_at is a newer column (added by manager_assign_rep_marker.sql);
     // keep it in the optional select so a pre-migration DB just falls back without it.
     let rows = await sbGet(`inspections?select=${SEL_BASE},review_availability,referral_outcome,retail_outcome,result_task_at,manager_assigned_to_rep_at${tail}`);
     if (!rows.length) rows = await sbGet(`inspections?select=${SEL_BASE}${tail}`);
+
+    // A SELF-SCHEDULED APPOINTMENT BEATS THE GO-BACK FORMULA.
+    //
+    // The go-back lists guess when to come back — "when are they typically
+    // home" — and hand the rep a suggested slot. Once the HOMEOWNER has picked a
+    // date and time themselves, that guess is not just redundant, it's wrong:
+    // the rep sees a 12 PM go-back for someone who booked 11 AM, and a manager
+    // looking at the same board can hand them a company appointment on top of it
+    // (Neal, 2026-08-18).
+    //
+    // So anything with review_appt_at leaves the go-back lists entirely. It's an
+    // appointment now, and it shows on the map as one.
+    rows = rows.filter((r) => !r.review_appt_at);
 
     // Damage list: the rep goes back to (re)schedule the Public-Adjuster appointment.
     // Appointment-driven via the shared classifier (_btpa.js): show only deals that
