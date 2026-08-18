@@ -7,7 +7,8 @@
 //     • default          → the active contest week (Wed+Thu)
 //     • ?days=7          → trailing N days (real data before the contest starts)
 //     • ?week=2          → a specific contest week
-//   → { ok, window:{label,start,end}, attributes:[{key,label}],
+//   → { ok, window:{label,range,startDay,endDay,start,end,tz}, weeks:[{no,label,range,started}],
+//       attributes:[{key,label}],
 //       teams:[{ zone, team, points, avg, activeReps,
 //                reps:[{ name, points, sales, totals:{booked,went,signed,goback,review},
 //                        days:[{ day, counts:{…}, sold, attrCount, dayPoints }] }] }] }
@@ -55,18 +56,20 @@ export const handler = async (event) => {
   try {
     // Pick the window.
     const now = new Date();
-    let start, end, label;
+    let start, end, label, range = null;
     if (qp.days && Number(qp.days) > 0) {
       end = now; start = new Date(now.getTime() - Number(qp.days) * 86400000); label = `Last ${Number(qp.days)} days`;
+      range = `${etDayKey(start.toISOString())} \u2192 today`;
     } else if (qp.week && WEEKS[Number(qp.week) - 1]) {
       const w = WEEKS[Number(qp.week) - 1]; start = etDayStart(w.start); end = etDayEnd(w.end); label = w.label;
+      range = etRangeLabel(w.start, w.end);
     } else {
       // Active week = latest whose Wed has started; if none started, trailing 7 days.
       const wb = WEEKS.map((w) => ({ ...w, s: etDayStart(w.start), e: etDayEnd(w.end) }));
       let active = null;
       for (const w of wb) if (w.s <= now && (!active || w.s > active.s)) active = w;
-      if (active) { start = active.s; end = active.e; label = active.label; }
-      else { end = now; start = new Date(now.getTime() - 7 * 86400000); label = "Last 7 days"; }
+      if (active) { start = active.s; end = active.e; label = active.label; range = etRangeLabel(active.start, active.end); }
+      else { end = now; start = new Date(now.getTime() - 7 * 86400000); label = "Last 7 days"; range = `${etDayKey(start.toISOString())} \u2192 today`; }
     }
 
     const rows = await sbGetAll(
@@ -163,7 +166,19 @@ export const handler = async (event) => {
       return { zone, team: ZONE_TEAMS[zone] || zone, points, avg: Math.round((points / activeReps) * 10) / 10, activeReps, reps };
     }).filter(Boolean).sort((a, b) => b.avg - a.avg);
 
-    return cors(200, JSON.stringify({ ok: true, window: { label, start: start.toISOString(), end: end.toISOString() }, attributes: ATTRIBUTES, teams }));
+    return cors(200, JSON.stringify({
+      ok: true,
+      window: {
+        label, range,
+        // ET calendar days — what "Wed + Thu" actually means. start/end stay as
+        // the exact UTC instants used for the scan.
+        startDay: etDayKey(start.toISOString()), endDay: etDayKey(end.toISOString()),
+        start: start.toISOString(), end: end.toISOString(),
+        tz: "America/New_York",
+      },
+      weeks: WEEKS.map((w, i) => ({ no: i + 1, label: w.label, range: etRangeLabel(w.start, w.end), started: etDayStart(w.start) <= now })),
+      attributes: ATTRIBUTES, teams,
+    }));
   } catch (e) {
     return cors(500, JSON.stringify({ ok: false, error: e.message || "error" }));
   }
@@ -228,4 +243,16 @@ function etWallToUTC(y, mo, d, h, mi, s) { const guess = Date.UTC(y, mo - 1, d, 
 function etDayStart(dateStr) { const [y, m, d] = dateStr.split("-").map(Number); return etWallToUTC(y, m, d, 0, 0, 0); }
 function etDayEnd(dateStr) { const [y, m, d] = dateStr.split("-").map(Number); return etWallToUTC(y, m, d, 23, 59, 59); }
 function etDayKey(iso) { const p = tzParts(new Date(iso)); return `${p.year}-${p.month}-${p.day}`; }
+// "Aug 12–13" from two ET dates. The window's start/end are UTC instants, so a
+// Wed–Thu ET week reports an end of "…-14T03:59:59Z" — correct to the second
+// (11:59:59 PM Thursday ET) but it READS like a third day. Everything the report
+// shows is ET, so it says ET (Neal, 2026-08-18).
+function etRangeLabel(startIso, endIso) {
+  const f = (iso, withMonth) => new Date(`${iso}T12:00:00Z`).toLocaleDateString("en-US",
+    withMonth ? { month: "short", day: "numeric", timeZone: "UTC" } : { day: "numeric", timeZone: "UTC" });
+  if (startIso === endIso) return f(startIso, true);
+  const sameMonth = startIso.slice(0, 7) === endIso.slice(0, 7);
+  return `${f(startIso, true)}\u2013${f(endIso, !sameMonth)}`;
+}
+
 function cors(status, body) { return { statusCode: status, headers: { "Content-Type": "application/json", "Cache-Control": "public, max-age=30", "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, OPTIONS", "Access-Control-Allow-Headers": "Content-Type" }, body }; }
