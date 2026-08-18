@@ -113,15 +113,21 @@ and shift times live on the shift.
 | `sql/payroll_timekeeping.sql` | Schema + the seeded holiday calendar |
 | `netlify/functions/payroll-me.js` | Employee + manager API (passcode login, timecard, time off, sign-off) |
 | `netlify/functions/payroll-api.js` | Office API (roster, departments, holidays, balances, export) |
-| `netlify/functions/cron-shift-nudge.js` | Every 15 min: check-in and recap texts, only to whoever hasn't done it |
-| `netlify/functions/cron-payroll-signoff.js` | Monday 8 + 11 AM ET manager reminder |
+| `netlify/functions/payroll-nudge.js` | The check-in / recap texts, only to whoever hasn't done it (HTTP worker) |
+| `netlify/functions/cron-shift-nudge.js` | Schedules the above, every 15 min |
+| `netlify/functions/payroll-signoff-run.js` | The Monday manager reminder (HTTP worker) |
+| `netlify/functions/cron-payroll-signoff.js` | Schedules the above, Mon 8 + 11 AM ET |
 | `src/TimeCard.jsx` | `/?mode=timecard` |
 | `src/PayrollAdmin.jsx` | `/?mode=payroll` |
 
 Dry runs — these show exactly who would be texted and why, and send nothing:
 
-- `/.netlify/functions/cron-shift-nudge?dry=1`
-- `/.netlify/functions/cron-payroll-signoff?dry=1`
+- `/.netlify/functions/payroll-nudge?dry=1`
+- `/.netlify/functions/payroll-signoff-run?dry=1`
+
+(Call the **workers**, not the `cron-…` functions. Netlify returns 403 for a manual
+call to a scheduled function, which is why each schedule is a thin wrapper around a
+plain HTTP worker — the same split `cron-harvest-nosits` uses.)
 
 ## Notes / limits
 
