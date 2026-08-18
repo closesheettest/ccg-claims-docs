@@ -13,7 +13,8 @@
 // to the date it STARTED, so someone checking in Monday evening and recapping
 // at 6am Tuesday files one day, on Monday.
 //
-// Sign-in is their work email + a 4–8 digit passcode they set the first time.
+// Sign-in is their MOBILE NUMBER + a 4–8 digit passcode they set the first time
+// (most of the field crew have no company email, so the phone is the identifier).
 // Everything is saved server-side (payroll-me.js) so it follows them to any
 // phone; the session token is the only thing kept on the device.
 //
@@ -23,7 +24,7 @@ import React, { useCallback, useEffect, useState } from "react";
 
 const API = "/.netlify/functions/payroll-me";
 const TOKEN_KEY = "uss_payroll_token";
-const EMAIL_KEY = "uss_payroll_email";
+const LOGIN_KEY = "uss_payroll_login";
 
 const NAVY = "#0f2a4a", RED = "#c0392b", GREEN = "#15803d", AMBER = "#b45309";
 const INK = "#16233b", MUTE = "#5b6b8c", LINE = "#e2e8f2", BG = "#f4f7fb";
@@ -64,6 +65,13 @@ const prettyLong = (s) => asDate(s).toLocaleDateString("en-US", { timeZone: "UTC
 const hhmm = (t) => { if (!t) return ""; const [h, m] = t.split(":").map(Number); const ap = h >= 12 ? "pm" : "am"; const hr = h % 12 || 12; return `${hr}:${String(m).padStart(2, "0")}${ap}`; };
 // Minutes read as minutes up to an hour and a half, then as hours — "465 min late"
 // is true but unreadable on a night shift.
+// Formats as they type; the API only ever looks at the digits.
+const formatPhone = (v) => {
+  const d = String(v || "").replace(/\D/g, "").slice(0, 10);
+  if (d.length <= 3) return d;
+  if (d.length <= 6) return `(${d.slice(0, 3)}) ${d.slice(3)}`;
+  return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`;
+};
 const fmtMins = (m) => { m = Math.round(Number(m) || 0); if (m < 90) return `${m} min`; const h = Math.floor(m / 60); return `${h}h ${m % 60}m`; };
 
 // ── shared bits of chrome ───────────────────────────────────────────────
@@ -169,8 +177,8 @@ function Shell({ children }) {
 
 // ── Sign in / first-time passcode ───────────────────────────────────────
 function SignIn({ onIn }) {
-  const [email, setEmail] = useState(() => { try { return localStorage.getItem(EMAIL_KEY) || ""; } catch { return ""; } });
-  const [step, setStep] = useState("email");     // email → passcode | create
+  const [login, setLogin] = useState(() => { try { return localStorage.getItem(LOGIN_KEY) || ""; } catch { return ""; } });
+  const [step, setStep] = useState("who");       // who → passcode | create
   const [name, setName] = useState("");
   const [pass, setPass] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -183,12 +191,12 @@ function SignIn({ onIn }) {
   };
 
   const findMe = async () => {
-    const e = email.trim().toLowerCase();
-    if (!e) { setErr("Type your work email."); return; }
+    const v = login.trim();
+    if (v.replace(/\D/g, "").length < 10 && !v.includes("@")) { setErr("Type your 10-digit mobile number."); return; }
     setBusy(true); setErr("");
-    const d = await call("who", { email: e });
+    const d = await call("who", { login: v });
     setBusy(false);
-    if (!d.ok || !d.found) { setErr("That email isn't on the payroll roster yet — check with the office."); return; }
+    if (!d.ok || !d.found) { setErr("That number isn't on the payroll roster yet — check with the office."); return; }
     setName(d.name || ""); setStep(d.passcode_set ? "passcode" : "create");
   };
 
@@ -196,10 +204,10 @@ function SignIn({ onIn }) {
     if (step === "create" && pass !== confirm) { setErr("The two passcodes don't match."); return; }
     if (!/^\d{4,8}$/.test(pass)) { setErr("Your passcode is 4–8 digits."); return; }
     setBusy(true); setErr("");
-    const d = await call("login", { email: email.trim().toLowerCase(), passcode: pass });
+    const d = await call("login", { login: login.trim(), passcode: pass });
     setBusy(false);
     if (!d.ok) { setErr(d.error || "Sign-in failed."); return; }
-    try { localStorage.setItem(EMAIL_KEY, email.trim().toLowerCase()); } catch { /* private mode */ }
+    try { localStorage.setItem(LOGIN_KEY, login.trim()); } catch { /* private mode */ }
     onIn(d.token, d.me);
   };
 
@@ -212,13 +220,15 @@ function SignIn({ onIn }) {
           <div style={{ fontSize: 13.5, color: MUTE }}>U.S. Shingle &amp; Metal</div>
         </div>
         <div style={{ ...card, display: "grid", gap: 12 }}>
-          {step === "email" ? (
+          {step === "who" ? (
             <>
-              <label style={{ fontSize: 13, fontWeight: 700, color: MUTE }}>Work email</label>
-              <input style={fld} type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && findMe()} placeholder="you@shingleusa.com" />
+              <label style={{ fontSize: 13, fontWeight: 700, color: MUTE }}>Your mobile number</label>
+              <input style={{ ...fld, fontSize: 18, letterSpacing: 0.5 }} type="tel" inputMode="tel" autoComplete="tel"
+                value={login} onChange={(e) => setLogin(formatPhone(e.target.value))}
+                onKeyDown={(e) => e.key === "Enter" && findMe()} placeholder="(813) 555-0123" />
               <Err>{err}</Err>
               <button style={btn(NAVY)} disabled={busy} onClick={findMe}>{busy ? "Checking…" : "Continue"}</button>
+              <div style={{ fontSize: 12, color: MUTE, textAlign: "center" }}>The number the office has on file for you.</div>
             </>
           ) : (
             <>
@@ -236,7 +246,7 @@ function SignIn({ onIn }) {
               ) : null}
               <Err>{err}</Err>
               <button style={btn(NAVY)} disabled={busy} onClick={go}>{busy ? "…" : step === "create" ? "Create & sign in" : "Sign in"}</button>
-              <button style={{ ...ghost, border: "none", color: MUTE }} onClick={() => { setStep("email"); setPass(""); setConfirm(""); setErr(""); }}>Use a different email</button>
+              <button style={{ ...ghost, border: "none", color: MUTE }} onClick={() => { setStep("who"); setPass(""); setConfirm(""); setErr(""); }}>Use a different number</button>
             </>
           )}
         </div>
@@ -836,7 +846,7 @@ function Team({ me, api, onErr }) {
             <div>
               <div style={{ fontWeight: 900, fontSize: 17, color: NAVY }}>{dep.department.name}</div>
               <div style={{ fontSize: 12.5, color: MUTE }}>
-                {dep.members.length} on the team · {dep.members.filter((m) => m.submitted_at).length} marked done
+                {(dep.members || []).length} on the team · {(dep.members || []).filter((m) => m.submitted_at).length} marked done
               </div>
             </div>
             <div style={{ textAlign: "right" }}>
@@ -876,7 +886,7 @@ function Team({ me, api, onErr }) {
         </div>
       ))}
 
-      {data && !data.departments.length ? (
+      {data && !(data.departments || []).length ? (
         <div style={{ ...card, color: MUTE }}>You aren't set as the manager of a department yet — the office assigns that on the Payroll screen.</div>
       ) : null}
       {allSigned && data?.departments?.length ? <div style={{ textAlign: "center", color: MUTE, fontSize: 13 }}>Everything for this week is signed off. 👍</div> : null}
@@ -1061,7 +1071,7 @@ function TeamToday({ api, onErr }) {
           {!dep.members.length ? <div style={{ ...card, color: MUTE }}>Nobody on this team yet.</div> : null}
         </div>
       ))}
-      {d && !d.departments.length ? <div style={{ ...card, color: MUTE }}>You don't manage a department yet — the office sets that.</div> : null}
+      {d && !(d.departments || []).length ? <div style={{ ...card, color: MUTE }}>You don't manage a department yet — the office sets that.</div> : null}
     </div>
   );
 }
