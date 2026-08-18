@@ -12,7 +12,6 @@
 --   payroll_time_entries   ONE row per employee per date (worked / off / both)
 --   payroll_time_off       requests: vacation, sick, doctor, unpaid, comp day
 --   payroll_holidays       the paid-holiday calendar everyone can see
---   payroll_comp_ledger    the "extra days worked" bank (+earned / −used)
 --   payroll_week_approvals the Monday-morning manager sign-off, per department
 --   payroll_week_submits   employee "my week is done" marker
 --   payroll_sessions       employee login sessions (passcode → token)
@@ -56,7 +55,6 @@ create table if not exists public.payroll_employees (
   pto_days_per_year   numeric(5,2) not null default 0,  -- vacation allotment
   pto_carryover_days  numeric(5,2) not null default 0,  -- rolled in from last year
   sick_days_per_year  numeric(5,2) not null default 0,
-  comp_time_eligible  boolean not null default false,   -- banks extra days worked
   paid_holidays       boolean not null default true,
 
   is_manager          boolean not null default false,   -- signs off their department
@@ -90,7 +88,7 @@ create table if not exists public.payroll_time_entries (
   employee_id        uuid not null references public.payroll_employees(id) on delete cascade,
   work_date          date not null,
   day_type           text not null default 'worked',
-      -- worked | pto | sick | doctor | holiday | unpaid | comp_used
+      -- worked | pto | sick | doctor | holiday | unpaid
       -- | bereavement | jury | no_show | other
   time_in            text,          -- "07:30" (local, ET)
   time_out           text,          -- "16:00"
@@ -114,7 +112,7 @@ create index if not exists payroll_time_entries_date_idx on public.payroll_time_
 create table if not exists public.payroll_time_off (
   id             uuid primary key default gen_random_uuid(),
   employee_id    uuid not null references public.payroll_employees(id) on delete cascade,
-  request_type   text not null default 'pto',   -- pto | sick | doctor | unpaid | comp | bereavement | jury | other
+  request_type   text not null default 'pto',   -- pto | sick | doctor | unpaid | bereavement | jury | other
   start_date     date not null,
   end_date       date not null,
   partial        boolean not null default false,
@@ -163,26 +161,6 @@ insert into public.payroll_holidays (holiday_date, name) values
   ('2027-12-24','Christmas Day (observed)')
 on conflict (holiday_date) do nothing;
 
--- ── Comp-day bank ────────────────────────────────────────────
--- Only for employees flagged comp_time_eligible. Positive days are
--- EARNED (a Saturday worked, hours past the standard week); negative
--- days are USED (taken as a comp day off). `ref` makes the automatic
--- week-approval credit idempotent — re-approving a week never double-pays.
-create table if not exists public.payroll_comp_ledger (
-  id          uuid primary key default gen_random_uuid(),
-  employee_id uuid not null references public.payroll_employees(id) on delete cascade,
-  entry_date  date not null,
-  days        numeric(6,2) not null,        -- + earned / − used
-  reason      text,
-  source      text not null default 'manual',  -- manual | week_approval | time_off
-  ref         text,                            -- week start date, or time-off id
-  created_by  text,
-  created_at  timestamptz not null default now()
-);
-
-create unique index if not exists payroll_comp_ledger_ref_idx
-  on public.payroll_comp_ledger(employee_id, source, ref) where ref is not null;
-
 -- ── Monday-morning department sign-off ───────────────────────
 create table if not exists public.payroll_week_approvals (
   id               uuid primary key default gen_random_uuid(),
@@ -224,12 +202,11 @@ alter table public.payroll_employees      disable row level security;
 alter table public.payroll_time_entries   disable row level security;
 alter table public.payroll_time_off       disable row level security;
 alter table public.payroll_holidays       disable row level security;
-alter table public.payroll_comp_ledger    disable row level security;
 alter table public.payroll_week_approvals disable row level security;
 alter table public.payroll_week_submits   disable row level security;
 alter table public.payroll_sessions       disable row level security;
 
 -- ── Defaults the tools read from app_settings ────────────────
 insert into public.app_settings (key, value) values
-  ('payroll_config', '{"standard_day_hours":8,"standard_week_hours":40,"ot_after_hours":40,"signoff_deadline_hour":11,"comp_earn_threshold_hours":40}')
+  ('payroll_config', '{"standard_day_hours":8,"standard_week_hours":40,"ot_after_hours":40,"signoff_deadline_hour":11}')
 on conflict (key) do nothing;

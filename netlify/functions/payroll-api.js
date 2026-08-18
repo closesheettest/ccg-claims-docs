@@ -2,8 +2,8 @@
 //
 // The OFFICE side of payroll/timekeeping (?mode=payroll). This is the HR/admin
 // screen: the roster, departments and who signs each one off, pay setup, the
-// PTO allotments, the holiday calendar, the comp-day bank, the company-wide
-// view of which departments have signed off last week, and the payroll export.
+// PTO allotments, the holiday calendar, the company-wide view of which
+// departments have signed off last week, and the payroll export.
 //
 // Auth is the app's usual office token (visit_token / dialer_token from
 // app_settings), fetched behind the manager PIN — same as the crew admin page.
@@ -27,9 +27,7 @@
 //   employee_week    { employee_id, week_start? }
 //   save_day         { employee_id, work_date, ... }   →  office override (edits locked days)
 //   export           { start, end }         →  { rows, csv } payroll-ready totals
-//   balances         →  { rows } PTO / sick / comp per person
-//   comp_adjust      { employee_id, days, reason }
-//   comp_ledger      { employee_id }
+//   balances         →  { rows } PTO / sick per person
 //   time_off         { status? }            →  every request, newest first
 //
 // Env: VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY.
@@ -42,11 +40,11 @@ const TZ = "America/New_York";
 const EMP_COLS = [
   "first_name", "last_name", "email", "phone", "department_id", "title", "pay_type", "hourly_rate",
   "annual_salary", "standard_day_hours", "standard_week_hours", "hire_date", "pto_days_per_year",
-  "pto_carryover_days", "sick_days_per_year", "comp_time_eligible", "paid_holidays", "is_manager",
+  "pto_carryover_days", "sick_days_per_year", "paid_holidays", "is_manager",
   "is_admin", "active", "notes",
 ];
 const NUMERIC = new Set(["hourly_rate", "annual_salary", "standard_day_hours", "standard_week_hours", "pto_days_per_year", "pto_carryover_days", "sick_days_per_year"]);
-const BOOL = new Set(["comp_time_eligible", "paid_holidays", "is_manager", "is_admin", "active"]);
+const BOOL = new Set(["paid_holidays", "is_manager", "is_admin", "active"]);
 const PTO_TYPES = ["pto"], SICK_TYPES = ["sick", "doctor"];
 
 export const handler = async (event) => {
@@ -98,7 +96,7 @@ export const handler = async (event) => {
     if (action === "employees") {
       const filter = b.include_inactive ? "" : "active=is.true&";
       const [emps, depts] = await Promise.all([
-        get(`payroll_employees?${filter}select=id,first_name,last_name,email,phone,department_id,title,pay_type,hourly_rate,annual_salary,standard_day_hours,standard_week_hours,hire_date,pto_days_per_year,pto_carryover_days,sick_days_per_year,comp_time_eligible,paid_holidays,is_manager,is_admin,active,notes,passcode_set_at&order=last_name.asc`),
+        get(`payroll_employees?${filter}select=id,first_name,last_name,email,phone,department_id,title,pay_type,hourly_rate,annual_salary,standard_day_hours,standard_week_hours,hire_date,pto_days_per_year,pto_carryover_days,sick_days_per_year,paid_holidays,is_manager,is_admin,active,notes,passcode_set_at&order=last_name.asc`),
         get("payroll_departments?select=id,name"),
       ]);
       const dn = Object.fromEntries(depts.map((d) => [d.id, d.name]));
@@ -259,29 +257,28 @@ export const handler = async (event) => {
         const t = totalsFor(mine, [e], weeks);
         const rate = Number(e.hourly_rate || 0);
         const gross = e.pay_type === "hourly"
-          ? round2(rate * (t.regular + t.holiday + t.pto + t.sick + t.comp_used) + rate * 1.5 * t.overtime)
+          ? round2(rate * (t.regular + t.holiday + t.pto + t.sick) + rate * 1.5 * t.overtime)
           : round2(Number(e.annual_salary || 0) / 52 * weeks);
         return {
           employee: `${e.last_name}, ${e.first_name}`, department: dn[e.department_id] || "—",
           pay_type: e.pay_type, rate: e.pay_type === "hourly" ? rate : Number(e.annual_salary || 0),
           regular: t.regular, overtime: t.overtime, holiday: t.holiday, pto: t.pto, sick: t.sick,
-          unpaid: t.unpaid, comp_used: t.comp_used, paid_total: t.paid_total,
+          unpaid: t.unpaid, paid_total: t.paid_total,
           late_minutes: t.late_minutes, left_early_minutes: t.left_early_minutes,
           gross_estimate: gross,
         };
       });
-      const cols = ["employee", "department", "pay_type", "rate", "regular", "overtime", "holiday", "pto", "sick", "comp_used", "unpaid", "paid_total", "late_minutes", "left_early_minutes", "gross_estimate"];
+      const cols = ["employee", "department", "pay_type", "rate", "regular", "overtime", "holiday", "pto", "sick", "unpaid", "paid_total", "late_minutes", "left_early_minutes", "gross_estimate"];
       const csv = [cols.join(",")].concat(rows.map((r) => cols.map((c) => csvCell(r[c])).join(","))).join("\n");
       return cors(200, j({ ok: true, start, end, rows, csv, note: "gross_estimate is an unburdened check-figure — taxes, deductions and benefits are not applied." }));
     }
 
-    // ── Balances (PTO / sick / comp) for everyone ───────────────────
+    // ── Balances (PTO / sick) for everyone ──────────────────────────
     if (action === "balances") {
       const y = todayET().slice(0, 4);
-      const [emps, entries, ledger, pending] = await Promise.all([
-        get("payroll_employees?active=is.true&select=id,first_name,last_name,department_id,standard_day_hours,pto_days_per_year,pto_carryover_days,sick_days_per_year,comp_time_eligible&order=last_name.asc"),
+      const [emps, entries, pending] = await Promise.all([
+        get("payroll_employees?active=is.true&select=id,first_name,last_name,department_id,standard_day_hours,pto_days_per_year,pto_carryover_days,sick_days_per_year&order=last_name.asc"),
         get(`payroll_time_entries?work_date=gte.${y}-01-01&work_date=lte.${y}-12-31&select=employee_id,day_type,off_type,off_hours`),
-        get("payroll_comp_ledger?select=employee_id,days"),
         get("payroll_time_off?status=eq.pending&select=employee_id,request_type,total_days"),
       ]);
       const rows = emps.map((e) => {
@@ -299,23 +296,9 @@ export const handler = async (event) => {
           id: e.id, name: `${e.first_name} ${e.last_name}`.trim(), department_id: e.department_id,
           pto_allotted: allot, pto_used: round2(pto), pto_pending: round2(pend), pto_remaining: round2(allot - pto - pend),
           sick_allotted: Number(e.sick_days_per_year || 0), sick_used: round2(sick),
-          comp_eligible: !!e.comp_time_eligible,
-          comp_banked: round2(ledger.filter((l) => l.employee_id === e.id).reduce((s, l) => s + Number(l.days || 0), 0)),
         };
       });
       return cors(200, j({ ok: true, year: y, rows }));
-    }
-
-    if (action === "comp_adjust") {
-      const id = str(b.employee_id, 64);
-      const days = Number(b.days);
-      if (!id || !Number.isFinite(days) || days === 0) return cors(400, j({ ok: false, error: "Pick an employee and a non-zero number of days (negative to deduct)." }));
-      await post("payroll_comp_ledger", { employee_id: id, entry_date: dstr(b.entry_date) || todayET(), days: round2(days), reason: str(b.reason, 300) || "Office adjustment", source: "manual", created_by: str(b.by, 80) || "office" });
-      return cors(200, j({ ok: true }));
-    }
-
-    if (action === "comp_ledger") {
-      return cors(200, j({ ok: true, ledger: await get(`payroll_comp_ledger?employee_id=eq.${str(b.employee_id, 64)}&select=*&order=entry_date.desc&limit=200`) }));
     }
 
     if (action === "time_off") {
@@ -341,7 +324,7 @@ export const handler = async (event) => {
 function totalsFor(entries, emps, weeks = 1) {
   const byEmp = {};
   for (const e of emps) byEmp[e.id] = e;
-  let worked = 0, holiday = 0, pto = 0, sick = 0, unpaid = 0, comp = 0, off = 0, late = 0, early = 0;
+  let worked = 0, holiday = 0, pto = 0, sick = 0, unpaid = 0, off = 0, late = 0, early = 0;
   const perEmp = {};
   for (const x of entries) {
     const emp = byEmp[x.employee_id];
@@ -357,7 +340,6 @@ function totalsFor(entries, emps, weeks = 1) {
     else if (PTO_TYPES.includes(t)) pto += hrs;
     else if (SICK_TYPES.includes(t)) sick += hrs;
     else if (t === "unpaid") unpaid += hrs;
-    else if (t === "comp_used") comp += hrs;
   }
   // Overtime is per person per week, not on the pooled total.
   let regular = 0, overtime = 0;
@@ -368,9 +350,9 @@ function totalsFor(entries, emps, weeks = 1) {
   }
   return {
     worked: round2(worked), off: round2(off), holiday: round2(holiday), pto: round2(pto), sick: round2(sick),
-    unpaid: round2(unpaid), comp_used: round2(comp), regular: round2(regular), overtime: round2(overtime),
+    unpaid: round2(unpaid), regular: round2(regular), overtime: round2(overtime),
     late_minutes: late, left_early_minutes: early,
-    paid_total: round2(worked + holiday + pto + sick + comp),
+    paid_total: round2(worked + holiday + pto + sick),
   };
 }
 
@@ -387,7 +369,7 @@ async function setting(key) {
 async function config() {
   let cfg = {};
   try { cfg = JSON.parse((await setting("payroll_config")) || "{}"); } catch { cfg = {}; }
-  return { standard_day_hours: 8, standard_week_hours: 40, ot_after_hours: 40, signoff_deadline_hour: 11, comp_earn_threshold_hours: 40, ...cfg };
+  return { standard_day_hours: 8, standard_week_hours: 40, ot_after_hours: 40, signoff_deadline_hour: 11, ...cfg };
 }
 
 function todayET() { return new Intl.DateTimeFormat("en-CA", { timeZone: TZ, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date()); }

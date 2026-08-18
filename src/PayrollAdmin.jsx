@@ -8,10 +8,10 @@
 // numbers out at the end:
 //
 //   Sign-off   which departments have signed last week, which haven't
-//   People     the roster — pay setup, PTO allotment, comp eligibility, logins
+//   People     the roster — pay setup, PTO allotment, logins
 //   Teams      departments + who signs each one off
 //   Time Off   every request, company-wide
-//   Balances   PTO left / sick used / comp days banked, per person
+//   Balances   vacation left and sick days used, per person
 //   Holidays   the paid-holiday calendar everyone sees
 //   Export     one row per employee for the pay period, CSV for whoever runs payroll
 //
@@ -160,7 +160,7 @@ function SignOff({ api, onErr }) {
             <div><div style={{ fontSize: 11, color: MUTE, fontWeight: 800 }}>SIGNED OFF</div><div style={{ fontSize: 19, fontWeight: 900, color: d.approved_count === d.departments.length ? GREEN : AMBER }}>{d.approved_count}/{d.departments.length}</div></div>
             <div><div style={{ fontSize: 11, color: MUTE, fontWeight: 800 }}>HOURS WORKED</div><div style={{ fontSize: 19, fontWeight: 900 }}>{d.company.worked}</div></div>
             <div><div style={{ fontSize: 11, color: MUTE, fontWeight: 800 }}>OVERTIME</div><div style={{ fontSize: 19, fontWeight: 900, color: d.company.overtime ? AMBER : INK }}>{d.company.overtime}</div></div>
-            <div><div style={{ fontSize: 11, color: MUTE, fontWeight: 800 }}>PAID TIME OFF</div><div style={{ fontSize: 19, fontWeight: 900 }}>{(d.company.pto + d.company.sick + d.company.holiday + d.company.comp_used).toFixed(2).replace(/\.00$/, "")}</div></div>
+            <div><div style={{ fontSize: 11, color: MUTE, fontWeight: 800 }}>PAID TIME OFF</div><div style={{ fontSize: 19, fontWeight: 900 }}>{(d.company.pto + d.company.sick + d.company.holiday).toFixed(2).replace(/\.00$/, "")}</div></div>
           </div>
         ) : null}
       </div>
@@ -259,7 +259,7 @@ function DrillRow({ d, onSave }) {
       <td style={{ ...td, whiteSpace: "nowrap", fontWeight: 700 }}>{d.weekday.slice(0, 3)} {pretty(d.work_date)}{e?.locked ? " 🔒" : ""}</td>
       <td style={td}>
         <select style={{ ...fld, minWidth: 120 }} value={f.day_type} onChange={(v) => setF((s) => ({ ...s, day_type: v.target.value }))}>
-          {["worked", "pto", "sick", "doctor", "holiday", "comp_used", "unpaid", "bereavement", "jury", "no_show", "other"].map((k) => <option key={k} value={k}>{k}</option>)}
+          {["worked", "pto", "sick", "doctor", "holiday", "unpaid", "bereavement", "jury", "no_show", "other"].map((k) => <option key={k} value={k}>{k}</option>)}
         </select>
       </td>
       <td style={td}><input style={{ ...fld, width: 108 }} type="time" value={f.time_in} onChange={(v) => setF((s) => ({ ...s, time_in: v.target.value }))} /></td>
@@ -281,7 +281,7 @@ const BLANK_EMP = {
   first_name: "", last_name: "", email: "", phone: "", department_id: "", title: "",
   pay_type: "hourly", hourly_rate: "", annual_salary: "", standard_day_hours: 8, standard_week_hours: 40,
   hire_date: "", pto_days_per_year: 0, pto_carryover_days: 0, sick_days_per_year: 0,
-  comp_time_eligible: false, paid_holidays: true, is_manager: false, is_admin: false, active: true, notes: "",
+  paid_holidays: true, is_manager: false, is_admin: false, active: true, notes: "",
 };
 
 function People({ api, onErr }) {
@@ -348,7 +348,6 @@ function People({ api, onErr }) {
             <Field label="Sick days / yr"><input style={fld} type="number" step="0.5" value={edit.sick_days_per_year} onChange={(e) => setEdit({ ...edit, sick_days_per_year: e.target.value })} /></Field>
           </div>
           <div style={{ display: "flex", gap: 16, flexWrap: "wrap", fontSize: 13.5, fontWeight: 600 }}>
-            <label style={{ display: "flex", gap: 7, alignItems: "center" }}><input type="checkbox" checked={!!edit.comp_time_eligible} onChange={(e) => setEdit({ ...edit, comp_time_eligible: e.target.checked })} /> banks comp days for extra days worked</label>
             <label style={{ display: "flex", gap: 7, alignItems: "center" }}><input type="checkbox" checked={!!edit.paid_holidays} onChange={(e) => setEdit({ ...edit, paid_holidays: e.target.checked })} /> paid holidays</label>
             <label style={{ display: "flex", gap: 7, alignItems: "center" }}><input type="checkbox" checked={!!edit.is_manager} onChange={(e) => setEdit({ ...edit, is_manager: e.target.checked })} /> can sign off a department</label>
             <label style={{ display: "flex", gap: 7, alignItems: "center" }}><input type="checkbox" checked={!!edit.is_admin} onChange={(e) => setEdit({ ...edit, is_admin: e.target.checked })} /> office/HR (sees everyone)</label>
@@ -366,7 +365,7 @@ function People({ api, onErr }) {
         <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 860 }}>
           <thead><tr>
             <th style={th}>Name</th><th style={th}>Department</th><th style={th}>Pay</th><th style={th}>Vac/yr</th>
-            <th style={th}>Comp</th><th style={th}>Role</th><th style={th}>Login</th><th style={th}></th>
+            <th style={th}>Role</th><th style={th}>Login</th><th style={th}></th>
           </tr></thead>
           <tbody>
             {(rows || []).map((e) => (
@@ -375,7 +374,6 @@ function People({ api, onErr }) {
                 <td style={td}>{e.department_name || <Pill color={AMBER}>none</Pill>}</td>
                 <td style={td}>{e.pay_type === "hourly" ? `${money(e.hourly_rate)}/hr` : `${money(e.annual_salary)}/yr`}</td>
                 <td style={td}>{e.pto_days_per_year}{e.pto_carryover_days ? ` +${e.pto_carryover_days}` : ""}</td>
-                <td style={td}>{e.comp_time_eligible ? <Pill color={GREEN}>yes</Pill> : <span style={{ color: MUTE }}>—</span>}</td>
                 <td style={td}>{e.is_admin ? <Pill color={NAVY}>office</Pill> : e.is_manager ? <Pill color="#0369a1">manager</Pill> : <span style={{ color: MUTE }}>employee</span>}</td>
                 <td style={td}>{e.passcode_set_at ? <Pill color={GREEN}>set</Pill> : <Pill color={MUTE}>not set up</Pill>}</td>
                 <td style={{ ...td, whiteSpace: "nowrap" }}>
@@ -389,7 +387,7 @@ function People({ api, onErr }) {
                 </td>
               </tr>
             ))}
-            {rows && !rows.length ? <tr><td style={{ ...td, color: MUTE }} colSpan={8}>Nobody on the roster yet.</td></tr> : null}
+            {rows && !rows.length ? <tr><td style={{ ...td, color: MUTE }} colSpan={7}>Nobody on the roster yet.</td></tr> : null}
           </tbody>
         </table>
       </div>
@@ -502,45 +500,19 @@ function TimeOffAll({ api, onErr }) {
   );
 }
 
-// ── BALANCES + the comp-day bank ────────────────────────────────────────
+// ── BALANCES (vacation + sick) ──────────────────────────────────────────
 function Balances({ api, onErr }) {
   const [d, setD] = useState(null);
-  const [adj, setAdj] = useState({ employee_id: "", days: 1, reason: "" });
   const load = useCallback(async () => { const r = await api("balances"); if (r.ok) setD(r); else onErr(r.error || "Couldn't load balances."); }, [api, onErr]);
   useEffect(() => { load(); }, [load]);
 
-  const apply = async () => {
-    if (!adj.employee_id || !Number(adj.days)) { onErr("Pick a person and a number of days."); return; }
-    const r = await api("comp_adjust", adj);
-    if (!r.ok) { onErr(r.error || "Couldn't post that adjustment."); return; }
-    setAdj({ employee_id: "", days: 1, reason: "" }); load();
-  };
-
   return (
     <div style={{ display: "grid", gap: 12 }}>
-      <div style={{ ...card, display: "grid", gap: 10 }}>
-        <div style={{ fontWeight: 900 }}>Add or remove comp days by hand</div>
-        <div style={{ fontSize: 13, color: MUTE }}>
-          Comp days build up on their own when a comp-eligible employee's signed-off week runs past their standard hours. Use this for anything outside that — a Saturday you promised back, or a correction (use a negative number to take days away).
-        </div>
-        <div style={{ display: "flex", gap: 9, flexWrap: "wrap", alignItems: "flex-end" }}>
-          <Field label="Employee" w={220}>
-            <select style={fld} value={adj.employee_id} onChange={(e) => setAdj({ ...adj, employee_id: e.target.value })}>
-              <option value="">Pick…</option>
-              {(d?.rows || []).map((r) => <option key={r.id} value={r.id}>{r.name}{r.comp_eligible ? "" : " (not comp-eligible)"}</option>)}
-            </select>
-          </Field>
-          <Field label="Days" w={90}><input style={fld} type="number" step="0.25" value={adj.days} onChange={(e) => setAdj({ ...adj, days: e.target.value })} /></Field>
-          <Field label="Reason" w={240}><input style={fld} value={adj.reason} onChange={(e) => setAdj({ ...adj, reason: e.target.value })} placeholder="Worked Saturday 8/15" /></Field>
-          <button style={btn(NAVY)} onClick={apply}>Post</button>
-        </div>
-      </div>
-
       <div style={{ ...card, padding: 0, overflowX: "auto" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 720 }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 620 }}>
           <thead><tr>
             <th style={th}>Employee</th><th style={th}>Vacation allotted</th><th style={th}>Used</th><th style={th}>Pending</th>
-            <th style={th}>Left</th><th style={th}>Sick used</th><th style={th}>Comp banked</th>
+            <th style={th}>Left</th><th style={th}>Sick used</th>
           </tr></thead>
           <tbody>
             {(d?.rows || []).map((r) => (
@@ -551,13 +523,12 @@ function Balances({ api, onErr }) {
                 <td style={td}>{r.pto_pending || "—"}</td>
                 <td style={{ ...td, fontWeight: 800, color: r.pto_remaining < 0 ? RED : INK }}>{r.pto_remaining}</td>
                 <td style={td}>{r.sick_used}{r.sick_allotted ? ` / ${r.sick_allotted}` : ""}</td>
-                <td style={td}>{r.comp_eligible ? <b>{r.comp_banked}</b> : <span style={{ color: MUTE }}>—</span>}</td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
-      <div style={{ fontSize: 12.5, color: MUTE }}>Days used are counted off the time cards for {d?.year || "this year"} — a day the office keyed in counts the same as one from an approved request.</div>
+      <div style={{ fontSize: 12.5, color: MUTE }}>Days used are counted off the time cards for {d?.year || "this year"} — a day the office keyed in counts the same as one from an approved request, and a half day off burns half a day.</div>
     </div>
   );
 }
@@ -660,7 +631,7 @@ function Export({ api, onErr }) {
             <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 900 }}>
               <thead><tr>
                 <th style={th}>Employee</th><th style={th}>Dept</th><th style={th}>Rate</th><th style={th}>Reg</th><th style={th}>OT</th>
-                <th style={th}>Hol</th><th style={th}>PTO</th><th style={th}>Sick</th><th style={th}>Comp</th><th style={th}>Unpaid</th><th style={th}>Gross est.</th>
+                <th style={th}>Hol</th><th style={th}>PTO</th><th style={th}>Sick</th><th style={th}>Unpaid</th><th style={th}>Gross est.</th>
               </tr></thead>
               <tbody>
                 {d.rows.map((r) => (
@@ -671,7 +642,7 @@ function Export({ api, onErr }) {
                     <td style={td}>{r.regular}</td>
                     <td style={{ ...td, color: r.overtime ? AMBER : INK }}>{r.overtime}</td>
                     <td style={td}>{r.holiday}</td><td style={td}>{r.pto}</td><td style={td}>{r.sick}</td>
-                    <td style={td}>{r.comp_used}</td><td style={td}>{r.unpaid}</td>
+                    <td style={td}>{r.unpaid}</td>
                     <td style={{ ...td, fontWeight: 800 }}>{money(r.gross_estimate)}</td>
                   </tr>
                 ))}

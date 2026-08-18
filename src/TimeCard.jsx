@@ -29,7 +29,6 @@ const DAY_TYPES = [
   { key: "pto", label: "Vacation (PTO)", emoji: "🏖️", color: "#0369a1" },
   { key: "sick", label: "Sick", emoji: "🤒", color: "#7c3aed" },
   { key: "doctor", label: "Doctor", emoji: "🩺", color: "#7c3aed" },
-  { key: "comp_used", label: "Comp day", emoji: "🎟️", color: GREEN },
   { key: "bereavement", label: "Bereavement", emoji: "🕊️", color: MUTE },
   { key: "jury", label: "Jury duty", emoji: "⚖️", color: MUTE },
   { key: "unpaid", label: "Unpaid", emoji: "🚫", color: RED },
@@ -42,11 +41,11 @@ DT.no_show = { key: "no_show", label: "No show", emoji: "❗", color: RED };
 // Partial-day absences you can put ON a worked day ("worked 6, doctor 2").
 const PARTIAL_TYPES = [
   { key: "", label: "None" }, { key: "doctor", label: "Doctor" }, { key: "sick", label: "Sick" },
-  { key: "pto", label: "Vacation" }, { key: "comp_used", label: "Comp" }, { key: "unpaid", label: "Unpaid" },
+  { key: "pto", label: "Vacation" }, { key: "unpaid", label: "Unpaid" },
 ];
 const REQUEST_TYPES = [
   { key: "pto", label: "Vacation (PTO)" }, { key: "sick", label: "Sick" }, { key: "doctor", label: "Doctor visit" },
-  { key: "comp", label: "Comp day (from my bank)" }, { key: "unpaid", label: "Unpaid" },
+  { key: "unpaid", label: "Unpaid" },
   { key: "bereavement", label: "Bereavement" }, { key: "jury", label: "Jury duty" }, { key: "other", label: "Other" },
 ];
 
@@ -298,7 +297,7 @@ function MyWeek({ me, api, onErr, onChanged }) {
       {/* totals */}
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
         <Stat label="Worked" value={`${t?.worked ?? 0}h`} sub={t?.overtime ? `${t.overtime}h OT` : "hours"} />
-        <Stat label="Paid time off" value={`${((t?.pto || 0) + (t?.sick || 0) + (t?.comp_used || 0)).toFixed(2).replace(/\.00$/, "")}h`} sub="PTO · sick · comp" color="#0369a1" />
+        <Stat label="Paid time off" value={`${((t?.pto || 0) + (t?.sick || 0)).toFixed(2).replace(/\.00$/, "")}h`} sub="vacation · sick" color="#0369a1" />
         <Stat label="Holiday" value={`${t?.holiday ?? 0}h`} color="#be185d" />
         <Stat label="Late / early" value={`${(t?.late_minutes || 0) + (t?.left_early_minutes || 0)}m`} sub={t?.late_minutes ? `${t.late_minutes}m late` : "on time"} color={(t?.late_minutes || t?.left_early_minutes) ? AMBER : INK} />
       </div>
@@ -520,14 +519,13 @@ function TimeOff({ me, api, onErr, onChanged }) {
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
         <Stat label="Vacation left" value={b.pto?.remaining ?? 0} sub={`of ${b.pto?.allotted ?? 0} days${b.pto?.pending ? ` · ${b.pto.pending} pending` : ""}`} color="#0369a1" />
         <Stat label="Sick days used" value={b.sick?.used ?? 0} sub={b.sick?.allotted ? `of ${b.sick.allotted}` : "no set limit"} color="#7c3aed" />
-        {b.comp?.eligible ? <Stat label="Comp days banked" value={b.comp?.available ?? 0} sub="extra days worked" color={GREEN} /> : null}
       </div>
 
       <div style={{ ...card, display: "grid", gap: 11 }}>
         <div style={{ fontWeight: 900, fontSize: 16 }}>Request time off</div>
         <Field label="What for">
           <select style={fld} value={f.request_type} onChange={(e) => setF((s) => ({ ...s, request_type: e.target.value }))}>
-            {REQUEST_TYPES.filter((r) => r.key !== "comp" || b.comp?.eligible).map((r) => <option key={r.key} value={r.key}>{r.label}</option>)}
+            {REQUEST_TYPES.map((r) => <option key={r.key} value={r.key}>{r.label}</option>)}
           </select>
         </Field>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>

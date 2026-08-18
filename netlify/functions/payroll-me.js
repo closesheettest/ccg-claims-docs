@@ -33,10 +33,9 @@
 //   "off_queue"     { token }                               → pending requests
 //   "decide_off"    { token, id, decision, note? }          → approve / deny
 //
-// Approving a week does three things: it locks every entry in it so the
-// numbers can't move after payroll sees them, it snapshots the totals onto
-// the approval row, and it credits the comp-day bank for anyone who is
-// comp-eligible and worked past the standard week.
+// Approving a week does two things: it locks every entry in it so the numbers
+// can't move after payroll sees them, and it snapshots the totals onto the
+// approval row.
 //
 // Env: VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY.
 
@@ -51,15 +50,15 @@ const SESSION_DAYS = 30;
 const EMP_SEL =
   "id,first_name,last_name,email,phone,department_id,title,pay_type,hourly_rate,annual_salary," +
   "standard_day_hours,standard_week_hours,hire_date,pto_days_per_year,pto_carryover_days," +
-  "sick_days_per_year,comp_time_eligible,paid_holidays,is_manager,is_admin,active,passcode_hash";
+  "sick_days_per_year,paid_holidays,is_manager,is_admin,active,passcode_hash";
 
 // Day types an employee can put on their own timecard. "holiday" is filled in
 // automatically from the holiday calendar; "no_show" is manager/office only.
-const SELF_DAY_TYPES = ["worked", "pto", "sick", "doctor", "unpaid", "comp_used", "bereavement", "jury", "other"];
-const OFF_TYPES = ["", "pto", "sick", "doctor", "unpaid", "comp_used", "other"];
-const OFF_REQUEST_TYPES = ["pto", "sick", "doctor", "unpaid", "comp", "bereavement", "jury", "other"];
+const SELF_DAY_TYPES = ["worked", "pto", "sick", "doctor", "unpaid", "bereavement", "jury", "other"];
+const OFF_TYPES = ["", "pto", "sick", "doctor", "unpaid", "other"];
+const OFF_REQUEST_TYPES = ["pto", "sick", "doctor", "unpaid", "bereavement", "jury", "other"];
 // A time-off request type → the day_type it writes onto the timecard.
-const REQ_TO_DAY = { pto: "pto", sick: "sick", doctor: "doctor", unpaid: "unpaid", comp: "comp_used", bereavement: "bereavement", jury: "jury", other: "other" };
+const REQ_TO_DAY = { pto: "pto", sick: "sick", doctor: "doctor", unpaid: "unpaid", bereavement: "bereavement", jury: "jury", other: "other" };
 // Which day types burn which balance.
 const PTO_TYPES = ["pto"];
 const SICK_TYPES = ["sick", "doctor"];
@@ -263,7 +262,7 @@ async function meBundle(emp) {
   return {
     id: emp.id, first_name: emp.first_name, last_name: emp.last_name, email: emp.email, phone: emp.phone,
     title: emp.title, pay_type: emp.pay_type, standard_day_hours: Number(emp.standard_day_hours || 8),
-    standard_week_hours: Number(emp.standard_week_hours || 40), comp_time_eligible: !!emp.comp_time_eligible,
+    standard_week_hours: Number(emp.standard_week_hours || 40),
     is_manager: !!emp.is_manager, is_admin: !!emp.is_admin, passcode_set: !!emp.passcode_hash,
     department: dept, balances: bal, holidays: hol, config: cfg,
     manages: managed.map((d) => ({ id: d.id, name: d.name })),
@@ -271,18 +270,17 @@ async function meBundle(emp) {
   };
 }
 
-// PTO / sick / comp balances. PTO + sick are counted off the TIMECARD (the
-// single source of truth — approved requests write days onto it), so a day
-// the office keyed in by hand counts the same as one from a request.
+// PTO + sick balances, counted off the TIMECARD (the single source of truth —
+// approved requests write days onto it), so a day the office keyed in by hand
+// counts the same as one from a request.
 async function balances(emp) {
   const y = todayET().slice(0, 4);
   const dayHrs = Number(emp.standard_day_hours || 8) || 8;
-  const [entries, ledger, pendingRows] = await Promise.all([
+  const [entries, pendingRows] = await Promise.all([
     get(`payroll_time_entries?employee_id=eq.${emp.id}&work_date=gte.${y}-01-01&work_date=lte.${y}-12-31&select=day_type,off_type,off_hours,hours`),
-    get(`payroll_comp_ledger?employee_id=eq.${emp.id}&select=days`),
     get(`payroll_time_off?employee_id=eq.${emp.id}&status=eq.pending&select=request_type,total_days`),
   ]);
-  let ptoUsed = 0, sickUsed = 0, compUsed = 0;
+  let ptoUsed = 0, sickUsed = 0;
   for (const e of entries) {
     // A day off counts as the fraction of a standard day it actually took —
     // a half-day at the doctor burns half a day, not a whole one.
@@ -292,17 +290,13 @@ async function balances(emp) {
     else if (PTO_TYPES.includes(e.off_type || "")) ptoUsed += off;
     if (SICK_TYPES.includes(e.day_type)) sickUsed += full;
     else if (SICK_TYPES.includes(e.off_type || "")) sickUsed += off;
-    if (e.day_type === "comp_used") compUsed += full;
-    else if (e.off_type === "comp_used") compUsed += off;
   }
-  const compBank = ledger.reduce((s, r) => s + Number(r.days || 0), 0);
   const pendingPto = pendingRows.filter((r) => r.request_type === "pto").reduce((s, r) => s + Number(r.total_days || 0), 0);
   const allot = Number(emp.pto_days_per_year || 0) + Number(emp.pto_carryover_days || 0);
   return {
     year: y,
     pto: { allotted: allot, used: round2(ptoUsed), pending: round2(pendingPto), remaining: round2(allot - ptoUsed - pendingPto) },
     sick: { allotted: Number(emp.sick_days_per_year || 0), used: round2(sickUsed), remaining: round2(Number(emp.sick_days_per_year || 0) - sickUsed) },
-    comp: { eligible: !!emp.comp_time_eligible, banked: round2(compBank), used_this_year: round2(compUsed), available: round2(compBank) },
   };
 }
 
@@ -340,7 +334,7 @@ async function weekFor(emp, ws) {
 function weekTotals(entries, emp) {
   const dayHrs = Number(emp?.standard_day_hours || 8) || 8;
   const weekHrs = Number(emp?.standard_week_hours || 40) || 40;
-  let worked = 0, off = 0, holiday = 0, pto = 0, sick = 0, unpaid = 0, comp = 0, late = 0, early = 0;
+  let worked = 0, off = 0, holiday = 0, pto = 0, sick = 0, unpaid = 0, late = 0, early = 0;
   for (const e of entries) {
     worked += Number(e.hours || 0);
     const oh = Number(e.off_hours || 0);
@@ -352,15 +346,14 @@ function weekTotals(entries, emp) {
       else if (PTO_TYPES.includes(t)) pto += h;
       else if (SICK_TYPES.includes(t)) sick += h;
       else if (t === "unpaid") unpaid += h;
-      else if (t === "comp_used") comp += h;
     };
     if (e.day_type !== "worked") bucket(e.day_type, Number(e.hours || 0) > 0 ? oh : (oh || dayHrs));
     else if (e.off_type) bucket(e.off_type, oh);
   }
-  const paidOther = holiday + pto + sick + comp;
+  const paidOther = holiday + pto + sick;
   return {
     worked: round2(worked), off: round2(off), holiday: round2(holiday), pto: round2(pto),
-    sick: round2(sick), unpaid: round2(unpaid), comp_used: round2(comp),
+    sick: round2(sick), unpaid: round2(unpaid),
     late_minutes: late, left_early_minutes: early,
     regular: round2(Math.min(worked, weekHrs)),
     overtime: round2(Math.max(0, worked - weekHrs)),
@@ -436,7 +429,6 @@ async function departmentWeek(dept, ws) {
         id: e.id, name: fullName(e), title: e.title, pay_type: e.pay_type,
         hourly_rate: e.hourly_rate == null ? null : Number(e.hourly_rate),
         standard_day_hours: Number(e.standard_day_hours || 8), standard_week_hours: Number(e.standard_week_hours || 40),
-        comp_time_eligible: !!e.comp_time_eligible,
       },
       days, totals: weekTotals(mine, e),
       submitted_at: subBy[e.id] || null,
@@ -466,27 +458,13 @@ function flagsFor(entries, emp, ws) {
   return out;
 }
 
-// Sign off: snapshot the totals, lock every entry in the week so the numbers
-// can't drift after payroll sees them, and credit the comp bank.
+// Sign off: snapshot the totals and lock every entry in the week so the numbers
+// can't drift after payroll sees them.
 async function approveDepartmentWeek(actor, dept, ws, signName, note) {
   const we = addDays(ws, 6);
   const snap = await departmentWeek(dept, ws);
   const ids = snap.members.map((m) => m.employee.id);
   if (ids.length) await patch(`payroll_time_entries?employee_id=in.(${ids.join(",")})&work_date=gte.${ws}&work_date=lte.${we}`, { locked: true });
-
-  const credited = [];
-  for (const m of snap.members) {
-    if (!m.employee.comp_time_eligible) continue;
-    const extra = Number(m.totals.overtime || 0);
-    const days = round2(extra / (m.employee.standard_day_hours || 8));
-    if (days < 0.25) continue;
-    const ok = await post("payroll_comp_ledger", {
-      employee_id: m.employee.id, entry_date: we, days,
-      reason: `Extra hours worked week of ${ws} (${extra} hrs)`,
-      source: "week_approval", ref: ws, created_by: signName,
-    }).catch(() => null);
-    if (ok !== null) credited.push({ employee: m.employee.name, days });
-  }
 
   await upsert("payroll_week_approvals", {
     department_id: dept.id, week_start: ws, status: "approved",
@@ -494,11 +472,11 @@ async function approveDepartmentWeek(actor, dept, ws, signName, note) {
     note: note || null, totals: snap.totals, updated_at: nowIso(),
   }, "department_id,week_start");
 
-  return { department: dept.name, week_start: ws, employees: ids.length, totals: snap.totals, comp_credited: credited };
+  return { department: dept.name, week_start: ws, employees: ids.length, totals: snap.totals };
 }
 
 // An approved request becomes real days on the timecard (weekends + holidays
-// skipped, locked days left alone). A comp day also draws down the bank.
+// skipped, locked days left alone).
 async function materializeTimeOff(req) {
   const emp = (await get(`payroll_employees?id=eq.${req.employee_id}&select=${EMP_SEL}&limit=1`))[0];
   if (!emp) return 0;
@@ -515,13 +493,6 @@ async function materializeTimeOff(req) {
       : { employee_id: emp.id, work_date: d, day_type: dayType, hours: 0, off_type: null, off_hours: dayHrs, note: req.note || null, source: "auto", updated_at: nowIso() },
       "employee_id,work_date");
     placed++;
-  }
-  if (req.request_type === "comp" && placed) {
-    await post("payroll_comp_ledger", {
-      employee_id: emp.id, entry_date: req.start_date, days: -round2((perDay * placed) / dayHrs),
-      reason: `Comp day${placed > 1 ? "s" : ""} taken ${req.start_date}${placed > 1 ? "–" + req.end_date : ""}`,
-      source: "time_off", ref: String(req.id), created_by: req.decided_by_name || "manager",
-    }).catch(() => null);
   }
   return placed;
 }
@@ -570,7 +541,7 @@ async function config() {
   const rows = await get(`app_settings?key=eq.payroll_config&select=value&limit=1`);
   let cfg = {};
   try { cfg = rows[0]?.value ? JSON.parse(rows[0].value) : {}; } catch { cfg = {}; }
-  return { standard_day_hours: 8, standard_week_hours: 40, ot_after_hours: 40, signoff_deadline_hour: 11, comp_earn_threshold_hours: 40, ...cfg };
+  return { standard_day_hours: 8, standard_week_hours: 40, ot_after_hours: 40, signoff_deadline_hour: 11, ...cfg };
 }
 // Weekdays in a range that aren't holidays — what a time-off request consumes.
 async function workDaysBetween(start, end) {
@@ -587,7 +558,7 @@ async function workDaysBetween(start, end) {
   return out;
 }
 function rollup(list) {
-  const keys = ["worked", "off", "holiday", "pto", "sick", "unpaid", "comp_used", "regular", "overtime", "paid_total", "late_minutes", "left_early_minutes"];
+  const keys = ["worked", "off", "holiday", "pto", "sick", "unpaid", "regular", "overtime", "paid_total", "late_minutes", "left_early_minutes"];
   const out = {};
   for (const k of keys) out[k] = round2(list.reduce((s, t) => s + Number(t[k] || 0), 0));
   return out;
