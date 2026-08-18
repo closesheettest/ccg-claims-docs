@@ -45,6 +45,8 @@ import HarvestSkipTrace from "./HarvestSkipTrace";
 import HarvestNositReport from "./HarvestNositReport";
 import HarvestTrainingPage from "./HarvestTrainingPage";
 import HarvestJnSync from "./HarvestJnSync";
+import TimeCard from "./TimeCard";
+import PayrollAdmin from "./PayrollAdmin";
 
 // Open the DoorDispatcher as the OFFICE (all pins) — fetches the view-all token
 // so the office link isn't hardcoded. Reps use their own personal ?rt= links.
@@ -4559,6 +4561,8 @@ const ADMIN_PORTALS = [
   { key: "pa", emoji: "🧑‍⚖️", label: "Public Adjuster Portal", desc: "The PA portal — claim damage deals and enter milestone dates. Opens with admin powers (e.g. release a deal back to the pool).", href: "/?mode=pa&admin=1" },
   { key: "manager", emoji: "🛠", label: "Manager Console", desc: "Every admin tool in one place (or launch any single tool below).", href: "/?mode=manager" },
   { key: "crews", emoji: "👷", label: "Crew Onboarding", desc: "Onboard a roofing crew (subcontractor) — set their rates, send the packet, and track uploads + signed agreement.", href: "/?mode=crews" },
+  { key: "payroll", emoji: "🧾", label: "Employee Payroll", desc: "W-2 timekeeping — shifts, the roster, PTO allotments, holidays, every day's recaps, and which departments have signed off last week.", href: "/?mode=payroll" },
+  { key: "timecard", emoji: "🕒", label: "My Time Card", desc: "The employee side — check in, recap your day, request time off; department managers read their team's recaps and sign off the week here.", href: "/?mode=timecard" },
   { key: "regional", emoji: "🗺", label: "Regional Manager Records", desc: "Each regional manager opens their zone via a personal link (…/?manager=<token>). Ask the office for yours.", tokenized: true },
 ];
 
@@ -9698,6 +9702,20 @@ export default function App() {
     // PIN-gated (manager PIN), self-contained.
     if (portalMode === "crews") {
       return <CrewAdminPage />;
+    }
+    // ?mode=timecard — the EMPLOYEE time card. Two taps a day: check in at the
+    // start of the shift, recap what you got done at the end (which sets the
+    // hours). Plus time off, holidays and balances — and for a department
+    // manager, the daily read of their team's recaps and the Monday week
+    // sign-off. Their own email + passcode login, no manager PIN.
+    if (portalMode === "timecard") {
+      return <TimeCard />;
+    }
+    // ?mode=payroll — the OFFICE side of the same system: shifts, roster,
+    // departments and who signs each off, PTO allotments, holidays, the
+    // company-wide daily recap board, and the payroll export. PIN-gated.
+    if (portalMode === "payroll") {
+      return <PayrollAdmin />;
     }
     // /?crew=<token> — the crew owner's onboarding portal (the link we texted).
     const crewToken = params.get("crew");
