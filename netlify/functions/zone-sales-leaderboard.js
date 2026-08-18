@@ -157,7 +157,10 @@ export const handler = async (event) => {
       const customer = (j.primary && j.primary.name ? String(j.primary.name) : '')
         .replace(/\s+/g, ' ').trim() || '—'
       const amount = Number(j.approved_estimate_total) || 0
-      ;(dealsByZone[zone] = dealsByZone[zone] || []).push({ rep, customer, amount })
+      // City on every sale — a manager reading the board wants to know WHERE it
+      // sold, not just who sold it (Neal, 2026-08-18). Straight off the JN job.
+      const city = (j.city ? String(j.city) : '').trim() || null
+      ;(dealsByZone[zone] = dealsByZone[zone] || []).push({ rep, customer, city, amount })
       if (debug) matched.push({ name: j.name, rep: j.sales_rep_name || null, status: j.status_name, sold: new Date(soldMs).toISOString(), zone })
     }
 
