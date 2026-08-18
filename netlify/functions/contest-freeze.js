@@ -19,8 +19,10 @@
 //                    readable. Stored as reps_note so it's never mistaken for live.
 //     • ?dry=1     → compute and show, write nothing
 //
-// A week already frozen is left alone (the primary key would reject it anyway) —
-// re-freezing needs ?refreeze=1 AND an explicit ?reps= or nothing would change.
+// A week already frozen is left alone. ?refreeze=1 is NOT a way around that: the
+// table has no UPDATE policy, so a rewrite is refused with a 409 that tells you the
+// one-line SQL to delete the row first. Correcting a settled week is a deliberate
+// act, not an API call.
 //
 // Env: VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY. CRON_SECRET optional —
 // enforced only when it's set.
@@ -102,6 +104,21 @@ export const handler = async (event) => {
     body: JSON.stringify(qp.refreeze === "1" ? { ...row, frozen_at: new Date().toISOString() } : row),
   });
   if (!put.ok) return json(500, { ok: false, error: `write failed: ${put.status} ${await put.text().catch(() => "")}` });
+
+  // VERIFY the write landed. There is deliberately no UPDATE policy on this table
+  // (that's what makes a frozen week frozen), and PostgREST answers a PATCH that
+  // matched no rows with a cheerful 204 — so a ?refreeze=1 would otherwise report
+  // success while changing nothing at all.
+  const after = await sbGet(`contest_week_results?week_no=eq.${weekNo}&select=frozen_at,week_range&limit=1`);
+  const landed = after && after[0] && (!already[0] || after[0].frozen_at !== already[0].frozen_at);
+  if (!landed) {
+    return json(409, {
+      ok: false,
+      error: `${w.label} is already frozen and this table has no UPDATE policy, so it cannot be rewritten over HTTP — by design.`,
+      fix: `To correct it deliberately: delete from contest_week_results where week_no = ${weekNo};  then call this again.`,
+      frozen_at: already[0]?.frozen_at || null,
+    });
+  }
 
   return json(200, { ok: true, frozen: w.label, week_range: row.week_range, winner, standing, reps_note: row.reps_note });
 };
