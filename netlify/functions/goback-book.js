@@ -59,19 +59,21 @@ export const handler = async (event) => {
       if (insp.review_appt_at) return cors(200, JSON.stringify({ ok: true, already: true, booked: { start_at: insp.review_appt_at } }));
       // 1) Stamp the review appt — this is what STOPS the text sequence.
       await sbPatch(`inspections?id=eq.${encodeURIComponent(insp.id)}`, { review_appt_at: new Date(startMs).toISOString() });
-      // 2) Drop a JN Appointment on the rep (best-effort) so it hits their map + JN.
+      // 2) Drop a real JN Appointment on the rep so it lands on their calendar —
+      //    the whole point is that a manager can SEE the rep is busy and doesn't
+      //    hand them a company appointment on top of it.
+      //
+      //    This was missing `type: "task"` and `date_end`, and never looked at the
+      //    response, so JN quietly took nothing and four booked homeowners never
+      //    appeared on a calendar (Neal, 2026-08-18). Payload now matches
+      //    damage-to-retail's, which does work.
+      let apptWarning = null;
       try {
         if (JN_KEY && insp.jn_job_id) {
-          const taskBody = {
-            record_type: 17, record_type_name: "Appointment",
-            title: `Come-Back Review — ${insp.client_name || "homeowner"}`,
-            date_start: Math.floor(startMs / 1000),
-            related: [{ id: insp.jn_job_id, type: "job" }],
-          };
-          if (insp.sales_rep_id) taskBody.owners = [{ id: insp.sales_rep_id }];
-          await fetch(`${JN_BASE}/tasks`, { method: "POST", headers: { Authorization: `bearer ${JN_KEY}`, "Content-Type": "application/json" }, body: JSON.stringify(taskBody) });
+          const r = await createApptTask(insp, startMs);
+          if (!r.ok) apptWarning = r.error;
         }
-      } catch { /* best-effort */ }
+      } catch (e) { apptWarning = e.message || "JobNimbus appointment failed"; }
       // 3) Text the rep so they know it's on the calendar (best-effort).
       try {
         const rep = insp.sales_rep_id ? (await sbGet(`sales_reps?jobnimbus_id=eq.${encodeURIComponent(insp.sales_rep_id)}&select=phone,name&limit=1`))[0] : null;
@@ -80,7 +82,7 @@ export const handler = async (event) => {
           await fetch(`${ORIGIN}/.netlify/functions/ghl-sms`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ to: rep.phone, name: rep.name || "Rep", message: `${insp.client_name || "A homeowner"} booked their come-back review for ${when} — ${[insp.address, insp.city].filter(Boolean).join(", ")}. It's on your JobNimbus + map.` }) });
         }
       } catch { /* best-effort */ }
-      return cors(200, JSON.stringify({ ok: true, booked: { start_at: new Date(startMs).toISOString() } }));
+      return cors(200, JSON.stringify({ ok: true, booked: { start_at: new Date(startMs).toISOString() }, appt_warning: apptWarning }));
     }
     return cors(400, JSON.stringify({ ok: false, error: `Unknown action: ${action}` }));
   } catch (e) {
@@ -112,4 +114,29 @@ function tzParts(date) { const dtf = new Intl.DateTimeFormat("en-US", { timeZone
 function offsetMs(date) { const p = new Intl.DateTimeFormat("en-US", { timeZone: TZ, hour12: false, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" }).formatToParts(date).reduce((a, x) => (a[x.type] = x.value, a), {}); return Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute, +p.second) - date.getTime(); }
 function etWallToUTC(y, mo, d, h, mi) { const guess = Date.UTC(y, mo - 1, d, h, mi, 0); return new Date(guess - offsetMs(new Date(guess))); }
 function etWeekday(y, mo, d) { return new Date(Date.UTC(y, mo - 1, d, 12, 0, 0)).getUTCDay(); }
+
+// One hour, owned by the rep, related to the job. `type: "task"` and a date_end
+// are both required for JN to put it on a calendar — without them the POST looks
+// accepted and nothing shows up.
+const APPT_MIN = 60;
+async function createApptTask(insp, startMs) {
+  const endMs = startMs + APPT_MIN * 60000;
+  const body = {
+    record_type: 17, record_type_name: "Appointment", type: "task",
+    title: `Come-Back Review — ${insp.client_name || "homeowner"}`,
+    date_start: Math.floor(startMs / 1000), date_end: Math.floor(endMs / 1000),
+    related: [{ id: insp.jn_job_id, type: "job" }],
+    ...(insp.sales_rep_id ? { owners: [{ id: insp.sales_rep_id }] } : {}),
+  };
+  const r = await fetch(`${JN_BASE}/tasks`, {
+    method: "POST",
+    headers: { Authorization: `bearer ${JN_KEY}`, "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const txt = await r.text();
+  if (!r.ok) return { ok: false, error: `JN ${r.status}: ${txt.slice(0, 160)}` };
+  let j = {}; try { j = JSON.parse(txt); } catch { /* */ }
+  return { ok: true, id: j.jnid || j.id || null };
+}
+
 function cors(status, body) { return { statusCode: status, headers: { "Content-Type": "application/json", "Cache-Control": "no-store", "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type" }, body }; }
