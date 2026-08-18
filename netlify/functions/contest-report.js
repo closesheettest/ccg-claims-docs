@@ -54,8 +54,34 @@ export const handler = async (event) => {
   const qp = event.queryStringParameters || {};
 
   try {
+    // A closed week is FINAL. Points never move (they're timestamped activity) but
+    // the divisor used to: active reps was read live from the TMS roster on every
+    // request, so deactivating a rep re-scored finished weeks and even flipped a
+    // winner. Serve the snapshot instead. ?fresh=1 recomputes (that's how the
+    // freeze itself is taken).
+    if (qp.week && !qp.fresh && !qp.days) {
+      const frozen = await sbGet(`contest_week_results?week_no=eq.${encodeURIComponent(Number(qp.week))}&select=payload,reps_note,frozen_at&limit=1`);
+      if (frozen && frozen[0] && frozen[0].payload) {
+        return cors(200, JSON.stringify({
+          ...frozen[0].payload,
+          frozen: true, frozen_at: frozen[0].frozen_at, reps_note: frozen[0].reps_note || undefined,
+        }));
+      }
+    }
+
     // Pick the window.
     const now = new Date();
+    // ?reps=Zone 1:8,Zone 2:10,... overrides the active-rep DIVISOR. Needed only
+    // to freeze a week that closed before the freeze table existed, where the
+    // roster at the time is no longer readable from TMS. Recorded as reps_note on
+    // the frozen row so an overridden divisor is never silently passed off as the
+    // live one.
+    const repsOverride = {};
+    for (const part of String(qp.reps || "").split(",")) {
+      const m = part.match(/^\s*(Zone\s*\d)\s*:\s*(\d+)\s*$/i);
+      if (m) repsOverride[m[1].replace(/\s+/, " ")] = Number(m[2]);
+    }
+
     let start, end, label, range = null;
     if (qp.days && Number(qp.days) > 0) {
       end = now; start = new Date(now.getTime() - Number(qp.days) * 86400000); label = `Last ${Number(qp.days)} days`;
@@ -162,7 +188,7 @@ export const handler = async (event) => {
         return { name: m.name, points, sales, totals, days: dayList, isManager: !!m.isManager };
       }).sort((a, b) => b.points - a.points);
       const points = reps.reduce((s, r) => s + r.points, 0);
-      const activeReps = roster.length;
+      const activeReps = repsOverride[zone] != null ? repsOverride[zone] : roster.length;
       return { zone, team: ZONE_TEAMS[zone] || zone, points, avg: Math.round((points / activeReps) * 10) / 10, activeReps, reps };
     }).filter(Boolean).sort((a, b) => b.avg - a.avg);
 
@@ -178,11 +204,22 @@ export const handler = async (event) => {
       },
       weeks: WEEKS.map((w, i) => ({ no: i + 1, label: w.label, range: etRangeLabel(w.start, w.end), started: etDayStart(w.start) <= now })),
       attributes: ATTRIBUTES, teams,
+      repsOverridden: Object.keys(repsOverride).length ? repsOverride : undefined,
     }));
   } catch (e) {
     return cors(500, JSON.stringify({ ok: false, error: e.message || "error" }));
   }
 };
+
+// Single-page read. Used for the frozen-week lookup, which is one row and must
+// not fail the whole request if the table hasn't been created yet.
+async function sbGet(path) {
+  try {
+    const r = await fetch(`${SB_URL}/rest/v1/${path}`, { headers: sb });
+    if (!r.ok) return null;
+    return await r.json().catch(() => null);
+  } catch { return null; }
+}
 
 async function sbGetAll(path) {
   const out = [];

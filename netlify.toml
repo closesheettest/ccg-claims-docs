@@ -277,3 +277,12 @@
 # MUST stay in sync with export config.schedule in the function file.
 [functions."cron-reconcile-lost"]
   schedule = "20 10 * * *"
+
+# Scheduled function: FREEZE the contest week that just closed. Points were always
+# stable (timestamped activity) but the score is points / active reps, and the rep
+# count was read live from the TMS roster — so deactivating a rep re-scored past
+# weeks and flipped Week 1's winner days after it ended. Fridays 1 AM ET, once
+# Wed+Thu can no longer score. (In-file schedule alone does NOT fire in this
+# project — it must be declared here.)
+[functions."contest-freeze"]
+  schedule = "0 5 * * 5"

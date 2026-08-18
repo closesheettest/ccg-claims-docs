@@ -144,6 +144,28 @@ export const handler = async (event) => {
     const started = now >= active.startUTC;
     weekLabel = `${active.label} · ${etRangeLabel(active.start, active.end)}`;
 
+    // A CLOSED week is final — serve its frozen snapshot rather than re-scoring it
+    // against today's roster (see contest-freeze.js). The rep board defaults to the
+    // most recent week, so without this it drifts every time the roster changes.
+    if (!live && started) {
+      const frozen = await sbGetOne(`contest_week_results?week_no=eq.${weeksWithBounds.indexOf(active) + 1}&select=payload,frozen_at&limit=1`);
+      const teams = frozen && frozen[0] && frozen[0].payload && frozen[0].payload.teams;
+      if (teams) {
+        const zones = teams.map((t, i) => ({
+          zone: t.zone, team: t.team, count: t.avg, avg: t.avg, points: t.points,
+          activeReps: t.activeReps, sales: (t.reps || []).reduce((n, r) => n + (r.sales || 0), 0),
+          reps: (t.reps || []).map((r) => ({ name: r.name, count: r.points, sales: r.sales || 0 })),
+          rank: i + 1,
+        }));
+        return cors(200, JSON.stringify({
+          ok: true, enabled, live: false, started, frozen: true, frozen_at: frozen[0].frozen_at,
+          contest: CONTEST.name, week: weekLabel, weekNo: weeksWithBounds.indexOf(active) + 1,
+          weeks: weeksWithBounds.map((w, i) => ({ no: i + 1, label: w.label, range: etRangeLabel(w.start, w.end), started: now >= w.startUTC })),
+          range: { start: contestStart.toISOString(), end: contestEnd.toISOString() }, zones,
+        }));
+      }
+    }
+
     // Attributes come from the map activity in the window (paged — 1000 cap).
     const rows = await sbGetAll(
       `canvass_activity?select=rep_name,kind,to_status,pin_id,round,note,created_at` +
@@ -364,6 +386,15 @@ function tzParts(date) {
 function offsetMs(date) { const p = tzParts(date); return Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute, +p.second) - date.getTime(); }
 function etWallToUTC(y, mo, d, h, mi, s) { const guess = Date.UTC(y, mo - 1, d, h, mi, s); return new Date(guess - offsetMs(new Date(guess))); }
 function etDayStart(dateStr) { const [y, m, d] = dateStr.split("-").map(Number); return etWallToUTC(y, m, d, 0, 0, 0); }
+// One-row read that tolerates the table not existing yet.
+async function sbGetOne(path) {
+  try {
+    const r = await fetch(`${SB_URL}/rest/v1/${path}`, { headers: sb });
+    if (!r.ok) return null;
+    return await r.json().catch(() => null);
+  } catch { return null; }
+}
+
 function etDayEnd(dateStr) { const [y, m, d] = dateStr.split("-").map(Number); return etWallToUTC(y, m, d, 23, 59, 59); }
 function etDayKey(iso) { const p = tzParts(new Date(iso)); return `${p.year}-${p.month}-${p.day}`; }
 
