@@ -74,6 +74,9 @@ export const handler = async (event) => {
         owners: (existing.owners || []).length,
         shows_on_calendar: !!(existing.date_start && existing.date_end),
       } : null,
+      // Full task as JN holds it, when asked for — so "why isn't it on the
+      // calendar" can be answered from the record instead of guessed at.
+      ...(body.raw && existing ? { raw_task: existing } : {}),
       no_rep_on_record: !r.sales_rep_id,   // it'd land on the job but nobody's calendar
     };
     if (!existing && live) {
