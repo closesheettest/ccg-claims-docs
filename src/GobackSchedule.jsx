@@ -241,13 +241,13 @@ function GobackReport() {
           </div>
           <p style={{ color: "#64748b", fontSize: 12.5, margin: "0 0 12px" }}>
             Bucketed by the day we <b>first</b> reached them. <b>Opened</b> = they clicked the link and saw the times.
-            <b> Warm</b> = opened and didn&rsquo;t book — the shortlist worth a call.
+            <b> Soft interest</b> = opened their booking page and didn&rsquo;t pick a time.
           </p>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 14 }}>
             {stat("Contacted", S.texted, "#0f2a4a", "Text and/or email delivered")}
             {stat("Opened", `${S.opened}`, "#1d4ed8", "Clicked through to their booking page")}
             {stat("Self-scheduled", S.booked, "#16a34a", "Booked their own come-back review")}
-            {stat("Warm — no book", S.warm, "#b45309", "Opened it and stopped. Call these.")}
+            {stat("Soft interest", S.warm, "#b45309", "Opened their booking page and didn\u2019t pick a time.")}
             {stat("Book rate", `${S.rate}%`, "#c0392b", "Booked ÷ contacted")}
           </div>
 
@@ -279,7 +279,7 @@ function GobackReport() {
                       {Math.round((g.rows.filter((r) => r.booked).length / g.rows.length) * 100)}% booked
                     </span>
                     {bookedN > 0 && <span style={{ fontSize: 12, fontWeight: 800, color: "#16a34a" }}>{bookedN} booked</span>}
-                    {warm > 0 && <span style={{ fontSize: 12, fontWeight: 800, color: "#b45309", background: "#fffbeb", border: "1px solid #fcd34d", borderRadius: 999, padding: "1px 9px" }}>{warm} to call</span>}
+                    {warm > 0 && <span style={{ fontSize: 12, fontWeight: 800, color: "#b45309", background: "#fffbeb", border: "1px solid #fcd34d", borderRadius: 999, padding: "1px 9px" }}>{warm} soft interest</span>}
                     <span style={{ marginLeft: "auto", color: "#94a3b8" }}>{isOpen ? "▾" : "▸"}</span>
                   </button>
                   {isOpen && (
@@ -301,7 +301,7 @@ function GobackReport() {
                                   <span style={{ fontSize: 13, fontWeight: 800, color: "#fff", fontFamily: OSWALD, letterSpacing: ".01em" }}>{r.rep}</span>
                                   <span style={{ fontSize: 11.5, color: "rgba(255,255,255,.82)" }}> · {r.__n} contacted</span>
                                   <span style={{ fontSize: 11.5, fontWeight: 800, color: "#fff" }}> · {r.__pct}% booked</span>
-                                  {r.__warm > 0 && <span style={{ fontSize: 11.5, fontWeight: 800, color: "#fde68a" }}> · {r.__warm} to call</span>}
+                                  {r.__warm > 0 && <span style={{ fontSize: 11.5, fontWeight: 800, color: "#fde68a" }}> · {r.__warm} soft interest</span>}
                                 </td>
                               </tr>
                             ) : (
@@ -317,7 +317,7 @@ function GobackReport() {
                               <td style={{ padding: "9px 12px", color: "#64748b", whiteSpace: "nowrap" }}>{when(r.first_sent)}</td>
                               <td style={{ padding: "9px 12px", color: "#64748b", whiteSpace: "nowrap" }}>{when(r.last_sent)}</td>
                               <td style={{ padding: "9px 12px", whiteSpace: "nowrap" }}>{r.opened_at ? <span style={{ color: "#1d4ed8", fontWeight: 800 }}>👀 {when(r.opened_at)}</span> : <span style={{ color: "#cbd5e1" }}>—</span>}</td>
-                              <td style={{ padding: "9px 12px", whiteSpace: "nowrap" }}>{r.booked ? <span style={{ color: "#16a34a", fontWeight: 800 }}>✓ {when(r.review_appt_at)}</span> : (r.opened_at ? <span style={{ color: "#b45309", fontWeight: 800 }}>call them</span> : <span style={{ color: "#cbd5e1" }}>—</span>)}</td>
+                              <td style={{ padding: "9px 12px", whiteSpace: "nowrap" }}>{r.booked ? <span style={{ color: "#16a34a", fontWeight: 800 }}>✓ {when(r.review_appt_at)}</span> : (r.opened_at ? <span style={{ color: "#b45309", fontWeight: 800 }}>soft interest</span> : <span style={{ color: "#cbd5e1" }}>—</span>)}</td>
                             </tr>
                             )
                           ))}
