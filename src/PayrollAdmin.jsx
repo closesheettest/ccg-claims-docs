@@ -302,6 +302,7 @@ function People({ api, onErr }) {
   const [showInactive, setShowInactive] = useState(false);
   const [edit, setEdit] = useState(null);
   const [importing, setImporting] = useState(false);
+  const [invites, setInvites] = useState(null);   // result of the last invite send
 
   const load = useCallback(async () => {
     const d = await api("employees", { include_inactive: showInactive });
@@ -309,10 +310,20 @@ function People({ api, onErr }) {
   }, [api, showInactive, onErr]);
   useEffect(() => { load(); }, [load]);
 
+  const [inviting, setInviting] = useState(false);
+  const notSignedIn = (rows || []).filter((e) => e.active && !e.passcode_set_at).length;
+
   const save = async () => {
     const d = await api("employee_save", edit);
     if (!d.ok) { onErr(d.error || "Save failed."); return; }
     setEdit(null); load();
+  };
+
+  const invite = async (e) => {
+    setInviting(true); setInvites(null);
+    const d = await api("invite", { id: e.id });
+    setInviting(false);
+    if (d.ok) setInvites(d.sent); else onErr(d.error || "Couldn't send.");
   };
 
   if (importing) return <ImportRoster api={api} onErr={onErr} onDone={() => { setImporting(false); load(); }} />;
@@ -324,6 +335,15 @@ function People({ api, onErr }) {
           <input type="checkbox" checked={showInactive} onChange={(e) => setShowInactive(e.target.checked)} /> show inactive
         </label>
         <div style={{ display: "flex", gap: 8 }}>
+          {notSignedIn > 0 ? (
+            <button style={ghost} disabled={inviting} onClick={async () => {
+              if (!window.confirm(`Text the sign-in link to the ${notSignedIn} ${notSignedIn === 1 ? "person" : "people"} who haven't signed in yet?`)) return;
+              setInviting(true); setInvites(null);
+              const d = await api("invite", { missing: true });
+              setInviting(false);
+              if (d.ok) { setInvites(d.sent); load(); } else onErr(d.error || "Couldn't send.");
+            }}>{inviting ? "Sending…" : `✉️ Invite ${notSignedIn} not signed in`}</button>
+          ) : null}
           <button style={ghost} onClick={() => setImporting(true)}>⬆ Import roster</button>
           <button style={btn(NAVY)} onClick={() => setEdit({ ...BLANK_EMP })}>+ Add employee</button>
         </div>
@@ -385,6 +405,23 @@ function People({ api, onErr }) {
         </div>
       ) : null}
 
+      {invites ? (
+        <div style={{ ...card, display: "grid", gap: 7 }}>
+          <div style={{ fontWeight: 900 }}>Invites sent</div>
+          {invites.map((r, i) => (
+            <div key={i} style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 13.5, borderBottom: `1px solid ${LINE}`, paddingBottom: 5 }}>
+              <span style={{ fontWeight: 700 }}>{r.name}</span>
+              <span>
+                {r.sms ? <Pill color={r.sms === "delivered" ? GREEN : RED}>text: {r.sms}</Pill> : null}
+                {r.email ? <span style={{ marginLeft: 6 }}><Pill color={r.email === "sent" ? GREEN : RED}>email: {r.email}</Pill></span> : null}
+              </span>
+            </div>
+          ))}
+          <div style={{ fontSize: 12, color: MUTE }}>“delivered” is the carrier's own verdict, not just an accepted send. Anything else means they did not get it — call them.</div>
+          <button style={{ ...ghost, justifySelf: "start" }} onClick={() => setInvites(null)}>Dismiss</button>
+        </div>
+      ) : null}
+
       <div style={{ ...card, padding: 0, overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 860 }}>
           <thead><tr>
@@ -407,6 +444,10 @@ function People({ api, onErr }) {
                 </td>
                 <td style={{ ...td, whiteSpace: "nowrap" }}>
                   <button style={{ ...ghost, padding: "6px 10px" }} onClick={() => setEdit({ ...BLANK_EMP, ...e })}>Edit</button>
+                  {!e.passcode_set_at && e.active ? (
+                    <button style={{ ...ghost, padding: "6px 10px", marginLeft: 5 }} disabled={inviting}
+                      title="Text them the sign-in link" onClick={() => invite(e)}>Invite</button>
+                  ) : null}
                   <button style={{ ...ghost, padding: "6px 10px", marginLeft: 5 }} title="Clear their passcode so they can set a new one"
                     onClick={async () => { if (!window.confirm(`Reset ${e.first_name}'s passcode? They'll set a new one next time they sign in.`)) return; const d = await api("reset_passcode", { id: e.id }); if (d.ok) load(); }}>Reset PIN</button>
                   {e.active ? (

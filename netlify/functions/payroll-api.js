@@ -22,6 +22,8 @@
 //   import_roster    { text, commit? }  paste a roster → preview, then create
 //   employee_delete  { id }                 →  deactivates (keeps history)
 //   reset_passcode   { id }                 →  clears it; next login sets a new one
+//   invite           { id } | { missing:true } → text/email the sign-in link, and
+//                                              report what the carrier did with it
 //   holidays         →  { holidays }
 //   holiday_save     { id?, holiday_date, name, paid?, hours?, active? }
 //   holiday_delete   { id }
@@ -282,6 +284,43 @@ export const handler = async (event) => {
       await patch(`payroll_employees?id=eq.${id}`, { passcode_hash: null, passcode_salt: null, passcode_set_at: null, updated_at: nowIso() });
       await del(`payroll_sessions?employee_id=eq.${id}`);
       return cors(200, j({ ok: true }));
+    }
+
+    // ── Invites ────────────────────────────────────────────────────
+    // Texts the sign-in link (and emails it to anyone who has an address), then
+    // reports the CARRIER'S verdict per person — an invite that silently fails
+    // is how somebody ends up never onboarding and nobody noticing.
+    if (action === "invite") {
+      const rows = b.missing
+        ? await get("payroll_employees?active=is.true&passcode_set_at=is.null&select=id,first_name,last_name,phone,email&order=last_name.asc")
+        : await get(`payroll_employees?id=eq.${str(b.id, 64)}&select=id,first_name,last_name,phone,email&limit=1`);
+      if (!rows.length) return cors(200, j({ ok: true, sent: [], note: "Everyone active has already signed in." }));
+
+      const base = (process.env.URL || "https://free-roof-inspections.netlify.app").replace(/\/$/, "");
+      const bare = `${base.replace(/^https?:\/\//, "")}/?mode=timecard`;
+      const out = [];
+      for (const e of rows) {
+        const res = { name: `${e.first_name} ${e.last_name}`.trim(), sms: null, email: null };
+        if (e.phone) {
+          // Bare link on purpose — the https:// form gets blocked by carriers.
+          const msg = `Hi ${e.first_name} - this is your U.S. Shingle time card. Sign in with THIS mobile number and pick a 4-8 digit passcode: ${bare}  Check in when your day starts, and at the end say what you got done.`;
+          const r = await postJson("ghl-sms", { to: e.phone, name: res.name, message: msg, verify: true });
+          res.sms = r?.delivered ? "delivered" : (r?.status || r?.error || r?.details?.message || "not delivered");
+        }
+        if (e.email) {
+          const ok = await postJson("send-email", {
+            to: e.email, subject: "Your U.S. Shingle time card",
+            html: `<p>Hi ${e.first_name},</p><p>This is your time card. Sign in with your <b>mobile number</b> — not an email — then pick your own 4–8 digit passcode.</p>` +
+              `<p><a href="${base}/?mode=timecard" style="display:inline-block;padding:12px 22px;background:#0f2a4a;color:#fff;text-decoration:none;border-radius:8px;font-weight:700;">Open my time card</a></p>` +
+              `<p>Tap <b>Check in</b> when your day starts, and at the end write a quick recap of what you got done — that's what closes the day and sets your hours.</p>` +
+              `<p style="color:#64748b;font-size:13px;">U.S. Shingle &amp; Metal</p>`,
+          });
+          res.email = ok?.success ? "sent" : "failed";
+        }
+        if (!e.phone && !e.email) res.sms = "no phone or email on file";
+        out.push(res);
+      }
+      return cors(200, j({ ok: true, sent: out }));
     }
 
     // ── Holidays ───────────────────────────────────────────────────
@@ -655,6 +694,13 @@ async function postRow(table, row) {
   if (!r.ok) throw new Error(`${table} insert ${r.status}: ${(await r.text()).slice(0, 160)}`);
   const out = await r.json().catch(() => []);
   return out[0] || null;
+}
+async function postJson(fn, body) {
+  const base = (process.env.URL || "https://free-roof-inspections.netlify.app").replace(/\/$/, "");
+  try {
+    const r = await fetch(`${base}/.netlify/functions/${fn}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    return await r.json().catch(() => null);
+  } catch { return null; }
 }
 async function post(table, row) {
   const r = await fetch(`${SB_URL}/rest/v1/${table}`, { method: "POST", headers: { ...H, Prefer: "return=minimal" }, body: JSON.stringify(row) });
