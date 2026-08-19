@@ -173,6 +173,33 @@ exports.handler = async (event) => {
     await writeSetting("harvest_nosit_sync", { ok: false, aborted: true, error: msg, finished: new Date().toISOString() });
     return cors(503, { ok: false, error: msg });
   }
+  // A no-sit pin ALREADY ON THE DOOR, from any source. The jnid index only covers
+  // pins this sync created, and the worked index only covers doors a rep statused
+  // in the last week — so a no-sit pin that arrived on an uploaded list (no
+  // jn_job_id) was invisible to both, and JN would drop a second pin on the same
+  // house. That's what Sam saw: RIOS DANIEL "14010 SW 20TH ST" from the David
+  // Qualified list, and Daniel Rios "14010 Southwest 20th Street" from this sync
+  // (Neal, 2026-08-19). streetKey already collapses SW/Southwest and ST/Street —
+  // it just was never asked about these rows.
+  const nositIdx = new Map(); // streetKey -> [{ zip }]
+  try {
+    for (const p of await sbGetAllStrict(`canvass_prospects?status=eq.no_sit_reschedule&select=address,zip`)) {
+      const k = streetKey(p.address); if (!k) continue;
+      if (!nositIdx.has(k)) nositIdx.set(k, []);
+      nositIdx.get(k).push({ zip: zip5(p.zip) });
+    }
+  } catch (e) {
+    const msg = `Aborted before writing: could not read existing no-sit addresses (${e.message}). Nothing was inserted or deleted.`;
+    await writeSetting("harvest_nosit_sync", { ok: false, aborted: true, error: msg, finished: new Date().toISOString() });
+    return cors(503, { ok: false, error: msg });
+  }
+  const alreadyPinned = (j) => {
+    const k = streetKey(j.address_line1); if (!k) return false;
+    const arr = nositIdx.get(k); if (!arr) return false;
+    const jz = zip5(j.zip);
+    return arr.some((s) => !s.zip || !jz || s.zip === jz);
+  };
+
   const repWorkedAddr = (j) => {
     const k = streetKey(j.address_line1); if (!k) return false;
     const arr = workedIdx.get(k); if (!arr) return false;
@@ -182,7 +209,7 @@ exports.handler = async (event) => {
 
   const nowIso = new Date().toISOString();
   const liveIds = new Set();
-  let inserted = 0, updated = 0, skipped = 0;
+  let inserted = 0, updated = 0, skipped = 0, dupSkipped = 0;
   const toInsert = [];
   const updates = [];
 
@@ -212,6 +239,10 @@ exports.handler = async (event) => {
         method: "PATCH", headers: { ...sbHeaders, Prefer: "return=minimal" },
         body: JSON.stringify({ ...row }),
       }).then((r) => { if (r.ok) updated++; }));
+    } else if (alreadyPinned(j)) {
+      // Same door, different list. Adding another pin would put two no-sits on one
+      // house, which is exactly the duplicate reps keep reporting.
+      dupSkipped++;
     } else {
       toInsert.push(row);
     }
@@ -247,7 +278,7 @@ exports.handler = async (event) => {
   }
 
   await bumpDailyNew("nosit", inserted); // rolling per-day new-pin tally for the JN Sync report
-  return cors(200, { ok: true, committed: true, no_sits_total: noSits.length, with_address: withAddr.length, geocoded, inserted, updated, skipped_ungeocoded: skipped, removed_rebooked: removed });
+  return cors(200, { ok: true, committed: true, no_sits_total: noSits.length, with_address: withAddr.length, geocoded, inserted, updated, skipped_ungeocoded: skipped, skipped_already_pinned: dupSkipped, removed_rebooked: removed });
 };
 
 // ── JN ──────────────────────────────────────────────────────────────────────
