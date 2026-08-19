@@ -310,5 +310,5 @@
 # way between July 2 and Aug 18 and nobody was told, because the final PDF is
 # built on the homeowner's own phone. Every 15 min; texts once per signing.
 # (In-file schedule alone does NOT fire in this project — declare it here.)
-[functions."cron-signing-stalled"]
+[functions."cron-signing-stalled-tick"]
   schedule = "*/15 * * * *"

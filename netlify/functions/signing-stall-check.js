@@ -1,4 +1,8 @@
-// Tell the rep when a signing stalls.
+// Tell the rep when a signing stalls.  [WORKER — deliberately NOT scheduled]
+//
+// Netlify 403s direct HTTP calls to a scheduled function, and this has to stay
+// callable so it can be dry-run and verified. cron-signing-stalled-tick.js is the
+// scheduled wrapper that pokes it.
 //
 // The homeowner opens the agreement, passes the phone code — and then the
 // signature never lands. Six signings died exactly there between July 2 and
