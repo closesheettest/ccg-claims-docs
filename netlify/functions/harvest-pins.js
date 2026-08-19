@@ -138,7 +138,39 @@ export const handler = async (event) => {
     1000, CAP,
   ).catch(() => []);
 
-  return json(200, { ok: true, rep: { name: repName, level, jn_id: repJn, email: repEmail, trainee: isTrainee, gobacks_only: gobacksOnly, route_always: routeAlways }, pins, pin_types: types, installs, capped: pinsCapped || installs.length >= CAP, viewport: hasBox });
+  // ── SLIM THE PAYLOAD ──────────────────────────────────────────────────────
+  // This feed was shipping 1.19 MB for one viewport — to reps on phones, at a
+  // door. Measured against what the map actually reads (Neal, 2026-08-19):
+  //
+  //   • `extra` was 31.5% of the whole payload, and most of it is roof-permit
+  //     metadata attached to 1,962 of 2,000 pins that NOTHING in the app reads.
+  //   • Empty columns still cost bytes, because the key is serialised on every
+  //     pin — upload_id was 37 KB for zero populated values.
+  //
+  // A BLOCKLIST, not a whitelist: dropping only keys measured as unused means a
+  // new key still reaches the map instead of vanishing mysteriously. If one of
+  // these is ever needed, delete it from this list.
+  //
+  // KEPT deliberately: last_roof_date / last_roof_year / roof_age — the tapped
+  // pin's card renders "Last roof permit: …", so they are read, just not drawn.
+  const EXTRA_DROP = new Set(["akey", "source", "roof_permit_count", "qualifies", "david"]);
+  const slim = (p) => {
+    const out = {};
+    for (const k in p) {
+      const v = p[k];
+      if (v === null || v === undefined || v === "") continue;   // absent reads the same as empty
+      if (k === "extra" && v && typeof v === "object" && !Array.isArray(v)) {
+        const e = {};
+        for (const ek in v) if (!EXTRA_DROP.has(ek) && v[ek] !== null && v[ek] !== undefined && v[ek] !== "") e[ek] = v[ek];
+        if (Object.keys(e).length) out[k] = e;
+        continue;
+      }
+      out[k] = v;
+    }
+    return out;
+  };
+
+  return json(200, { ok: true, rep: { name: repName, level, jn_id: repJn, email: repEmail, trainee: isTrainee, gobacks_only: gobacksOnly, route_always: routeAlways }, pins: pins.map(slim), pin_types: types, installs, capped: pinsCapped || installs.length >= CAP, viewport: hasBox });
 };
 
 function json(statusCode, obj) {
