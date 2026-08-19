@@ -43,13 +43,17 @@ const SB_KEY = process.env.VITE_SUPABASE_ANON_KEY;
 const H = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, "Content-Type": "application/json" };
 const TZ = "America/New_York";
 
+// NOTE: hourly_rate / annual_salary are deliberately NOT here. This app's
+// Supabase anon key ships in the public page bundle and these tables have RLS
+// off, so anything stored here is world-readable. Pay rates live with FrankCrum;
+// this tool reports HOURS, and FrankCrum turns hours into money.
 const EMP_COLS = [
-  "first_name", "last_name", "email", "phone", "department_id", "title", "pay_type", "hourly_rate",
-  "annual_salary", "standard_day_hours", "standard_week_hours", "hire_date", "pto_days_per_year",
+  "first_name", "last_name", "email", "phone", "department_id", "title", "pay_type",
+  "standard_day_hours", "standard_week_hours", "hire_date", "pto_days_per_year",
   "pto_carryover_days", "sick_days_per_year", "paid_holidays", "shift_id", "is_manager",
   "is_admin", "active", "notes",
 ];
-const NUMERIC = new Set(["hourly_rate", "annual_salary", "standard_day_hours", "standard_week_hours", "pto_days_per_year", "pto_carryover_days", "sick_days_per_year"]);
+const NUMERIC = new Set(["standard_day_hours", "standard_week_hours", "pto_days_per_year", "pto_carryover_days", "sick_days_per_year"]);
 const BOOL = new Set(["paid_holidays", "is_manager", "is_admin", "active"]);
 const PTO_TYPES = ["pto"], SICK_TYPES = ["sick", "doctor"];
 
@@ -231,7 +235,7 @@ export const handler = async (event) => {
     if (action === "employees") {
       const filter = b.include_inactive ? "" : "active=is.true&";
       const [emps, depts, shifts] = await Promise.all([
-        get(`payroll_employees?${filter}select=id,first_name,last_name,email,phone,department_id,title,pay_type,hourly_rate,annual_salary,standard_day_hours,standard_week_hours,hire_date,pto_days_per_year,pto_carryover_days,sick_days_per_year,paid_holidays,shift_id,is_manager,is_admin,active,notes,passcode_set_at&order=last_name.asc`),
+        get(`payroll_employees?${filter}select=id,first_name,last_name,email,phone,department_id,title,pay_type,standard_day_hours,standard_week_hours,hire_date,pto_days_per_year,pto_carryover_days,sick_days_per_year,paid_holidays,shift_id,is_manager,is_admin,active,notes,passcode_set_at&order=last_name.asc`),
         get("payroll_departments?select=id,name"),
         get("payroll_shifts?select=id,name,start_time,end_time&order=sort_order.asc"),
       ]);
@@ -352,7 +356,7 @@ export const handler = async (event) => {
       const we = addDays(ws, 6);
       const [depts, emps, entries, approvals, submits] = await Promise.all([
         get("payroll_departments?active=is.true&select=id,name,manager_employee_id&order=name.asc"),
-        get("payroll_employees?active=is.true&select=id,first_name,last_name,department_id,pay_type,hourly_rate,standard_day_hours,standard_week_hours"),
+        get("payroll_employees?active=is.true&select=id,first_name,last_name,department_id,pay_type,standard_day_hours,standard_week_hours"),
         get(`payroll_time_entries?work_date=gte.${ws}&work_date=lte.${we}&select=*`),
         get(`payroll_week_approvals?week_start=gte.${ws}&week_start=lte.${we}&select=*`),
         get(`payroll_week_submits?week_start=eq.${ws}&select=employee_id`),
@@ -479,22 +483,18 @@ export const handler = async (event) => {
       const rows = emps.map((e) => {
         const mine = entries.filter((x) => x.employee_id === e.id);
         const t = totalsFor(mine, [e], weeks);
-        const rate = Number(e.hourly_rate || 0);
-        const gross = e.pay_type === "hourly"
-          ? round2(rate * (t.regular + t.holiday + t.pto + t.sick) + rate * 1.5 * t.overtime)
-          : round2(Number(e.annual_salary || 0) / 52 * weeks);
+        // Hours only — no rate, no gross. See the note on EMP_COLS.
         return {
           employee: `${e.last_name}, ${e.first_name}`, department: dn[e.department_id] || "—",
-          pay_type: e.pay_type, rate: e.pay_type === "hourly" ? rate : Number(e.annual_salary || 0),
+          pay_type: e.pay_type,
           regular: t.regular, overtime: t.overtime, holiday: t.holiday, pto: t.pto, sick: t.sick,
           unpaid: t.unpaid, paid_total: t.paid_total,
           late_minutes: t.late_minutes, left_early_minutes: t.left_early_minutes,
-          gross_estimate: gross,
         };
       });
-      const cols = ["employee", "department", "pay_type", "rate", "regular", "overtime", "holiday", "pto", "sick", "unpaid", "paid_total", "late_minutes", "left_early_minutes", "gross_estimate"];
+      const cols = ["employee", "department", "pay_type", "regular", "overtime", "holiday", "pto", "sick", "unpaid", "paid_total", "late_minutes", "left_early_minutes"];
       const csv = [cols.join(",")].concat(rows.map((r) => cols.map((c) => csvCell(r[c])).join(","))).join("\n");
-      return cors(200, j({ ok: true, start, end, rows, csv, note: "gross_estimate is an unburdened check-figure — taxes, deductions and benefits are not applied." }));
+      return cors(200, j({ ok: true, start, end, rows, csv, note: "Hours only. Pay rates are not held in this system — hand these hours to FrankCrum, which holds the rates and runs the money." }));
     }
 
     // ── Balances (PTO / sick) for everyone ──────────────────────────

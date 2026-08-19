@@ -224,12 +224,25 @@ They will still show as *External* in Gmail, because the address genuinely is ou
 shingleusa.com. That only goes away by verifying shingleusa.com itself in Resend and
 sending from there.
 
+## Pay rates are deliberately NOT in this system
+
+This app's Supabase anon key ships inside the public page bundle and these tables
+have row-level security off — the same posture as the rest of the app. Anything stored
+here is readable by anyone who views source. That's tolerable for names, shifts and
+hours; it is not tolerable for pay.
+
+So the tool holds **no rates and computes no money**. It reports HOURS; FrankCrum holds
+the rates and turns hours into pay. The export is an hours export. `pay_type` (hourly vs
+salary) is kept because it only affects how a week is read, not what anyone earns.
+
+Names, mobile numbers and hours remain readable by that key. Closing that off means
+turning on RLS and moving these functions to the service key — worth doing before the
+full roster is loaded.
+
 ## Notes / limits
 
 - Passcodes are stored salted + hashed. Sessions last 30 days per device.
 - There is no comp-time / banked-days feature — extra hours show as overtime on the
   week and in the export, and that's it.
-- The export's `gross_estimate` is an unburdened check figure — hourly rate × hours
-  with OT at 1.5×, or salary ÷ 52. No taxes, deductions or benefits. It's for
-  eyeballing a week, not for filing.
+- The export carries hours only, by design — see above.
 - Nothing pushes to QuickBooks yet; the CSV is the handoff.

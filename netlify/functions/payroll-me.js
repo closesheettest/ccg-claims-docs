@@ -75,7 +75,7 @@ const BASE = (process.env.URL || "https://free-roof-inspections.netlify.app").re
 const MAIL_FROM_NAME = "U.S. Shingle Time Cards";
 
 const EMP_SEL =
-  "id,first_name,last_name,email,phone,department_id,title,pay_type,hourly_rate,annual_salary," +
+  "id,first_name,last_name,email,phone,department_id,title,pay_type," +
   "standard_day_hours,standard_week_hours,hire_date,pto_days_per_year,pto_carryover_days," +
   "sick_days_per_year,paid_holidays,shift_id,is_manager,is_admin,active,passcode_hash";
 
@@ -622,7 +622,6 @@ async function departmentWeek(dept, ws) {
     return {
       employee: {
         id: e.id, name: fullName(e), title: e.title, pay_type: e.pay_type,
-        hourly_rate: e.hourly_rate == null ? null : Number(e.hourly_rate),
         standard_day_hours: Number(e.standard_day_hours || 8), standard_week_hours: Number(e.standard_week_hours || 40),
       },
       days, totals: weekTotals(mine, e),
