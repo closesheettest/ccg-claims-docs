@@ -28,39 +28,17 @@ export const handler = async (event) => {
   };
   // Paged fetch — PostgREST caps every response at 1000 rows (max-rows), so a
   // `limit=10000` still stops at 1000. Walk Range windows until fully drained.
-  //
-  // Pages are fetched IN PARALLEL. Walking them one at a time meant 2,000 pins
-  // cost three sequential Netlify→Supabase round trips, and the installs query
-  // paged the same way — six to ten serial hops, which was the bulk of the map's
-  // 4-5 second load. The rows are fast now (indexed); it was the waiting that
-  // was slow (Neal, 2026-08-19).
-  //
-  // Page 1 is fetched first: most viewports fit in it, and if it comes back short
-  // there is nothing more to ask for, so the common case still costs exactly one
-  // request. Only when it comes back FULL do we fan out for the rest.
   const sbGetAll = async (path, pageSize = 1000, maxRows = Infinity) => {
-    const page = async (from) => {
+    const out = [];
+    for (let from = 0; from < maxRows; from += pageSize) {
       const r = await fetch(`${SB_URL}/rest/v1/${path}`, {
         headers: { ...sbH, "Range-Unit": "items", Range: `${from}-${from + pageSize - 1}` },
       });
-      if (!r.ok) return null;
+      if (!r.ok) break;
       const batch = await r.json().catch(() => []);
-      return Array.isArray(batch) ? batch : [];
-    };
-
-    const first = await page(0);
-    if (!first || first.length < pageSize) return first || [];
-
-    const rest = [];
-    for (let from = pageSize; from < maxRows; from += pageSize) rest.push(from);
-    if (!rest.length) return first;
-
-    const pages = await Promise.all(rest.map(page));
-    const out = [...first];
-    // Concatenated in window order, so the ORDER BY still holds across pages.
-    for (const b of pages) {
-      if (!b || !b.length) break;   // first gap ends it — nothing beyond can be contiguous
-      out.push(...b);
+      if (!Array.isArray(batch) || batch.length === 0) break;
+      out.push(...batch);
+      if (batch.length < pageSize) break;
     }
     return out;
   };
