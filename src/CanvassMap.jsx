@@ -3945,20 +3945,22 @@ export default function CanvassMap() {
           </div>
         )}
 
-        {/* ── Start my day ── Hidden by default (reps prefer Route-an-area / Plan-your-day,
-            and it had bugs). Kept in code, shown ONLY for an Enhanced Planned Day (to run
-            the manager's pre-planned section) AND only when the rep has no appointment
-            today — with an appt they Plan-your-day instead. */}
-        {dayMode === null && !selecting && assignedIds && assignedIds.size > 0 && !hasApptToday && (prospects.length > 0 || clusters.length > 0) && (
+        {/* ── Start my day ── Shown to EVERY rep. It used to appear only for an Enhanced
+            Planned Day, which is assigned to seniors only — so a junior could never see it
+            at all, and Noah's first field day had no way to route one (Neal, 2026-08-19).
+            The route size already handles the difference: a pure inspection-lead day (what
+            a junior works) routes up to ROUTE_CAP_INSP = 100 doors, a senior IQ day 30.
+            With an appointment today the second button below plans around it instead. */}
+        {dayMode === null && !selecting && !hasApptToday && (prospects.length > 0 || clusters.length > 0) && (
           <button type="button" onClick={() => (prospects.length ? setDayMode("choosing") : nudgeZoom())}
             style={{ position: "absolute", left: 12, bottom: 16, zIndex: 600, background: "#16a34a", color: "#fff", border: "none", borderRadius: 999, padding: "13px 20px", fontSize: 15, fontWeight: 800, fontFamily: "'Oswald', sans-serif", boxShadow: "0 3px 12px rgba(0,0,0,.25)", cursor: "pointer", opacity: prospects.length ? 1 : 0.85 }}>
             ▶ Start my day
           </button>
         )}
-        {/* Manager-assigned day AND an appointment today → still "Start my day", but it
-            routes the assigned section AROUND the appointment (planAroundAppts stays within
-            the assigned doors). Without this, an assigned rep with an appt got NO button. */}
-        {dayMode === null && !selecting && assignedIds && assignedIds.size > 0 && hasApptToday && (prospects.length > 0 || clusters.length > 0) && (
+        {/* An appointment today → still "Start my day", but it routes AROUND the
+            appointment. When the manager has assigned a section, planAroundAppts stays
+            within those doors; otherwise it plans from the whole pool. */}
+        {dayMode === null && !selecting && hasApptToday && (prospects.length > 0 || clusters.length > 0) && (
           <button type="button" onClick={openApptPlan}
             style={{ position: "absolute", left: 12, bottom: 16, zIndex: 600, background: "#16a34a", color: "#fff", border: "none", borderRadius: 999, padding: "13px 20px", fontSize: 15, fontWeight: 800, fontFamily: "'Oswald', sans-serif", boxShadow: "0 3px 12px rgba(0,0,0,.25)", cursor: "pointer" }}>
             ▶ Start my day
