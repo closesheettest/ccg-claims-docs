@@ -58,6 +58,21 @@ export const handler = async (event) => {
     }
     const trainingFor = (tok, name) => trainByToken[tok] || trainByName[normName(name)] || null;
 
+    // Who has LEFT training. A trainee card is created from the office's
+    // harvest_level override, which nothing ever cleared — so four dropouts still
+    // had live trainee links days after leaving (Neal, 2026-08-19). Absence from
+    // rep-zones can't prove a dropout (an inactive rep looks the same), so this
+    // reads the explicit flag rep-zones now returns.
+    const droppedByJn = new Set(), droppedByName = new Set();
+    for (const r of (rz.reps || [])) {
+      if (!r.dropped_out) continue;
+      if (r.jobnimbus_id) droppedByJn.add(String(r.jobnimbus_id));
+      const nn = normName(r.name);
+      if (nn) droppedByName.add(nn);
+    }
+    const hasDroppedOut = (rep) =>
+      (rep.jobnimbus_id && droppedByJn.has(String(rep.jobnimbus_id))) || droppedByName.has(normName(rep.name));
+
     const infoByJn = {};
     for (const r of (rz.reps || [])) {
       if (!r.active || !r.jobnimbus_id) continue;
@@ -95,13 +110,17 @@ export const handler = async (event) => {
         email: r.email || null,
         sent_at: r.harvest_link_sent_at || null,
         training: trainingFor(r.harvest_token, r.name),  // { passed, score, track, taken_at } | null
+        dropped_out: hasDroppedOut(r),
       });
     }
 
     const levelRank = (lv) => (lv === "senior" ? 0 : 1); // senior first
     const byName = (a, b) => String(a.name || "").localeCompare(String(b.name || ""));
     const admins = cards.filter((c) => c.level === "admin").sort(byName);
-    const trainees = cards.filter((c) => c.level === "trainee").sort(byName);
+    // Dropouts come off the trainee list. Their link is separately revoked by
+    // harvest-revoke-dropouts; this makes the page correct the moment TMS knows.
+    const trainees = cards.filter((c) => c.level === "trainee" && !c.dropped_out).sort(byName);
+    const dropped = cards.filter((c) => c.level === "trainee" && c.dropped_out).sort(byName);
     const reps = cards.filter((c) => c.level !== "admin" && c.level !== "trainee").sort((a, b) =>
       (a.region || "~").localeCompare(b.region || "~") ||
       (levelRank(a.level) - levelRank(b.level)) || byName(a, b));
@@ -120,6 +139,7 @@ export const handler = async (event) => {
       admin_link: adminTok ? `${base}/?mode=harvest&admin=${adminTok}` : "",
       admins,
       trainees,
+      dropped,          // left training — shown separately so the office can see the link is dead
       reps,
       all,
     });
