@@ -155,6 +155,21 @@ Dry runs — these show exactly who would be texted and why, and send nothing:
 call to a scheduled function, which is why each schedule is a thin wrapper around a
 plain HTTP worker — the same split `cron-harvest-nosits` uses.)
 
+## The door QR
+
+`/?mode=checkinqr` is a printable sign — big QR, print button, and a PNG download if
+you'd rather drop it into your own poster. It's linked from the office screen header
+and from My Tools.
+
+The code carries `/checkin`, which is `/timecard?checkin=1`. **Scanning checks the
+person in**, it doesn't just open the app: the time card reads that flag and stamps the
+check-in as soon as it loads — including straight after a first-time sign-in, because
+the flag rides through that flow in the URL.
+
+Scanning again later is safe. The auto check-in only fires when the day has nothing on
+it yet, so a second scan never disturbs a shift in progress, a day already closed out,
+or a day marked off.
+
 ## Text messages and the link problem
 
 US carriers **block SMS containing links on shared hosting domains**, and they do it
