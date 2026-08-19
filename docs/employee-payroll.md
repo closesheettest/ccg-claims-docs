@@ -212,6 +212,18 @@ domain very differently from `*.netlify.app`.
 To check what actually happened to a message, GHL's API reports per-message status:
 `GET https://services.leadconnectorhq.com/conversations/messages/<messageId>`.
 
+## Who the emails come from
+
+Payroll emails show as **U.S. Shingle Time Cards**, not "Inspection For You". The
+address underneath is unchanged — it has to stay the domain verified with Resend — so
+callers pass `fromName` to `send-email` and only the display name changes. Every other
+part of the app is unaffected; without `fromName` the old sender is used exactly as
+before.
+
+They will still show as *External* in Gmail, because the address genuinely is outside
+shingleusa.com. That only goes away by verifying shingleusa.com itself in Resend and
+sending from there.
+
 ## Notes / limits
 
 - Passcodes are stored salted + hashed. Sessions last 30 days per device.

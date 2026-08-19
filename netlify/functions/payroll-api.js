@@ -311,7 +311,7 @@ export const handler = async (event) => {
         }
         if (e.email) {
           const ok = await postJson("send-email", {
-            to: e.email, subject: "Your U.S. Shingle time card",
+            to: e.email, subject: "Your U.S. Shingle time card", fromName: "U.S. Shingle Time Cards",
             html: `<p>Hi ${e.first_name},</p><p>This is your time card. Sign in with your <b>mobile number</b> — not an email — then pick your own 4–8 digit passcode.</p>` +
               `<p><a href="${base}/?mode=timecard" style="display:inline-block;padding:12px 22px;background:#0f2a4a;color:#fff;text-decoration:none;border-radius:8px;font-weight:700;">Open my time card</a></p>` +
               `<p>Tap <b>Check in</b> when your day starts, and at the end write a quick recap of what you got done — that's what closes the day and sets your hours.</p>` +

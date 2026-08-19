@@ -69,6 +69,10 @@ const H = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, "Content-Type": "
 const TZ = "America/New_York";
 const SESSION_DAYS = 30;
 const BASE = (process.env.URL || "https://free-roof-inspections.netlify.app").replace(/\/$/, "");
+// Who these emails come FROM on screen. The address stays the domain verified
+// with Resend; only the display name changes, so "Inspection For You" doesn't
+// show up on an email asking somebody to sign off hours.
+const MAIL_FROM_NAME = "U.S. Shingle Time Cards";
 
 const EMP_SEL =
   "id,first_name,last_name,email,phone,department_id,title,pay_type,hourly_rate,annual_salary," +
@@ -838,7 +842,7 @@ async function sendSms(to, name, message) {
 }
 async function sendEmail(to, subject, html) {
   try {
-    const r = await fetch(`${BASE}/.netlify/functions/send-email`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ to, subject, html }) });
+    const r = await fetch(`${BASE}/.netlify/functions/send-email`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ to, subject, html, fromName: MAIL_FROM_NAME }) });
     return r.ok;
   } catch { return false; }
 }
