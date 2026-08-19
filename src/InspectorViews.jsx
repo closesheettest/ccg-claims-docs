@@ -4352,8 +4352,8 @@ function InspectorJobDetail({ me, jobId, onBack, mapReturn }) {
       //    other result → record it (with optional no-inspection note / skip).
       const fn = cancelRequest ? "request-inspection-cancel" : "inspector-submit-result";
       const payload = cancelRequest
-        ? { inspectionId: jobId, note: noteOverride, inspector_name: me.name, photo_paths: uploadedPhotos.map((p) => p.path) }
-        : { inspectionId: jobId, result: resultToSend, inspector_name: me.name, photo_paths: uploadedPhotos.map((p) => p.path), photo_labels: uploadedPhotos.map((p) => p.label), ...(noteOverride ? { note: noteOverride } : {}), ...(skipPaHandoff ? { skip_pa_handoff: true } : {}) };
+        ? { inspectionId: jobId, note: noteOverride, inspector_name: me.name, inspector_id: me.id, photo_paths: uploadedPhotos.map((p) => p.path) }
+        : { inspectionId: jobId, result: resultToSend, inspector_name: me.name, inspector_id: me.id, photo_paths: uploadedPhotos.map((p) => p.path), photo_labels: uploadedPhotos.map((p) => p.label), ...(noteOverride ? { note: noteOverride } : {}), ...(skipPaHandoff ? { skip_pa_handoff: true } : {}) };
       const res = await fetch(`/.netlify/functions/${fn}`, {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
       });
@@ -4392,7 +4392,7 @@ function InspectorJobDetail({ me, jobId, onBack, mapReturn }) {
     try {
       const res = await fetch("/.netlify/functions/inspector-gated", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ inspectionId: jobId, note: noNote.trim(), inspector_name: me.name }),
+        body: JSON.stringify({ inspectionId: jobId, note: noNote.trim(), inspector_name: me.name, inspector_id: me.id }),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok || !body.ok) { setSubmitMsg({ kind: "error", text: body.error || `Failed: ${res.status}` }); setSubmitting(false); return; }
