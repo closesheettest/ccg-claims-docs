@@ -105,6 +105,28 @@ export default function InspectionMap() {
     setRoute(saved.stops); setStopIdx(idx); setDayMode("active");
   }, [me]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Refresh the ACTIVE route's stops from the live pins whenever pins reload.
+  // The route is persisted to localStorage as a snapshot, so a gate code added
+  // by anyone after the route was built — the office, another inspector — would
+  // otherwise never reach the stop card. Only the fields that can legitimately
+  // change while a route is running are merged; the stop order is left alone.
+  useEffect(() => {
+    if (!pins.length) return;
+    setRoute((rs) => {
+      if (!rs.length) return rs;
+      const by = new Map(pins.map((p) => [String(p.id), p]));
+      let changed = false;
+      const next = rs.map((st) => {
+        const live = by.get(String(st.id));
+        if (!live) return st;
+        if (live.gate_code === st.gate_code && live.gate_code_by === st.gate_code_by && live.inspector_notes === st.inspector_notes) return st;
+        changed = true;
+        return { ...st, gate_code: live.gate_code, gate_code_by: live.gate_code_by, inspector_notes: live.inspector_notes };
+      });
+      return changed ? next : rs;
+    });
+  }, [pins]);
+
   // Keep the persisted route fresh while a route is active (survives the
   // navigate-away/return round-trip).
   useEffect(() => {
@@ -230,6 +252,10 @@ export default function InspectionMap() {
       const patch = { gate_code: j.gate_code, gate_code_by: j.gate_code_by };
       setPins((ps) => ps.map((p) => (p.id === selected.id ? { ...p, ...patch } : p)));
       setSelected((sl) => (sl ? { ...sl, ...patch } : sl));
+      // The active route holds its OWN copy of each stop, so without this a code
+      // saved mid-route would show on the pin card and be missing from the stop
+      // card the inspector is actually looking at when he pulls up.
+      setRoute((rs) => rs.map((p) => (p.id === selected.id ? { ...p, ...patch } : p)));
       setGateEdit(false);
     } catch (e) {
       alert(e.message || "Network error saving the gate code.");
@@ -336,6 +362,16 @@ export default function InspectionMap() {
           </div>
           <div style={{ fontSize: 18, fontWeight: 800, fontFamily: OSWALD, color: "#0f172a" }}>{curStop.client_name || "Homeowner"}</div>
           <div style={{ fontSize: 13.5, color: "#64748b" }}>{[curStop.address, curStop.city].filter(Boolean).join(", ")}</div>
+          {/* The gate code belongs HERE above all — this is the card on screen at
+              the call box, before he's out of the truck. Read-only on the route
+              (editing lives on the pin card) so nothing is fat-fingered one-handed. */}
+          {curStop.gate_code && (
+            <div style={{ marginTop: 10, background: "#ecfdf5", border: "1px solid #6ee7b7", borderRadius: 10, padding: "9px 12px" }}>
+              <div style={{ fontSize: 11, fontWeight: 800, color: "#047857", letterSpacing: ".05em", textTransform: "uppercase" }}>🔐 Gate code</div>
+              <div style={{ fontSize: 26, fontWeight: 900, fontFamily: OSWALD, color: "#065f46", letterSpacing: ".07em", lineHeight: 1.15 }}>{curStop.gate_code}</div>
+              {curStop.gate_code_by && <div style={{ fontSize: 11, color: "#059669" }}>added by {curStop.gate_code_by}</div>}
+            </div>
+          )}
           <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
             <a href={`https://www.google.com/maps/dir/?api=1&destination=${curStop.latitude},${curStop.longitude}`} target="_blank" rel="noreferrer" style={{ ...btnStyle("#0f172a", 15), flex: "0 0 auto", textDecoration: "none", textAlign: "center" }}>🧭 Navigate</a>
             <button onClick={arrive} style={{ ...btnStyle("#16a34a", 15), flex: 1 }}>📍 I'm here</button>
