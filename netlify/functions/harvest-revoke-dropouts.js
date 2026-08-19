@@ -1,4 +1,5 @@
-// Expire the harvest link of anyone who has left training.
+// Expire the harvest link of anyone who has left — training dropouts AND reps
+// who have been offboarded.
 //
 // A trainee gets a link card from the office setting harvest_level='trainee'.
 // Nothing ever cleared it, so four people who dropped out of training days
@@ -14,9 +15,15 @@
 //   GET  ?dry=1      → who WOULD be revoked, changes nothing   (default)
 //   GET  ?confirm=1  → actually revoke
 //
-// Only ever touches people whose CCG level is 'trainee'. An active sales rep is
-// never revoked, whatever TMS says, so a mis-set training flag can't cut off a
-// working rep.
+// TWO KINDS OF LEAVER:
+//   • training dropouts   — TMS dropped_out
+//   • offboarded reps     — TMS active:false, not in training  (e.g. Hoover
+//                           Londono, fired, link still live and "Sent Jul 30")
+//
+// SAFETY. A revoke is only ever made on a POSITIVE statement from TMS, and never
+// when any record for that person says they're active — duplicate trainee rows
+// are common (17 at last count), so one stale row must not cut off a working rep.
+// Pre-grads read as active:false by design; they are explicitly protected.
 //
 // Requires sql/harvest_revoke.sql. Env: VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY.
 
@@ -41,25 +48,46 @@ export const handler = async (event) => {
       return json(409, { ok: false, error: "rep-zones has no dropped_out field yet — deploy TMS first" });
     }
 
-    const droppedJn = new Set(), droppedName = new Set(), activeName = new Set(), activeJn = new Set();
+    const goneJn = new Map(), goneName = new Map(), activeName = new Set(), activeJn = new Set();
+    const markGone = (r, why) => {
+      const nn = normName(r.name);
+      if (r.jobnimbus_id) goneJn.set(String(r.jobnimbus_id), why);
+      if (nn) goneName.set(nn, why);
+    };
     for (const r of rz.reps) {
       const nn = normName(r.name);
-      if (r.dropped_out) { if (r.jobnimbus_id) droppedJn.add(String(r.jobnimbus_id)); if (nn) droppedName.add(nn); }
-      // A currently-active sales rep is off limits no matter what else is set.
-      if (r.active === true && r.dropped_out !== true) { if (r.jobnimbus_id) activeJn.add(String(r.jobnimbus_id)); if (nn) activeName.add(nn); }
+      const inTraining = r.in_training === true || r.pregrad === true;
+      if (r.dropped_out) markGone(r, "dropped out of training");
+      // Offboarded: TMS says not active, and they're not a pre-grad (who read as
+      // active:false purely so the contest and pay skip them).
+      else if (r.active === false && !inTraining) markGone(r, "no longer an active rep");
+      // Anyone TMS still calls active — or who is mid-training — is off limits.
+      if ((r.active === true && !r.dropped_out) || inTraining) {
+        if (r.jobnimbus_id) activeJn.add(String(r.jobnimbus_id));
+        if (nn) activeName.add(nn);
+      }
     }
 
-    const reps = await sbGet(`sales_reps?harvest_token=not.is.null&harvest_level=eq.trainee&select=id,name,jobnimbus_id,harvest_token,harvest_level`);
+    const reps = await sbGet(`sales_reps?harvest_token=not.is.null&select=id,name,jobnimbus_id,harvest_token,harvest_level,harvest_link_sent_at`);
     const hit = [];
     for (const r of reps || []) {
       const nn = normName(r.name);
-      const isDropped = (r.jobnimbus_id && droppedJn.has(String(r.jobnimbus_id))) || droppedName.has(nn);
+      // An office 'admin' assignment is deliberate and not a field rep, so it's
+      // left alone — those are trainers and staff, not people who get offboarded
+      // through the training system.
+      if (String(r.harvest_level || "").toLowerCase() === "admin") continue;
+      const why = (r.jobnimbus_id && goneJn.get(String(r.jobnimbus_id))) || goneName.get(nn) || null;
       const isActive = (r.jobnimbus_id && activeJn.has(String(r.jobnimbus_id))) || activeName.has(nn);
-      if (isDropped && !isActive) hit.push(r);
+      // Not mentioned by TMS at all → say nothing, do nothing. Silence is not a
+      // statement that someone has left.
+      if (why && !isActive) hit.push({ ...r, why });
     }
 
     if (!confirm) {
-      return json(200, { ok: true, dry_run: true, would_revoke: hit.length, reps: hit.map((r) => ({ name: r.name, id: r.id })) });
+      return json(200, {
+        ok: true, dry_run: true, would_revoke: hit.length,
+        reps: hit.map((r) => ({ name: r.name, why: r.why, level: r.harvest_level, link_sent: r.harvest_link_sent_at })),
+      });
     }
 
     const done = [], failed = [];
