@@ -30,6 +30,7 @@ const SB_KEY = process.env.VITE_SUPABASE_ANON_KEY;
 const H = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, "Content-Type": "application/json" };
 const TZ = "America/New_York";
 const BASE = (process.env.URL || "https://free-roof-inspections.netlify.app").replace(/\/$/, "");
+const MAIL_FROM_NAME = "U.S. Shingle Time Cards";
 
 // How long after the last shift ends before the manager is asked to sign.
 const GRACE_AFTER_SHIFT = 30;   // minutes
@@ -105,7 +106,7 @@ export const handler = async (event) => {
     await upsertApproval(d.id, day, appr[0]);
     const sent = { sms: false, email: false };
     if (mgr.phone) sent.sms = await postOk("ghl-sms", { to: mgr.phone, name: nameOf(mgr), message: sms });
-    if (mgr.email) sent.email = await postOk("send-email", { to: mgr.email, subject: `Sign off ${d.name} - ${pretty(day)}`, html });
+    if (mgr.email) sent.email = await postOk("send-email", { to: mgr.email, subject: `Sign off ${d.name} - ${pretty(day)}`, html, fromName: MAIL_FROM_NAME });
     pinged.push({ department: d.name, work_date: day, manager: nameOf(mgr), no_checkin: noShow, no_recap: noRecap, not_onboarded: onboard, sent });
   }
 

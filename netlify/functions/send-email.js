@@ -9,7 +9,7 @@ exports.handler = async (event) => {
   }
 
   try {
-    const { to, cc, bcc, subject, html, attachments } = JSON.parse(event.body || "{}");
+    const { to, cc, bcc, subject, html, attachments, fromName } = JSON.parse(event.body || "{}");
 
     if (!to || !subject || !html) {
       return {
@@ -33,10 +33,16 @@ exports.handler = async (event) => {
 
     const resend = new Resend(process.env.RESEND_API_KEY);
 
+    // The sending ADDRESS is fixed (it's the domain verified with Resend), but a
+    // caller may set the display NAME — so a time-card email reads as "U.S.
+    // Shingle Time Cards" rather than "Inspection For You", which means nothing
+    // to an employee being asked to sign off hours.
+    const fromAddress = (process.env.EMAIL_FROM || "Inspection For You <noreply@inspectionforyou.com>");
+    const addressOnly = (fromAddress.match(/<([^>]+)>/) || [null, fromAddress])[1];
+    const cleanName = String(fromName || "").replace(/["<>\r\n]/g, "").trim().slice(0, 60);
+
     const emailPayload = {
-      from:
-        process.env.EMAIL_FROM ||
-        "Inspection For You <noreply@inspectionforyou.com>",
+      from: cleanName ? `${cleanName} <${addressOnly}>` : fromAddress,
       to: Array.isArray(to) ? to : [to],
       subject,
       html,

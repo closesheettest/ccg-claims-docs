@@ -40,6 +40,7 @@ const SB_KEY = process.env.VITE_SUPABASE_ANON_KEY;
 const H = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, "Content-Type": "application/json" };
 const TZ = "America/New_York";
 const BASE = (process.env.URL || "https://free-roof-inspections.netlify.app").replace(/\/$/, "");
+const MAIL_FROM_NAME = "U.S. Shingle Time Cards";
 
 // How long after the moment we wait before nudging, and how long we keep trying.
 const DEFAULT_CHECKIN_AFTER = 20;    // minutes past shift start (on top of grace)
@@ -123,7 +124,7 @@ export const handler = async (event) => {
     if (!via.sms && e.email) {
       const subject = kind === "checkin" ? `Check in — ${shift.name} shift` : "What did you get done today?";
       via.email = await postOk("send-email", {
-        to: e.email, subject,
+        to: e.email, subject, fromName: MAIL_FROM_NAME,
         html: `<p>Hi ${e.first_name},</p><p>${msg.replace(link, "")}</p>` +
           `<p><a href="${link}" style="display:inline-block;padding:12px 22px;background:#0f2a4a;color:#fff;text-decoration:none;border-radius:8px;font-weight:700;">Open my time card →</a></p>` +
           `<p style="color:#64748b;font-size:13px;">U.S. Shingle &amp; Metal time cards</p>`,
@@ -182,7 +183,7 @@ async function alertManager(emp, kind, why, wd) {
   const what = kind === "checkin" ? "check-in reminder" : "end-of-shift recap reminder";
   const line = `We couldn't get the ${what} to ${name(emp)} for ${wd} (${why || "text not delivered"}), and they have no email on file. Please remind them directly.`;
   let ok = false;
-  if (mgr.email) ok = await postOk("send-email", { to: mgr.email, subject: `Couldn't reach ${name(emp)}`, html: `<p>Hi ${mgr.first_name},</p><p>${line}</p><p style="color:#64748b;font-size:13px;">${dept.name} · U.S. Shingle &amp; Metal time cards</p>` });
+  if (mgr.email) ok = await postOk("send-email", { to: mgr.email, subject: `Couldn't reach ${name(emp)}`, fromName: MAIL_FROM_NAME, html: `<p>Hi ${mgr.first_name},</p><p>${line}</p><p style="color:#64748b;font-size:13px;">${dept.name} · U.S. Shingle &amp; Metal time cards</p>` });
   if (!ok && mgr.phone) ok = await postOk("ghl-sms", { to: mgr.phone, name: mgr.first_name, message: line });
   return ok;
 }
