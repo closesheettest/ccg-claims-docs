@@ -79,7 +79,14 @@ async function zoneRepSet(zone) {
   try { const res = await fetch(TMS_REP_ZONES_URL); if (res.ok) reps = (await res.json()).reps || []; } catch { /* best-effort */ }
   const set = new Set();
   for (const r of reps) {
-    if (!r.name || r.zone !== zone || r.active === false) continue;
+    if (!r.name || r.zone !== zone) continue;
+    // PRE-GRAD FIELD TRAINEES COUNT HERE. They read as active:false on purpose —
+    // that's what keeps them out of the contest divisor and the pay report — but
+    // they are in the field, they're on their manager's dashboard, and they can
+    // send a review. Skipping them meant a trainee's review sat pending forever
+    // and no manager ever saw it to confirm (Neal, 2026-08-19).
+    const inTraining = r.pregrad === true || r.in_training === true;
+    if (r.active === false && !inTraining) continue;
     set.add(normalizeName(r.name));
   }
   return set;
