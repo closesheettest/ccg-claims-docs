@@ -18,11 +18,13 @@
 //   Holidays   the paid-holiday calendar everyone sees
 //   Export     one row per employee for the pay period, CSV for whoever runs payroll
 //
-// PIN-gated like the other office tools: the manager PIN unlocks it, then the
-// page pulls the office token out of app_settings and every call carries it.
+// Sign-in is the office person's OWN mobile number + passcode — the same login
+// employees use — and the API checks that session is flagged office/HR on every
+// call. It used to be the shared manager PIN plus a token read out of
+// app_settings, but the public page key can read app_settings, so that token
+// protected nothing.
 
 import React, { useCallback, useEffect, useState } from "react";
-import { supabase } from "./lib/supabase";
 
 const API = "/.netlify/functions/payroll-api";
 const NAVY = "#0f2a4a", RED = "#c0392b", GREEN = "#15803d", AMBER = "#b45309";
@@ -72,42 +74,39 @@ function Field({ label, children, w }) {
 }
 
 // ════════════════════════════════════════════════════════════════════════
+const OFFICE_TOKEN_KEY = "uss_payroll_office_token";
+
 export default function PayrollAdmin() {
-  const MGR_PIN = (() => { try { return localStorage.getItem("ccg_mgr_managerPin") || "1234"; } catch { return "1234"; } })();
-  const [unlocked, setUnlocked] = useState(false);
-  const [pin, setPin] = useState("");
-  const [token, setToken] = useState("");
+  const [token, setToken] = useState(() => { try { return localStorage.getItem(OFFICE_TOKEN_KEY) || ""; } catch { return ""; } });
+  const [me, setMe] = useState(null);
   const [tab, setTab] = useState("signoff");
   const [err, setErr] = useState("");
+  const [booting, setBooting] = useState(true);
 
   const api = useCallback(async (action, extra) => {
     const r = await fetch(API, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token, action, ...extra }) });
     return r.json().catch(() => ({ ok: false, error: "Bad response" }));
   }, [token]);
 
-  const unlock = async () => {
-    if (pin !== MGR_PIN) { setErr("Wrong PIN."); return; }
-    setErr("");
-    const { data } = await supabase.from("app_settings").select("value").eq("key", "visit_token").maybeSingle();
-    setToken(data?.value || "");
-    setUnlocked(true);
-  };
+  // Confirm the saved session is still good, and still office/HR.
+  useEffect(() => {
+    let dead = false;
+    (async () => {
+      if (!token) { setBooting(false); return; }
+      const d = await api("departments");
+      if (dead) return;
+      if (d.ok) setMe(true);
+      else { try { localStorage.removeItem(OFFICE_TOKEN_KEY); } catch { /* private mode */ } setToken(""); }
+      setBooting(false);
+    })();
+    return () => { dead = true; };
+  }, [token, api]);
 
-  if (!unlocked) {
-    return (
-      <div style={{ minHeight: "100vh", background: BG, display: "flex", alignItems: "center", justifyContent: "center", padding: 20, fontFamily: "system-ui, sans-serif" }}>
-        <div style={{ ...card, width: 340, display: "grid", gap: 12, textAlign: "center" }}>
-          <div style={{ fontSize: 30 }}>🧾</div>
-          <div style={{ fontSize: 20, fontWeight: 900, color: NAVY }}>Employee Payroll</div>
-          <div style={{ fontSize: 13, color: MUTE }}>Office screen — enter the manager PIN.</div>
-          <input style={{ ...fld, textAlign: "center", fontSize: 20, letterSpacing: 4 }} type="password" inputMode="numeric"
-            value={pin} onChange={(e) => setPin(e.target.value)} onKeyDown={(e) => e.key === "Enter" && unlock()} placeholder="••••" />
-          <Err>{err}</Err>
-          <button style={btn(NAVY)} onClick={unlock}>Unlock</button>
-          <a href="/?mode=timecard" style={{ fontSize: 12.5, color: MUTE }}>Looking for your own time card?</a>
-        </div>
-      </div>
-    );
+  if (booting && token) {
+    return <div style={{ minHeight: "100vh", background: BG, display: "flex", alignItems: "center", justifyContent: "center", color: MUTE, fontFamily: "system-ui, sans-serif" }}>Loading…</div>;
+  }
+  if (!token || !me) {
+    return <OfficeSignIn onIn={(t) => { setToken(t); setMe(true); try { localStorage.setItem(OFFICE_TOKEN_KEY, t); } catch { /* private mode */ } }} />;
   }
 
   return (
@@ -121,6 +120,7 @@ export default function PayrollAdmin() {
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <a href="/?mode=checkinqr" target="_blank" rel="noopener noreferrer" style={{ ...ghost, textDecoration: "none" }}>🔳 Check-in QR for the door ↗</a>
           <a href="/?mode=timecard" target="_blank" rel="noopener noreferrer" style={{ ...ghost, textDecoration: "none" }}>Open the employee time card ↗</a>
+          <button style={ghost} onClick={() => { try { localStorage.removeItem(OFFICE_TOKEN_KEY); } catch { /* private mode */ } setToken(""); setMe(null); }}>Sign out</button>
         </div>
         </div>
 
@@ -979,6 +979,75 @@ function ImportRoster({ api, onErr, onDone }) {
           </div>
         </>
       ) : null}
+    </div>
+  );
+}
+
+// ── OFFICE SIGN-IN ──────────────────────────────────────────────────────
+// Same credentials as the time card: your mobile number and your own passcode.
+// The API then checks the session is flagged office/HR before it answers.
+function OfficeSignIn({ onIn }) {
+  const [login, setLogin] = useState("");
+  const [pass, setPass] = useState("");
+  const [step, setStep] = useState("who");
+  const [name, setName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+
+  const call = async (action, extra) => {
+    const r = await fetch("/.netlify/functions/payroll-me", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action, ...extra }),
+    });
+    return r.json().catch(() => ({ ok: false, error: "Bad response" }));
+  };
+
+  const find = async () => {
+    const v = login.trim();
+    if (v.replace(/\D/g, "").length < 10 && !v.includes("@")) { setErr("Type your 10-digit mobile number."); return; }
+    setBusy(true); setErr("");
+    const d = await call("who", { login: v });
+    setBusy(false);
+    if (!d.ok || !d.found) { setErr("That number isn't on the roster."); return; }
+    setName(d.name || ""); setStep(d.passcode_set ? "pass" : "create");
+  };
+
+  const go = async () => {
+    if (!/^\d{4,8}$/.test(pass)) { setErr("Your passcode is 4–8 digits."); return; }
+    setBusy(true); setErr("");
+    const d = await call("login", { login: login.trim(), passcode: pass });
+    setBusy(false);
+    if (!d.ok) { setErr(d.error || "Sign-in failed."); return; }
+    if (!d.me?.is_admin) { setErr("That account doesn't have office access. Ask whoever runs payroll to tick “office/HR” on your record."); return; }
+    onIn(d.token);
+  };
+
+  return (
+    <div style={{ minHeight: "100vh", background: BG, display: "flex", alignItems: "center", justifyContent: "center", padding: 20, fontFamily: "system-ui, sans-serif" }}>
+      <div style={{ ...card, width: 350, display: "grid", gap: 12, textAlign: "center" }}>
+        <div style={{ fontSize: 30 }}>🧾</div>
+        <div style={{ fontSize: 20, fontWeight: 900, color: NAVY }}>Employee Payroll</div>
+        {step === "who" ? (
+          <>
+            <div style={{ fontSize: 13, color: MUTE }}>Office screen — sign in with your mobile number.</div>
+            <input style={{ ...fld, textAlign: "center", fontSize: 17 }} type="tel" inputMode="tel" autoComplete="tel"
+              value={login} onChange={(e) => setLogin(e.target.value)} onKeyDown={(e) => e.key === "Enter" && find()} placeholder="(813) 555-0123" />
+            <Err>{err}</Err>
+            <button style={btn(NAVY)} disabled={busy} onClick={find}>{busy ? "Checking…" : "Continue"}</button>
+          </>
+        ) : (
+          <>
+            <div style={{ fontSize: 14.5, fontWeight: 700 }}>{step === "create" ? `Hi ${name} — set your passcode` : `Welcome back, ${name}`}</div>
+            <input style={{ ...fld, textAlign: "center", fontSize: 20, letterSpacing: 4 }} type="password" inputMode="numeric"
+              value={pass} onChange={(e) => setPass(e.target.value.replace(/\D/g, "").slice(0, 8))}
+              onKeyDown={(e) => e.key === "Enter" && go()} placeholder="••••" />
+            <Err>{err}</Err>
+            <button style={btn(NAVY)} disabled={busy} onClick={go}>{busy ? "…" : "Sign in"}</button>
+            <button style={{ ...ghost, border: "none", color: MUTE }} onClick={() => { setStep("who"); setPass(""); setErr(""); }}>Use a different number</button>
+          </>
+        )}
+        <a href="/?mode=timecard" style={{ fontSize: 12.5, color: MUTE }}>Looking for your own time card?</a>
+      </div>
     </div>
   );
 }

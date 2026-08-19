@@ -5,8 +5,13 @@
 // PTO allotments, the holiday calendar, the company-wide view of which
 // departments have signed off last week, and the payroll export.
 //
-// Auth is the app's usual office token (visit_token / dialer_token from
-// app_settings), fetched behind the manager PIN — same as the crew admin page.
+// AUTH: the caller must send a live payroll session token belonging to somebody
+// flagged office/HR (is_admin). It is deliberately NOT the app's shared
+// visit_token behind a PIN any more — that token lives in app_settings, which
+// the public page key can read, so it guarded nothing. Now the office signs in
+// with their own mobile + passcode, exactly like an employee, and the session is
+// checked for is_admin on every call.
+//
 // The employee-facing half lives in payroll-me.js.
 //
 //   POST { token, action, ... }
@@ -39,7 +44,11 @@
 // Env: VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY.
 
 const SB_URL = process.env.VITE_SUPABASE_URL;
-const SB_KEY = process.env.VITE_SUPABASE_ANON_KEY;
+// SERVICE KEY, not the anon key. The anon key ships in the public page bundle,
+// so anything it can reach is world-readable — and once RLS is on for the
+// payroll tables it can reach nothing here at all. Falls back to anon so this
+// deploy is safe BEFORE the service key is set and RLS is enabled.
+const SB_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY;
 const H = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, "Content-Type": "application/json" };
 const TZ = "America/New_York";
 
@@ -64,7 +73,8 @@ export const handler = async (event) => {
 
   let b;
   try { b = JSON.parse(event.body || "{}"); } catch { return cors(400, j({ ok: false, error: "bad JSON" })); }
-  if (!(await okToken(b.token))) return cors(401, j({ ok: false, error: "Invalid link — unlock with the manager PIN again." }));
+  const actor = await officeSession(b.token);
+  if (!actor) return cors(401, j({ ok: false, error: "Your office session has expired — sign in again." }));
 
   const action = String(b.action || "").trim();
   try {
@@ -658,11 +668,16 @@ function titleCase(s) {
 }
 const phoneKey = (v) => { const d = String(v || "").replace(/\D/g, ""); return d.length >= 10 ? d.slice(-10) : ""; };
 
-async function okToken(token) {
+// A live session belonging to an ACTIVE employee flagged office/HR. Anything
+// else — no token, an expired one, or an ordinary employee's — is refused.
+async function officeSession(token) {
   const t = String(token || "").trim();
-  if (!t) return false;
-  const [d, v] = await Promise.all([setting("dialer_token"), setting("visit_token")]);
-  return (!!d && t === d) || (!!v && t === v);
+  if (!t) return null;
+  const s = (await get(`payroll_sessions?token=eq.${encodeURIComponent(t)}&select=employee_id,expires_at&limit=1`))[0];
+  if (!s || new Date(s.expires_at) < new Date()) return null;
+  const emp = (await get(`payroll_employees?id=eq.${s.employee_id}&select=id,first_name,last_name,is_admin,active&limit=1`))[0];
+  if (!emp || !emp.active || !emp.is_admin) return null;
+  return emp;
 }
 async function setting(key) {
   const rows = await get(`app_settings?key=eq.${encodeURIComponent(key)}&select=value&limit=1`);

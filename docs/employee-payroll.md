@@ -224,6 +224,27 @@ They will still show as *External* in Gmail, because the address genuinely is ou
 shingleusa.com. That only goes away by verifying shingleusa.com itself in Resend and
 sending from there.
 
+## Security
+
+These tables are **RLS-locked** and the functions reach them with the
+**service key**. That's different from the rest of this app, on purpose: the anon
+key ships in the public page bundle, and before this was done anyone could read —
+and write — the roster and the timecards, and read `payroll_sessions`, which holds
+live login tokens (a stolen token *is* the login, including a manager's).
+
+Two consequences to remember:
+
+- **Nothing client-side may query these tables directly.** Everything goes through
+  `payroll-api` / `payroll-me`. A `supabase.from("payroll_…")` call in the browser will
+  now return nothing.
+- **The office screen signs in properly.** Your own mobile + passcode, and the API
+  checks the session is flagged office/HR on every call. It is no longer the shared
+  manager PIN plus a token out of `app_settings` — the public key can read
+  `app_settings`, so that token guarded nothing.
+
+Order of operations if this is ever rebuilt: deploy the service-key code first, *then*
+run `sql/payroll_lockdown.sql`. The other way round locks the app out of its own data.
+
 ## Pay rates are deliberately NOT in this system
 
 This app's Supabase anon key ships inside the public page bundle and these tables
