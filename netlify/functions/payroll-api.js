@@ -359,7 +359,7 @@ export const handler = async (event) => {
       const we = addDays(ws, 6);
       const [depts, emps, entries, approvals, submits] = await Promise.all([
         get("payroll_departments?active=is.true&select=id,name,manager_employee_id&order=name.asc"),
-        get("payroll_employees?active=is.true&select=id,first_name,last_name,department_id,pay_type,standard_day_hours,standard_week_hours"),
+        get("payroll_employees?active=is.true&select=id,first_name,last_name,department_id,pay_type,is_admin,standard_day_hours,standard_week_hours"),
         get(`payroll_time_entries?work_date=gte.${ws}&work_date=lte.${we}&select=*`),
         get(`payroll_week_approvals?week_start=gte.${ws}&week_start=lte.${we}&select=*`),
         get(`payroll_week_submits?week_start=eq.${ws}&select=employee_id`),
@@ -385,7 +385,9 @@ export const handler = async (event) => {
           approved_at: appr?.approved_at || null,
         };
       });
-      const unassigned = emps.filter((e) => !e.department_id).map((e) => ({ id: e.id, name: name[e.id] }));
+      // Owners and office/HR accounts don't sit in a department and don't clock
+      // in — flagging them as "nobody signs their hours" is noise, not a problem.
+      const unassigned = emps.filter((e) => !e.department_id && !e.is_admin).map((e) => ({ id: e.id, name: name[e.id] }));
       return cors(200, j({
         ok: true, week_start: ws, week_end: we, departments: rows, unassigned,
         company: totalsFor(entries, emps),
