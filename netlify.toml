@@ -287,13 +287,14 @@
 [functions."cron-contest-freeze"]
   schedule = "0 5 * * 5"
 
-# DAILY payroll sign-off nudge. Texts + emails each department manager whose
-# YESTERDAY is still unsigned, naming who never checked in and who never filed a
-# recap. 8 AM ET, then 11 AM ET for stragglers. Departments with no activity that
-# day are skipped, so weekends stay quiet.
+# EVENING payroll sign-off nudge. Runs every 15 min; the worker pings each
+# department's manager once THAT DEPARTMENT'S last shift has ended (office
+# ~5:30pm, warehouse night ~11:30pm, an overnight crew next morning), naming who
+# never checked in and who never filed a recap. Once per department per day;
+# departments with no activity are skipped, so weekends stay quiet.
 # THIN WRAPPER around payroll-signoff-run, for the same ?dry=1 reason as above.
 [functions."cron-payroll-signoff"]
-  schedule = "0 12,15 * * *"
+  schedule = "*/15 * * * *"
 
 # Daily check-in / recap nudges. Every 15 min: texts anyone who hasn't checked in
 # by their shift start + grace, and anyone who checked in but hasn't filed their
