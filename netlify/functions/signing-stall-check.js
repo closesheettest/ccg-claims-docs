@@ -41,7 +41,7 @@ export const handler = async (event) => {
     `&phone_verified_at=gte.${encodeURIComponent(floor)}` +
     `&select=id,token,client_name,address,city,sales_rep_name,sales_rep_id,phone_verified_at,expires_at`;
 
-  let rows;
+  let rows;   // reassigned below once the genuinely-failed ones are known
   try {
     const r = await fetch(url, { headers: sb });
     if (!r.ok) return json(500, { ok: false, error: `read failed (${r.status}) — has sql/signing_stall_alert.sql been run?` });
@@ -50,6 +50,37 @@ export const handler = async (event) => {
     return json(500, { ok: false, error: e.message || "read error" });
   }
   if (!rows.length) return json(200, { ok: true, stalled: 0 });
+
+  // DID IT ACTUALLY FAIL? finalize-remote-signing doesn't always flip the pending
+  // row to 'signed' — THANH THACH's inspection completed and went to JobNimbus
+  // while his pending row sat at phone_verified — so status alone is not proof a
+  // signing was lost. Texting a rep "your signing didn't finish" about a deal
+  // that DID finish is how an alert like this gets ignored, so check for a real
+  // inspection first and only warn about the ones genuinely missing.
+  const doneIds = new Set();
+  try {
+    const addrs = [...new Set(rows.map((r) => (r.address || "").trim()).filter(Boolean))];
+    if (addrs.length) {
+      const inList = addrs.map((a) => `"${a.replace(/"/g, "")}"`).join(",");
+      const ir = await fetch(`${SB_URL}/rest/v1/inspections?address=in.(${encodeURIComponent(inList)})&select=address`, { headers: sb });
+      if (ir.ok) {
+        const have = new Set((await ir.json()).map((i) => String(i.address || "").trim().toLowerCase()));
+        for (const r of rows) if (have.has(String(r.address || "").trim().toLowerCase())) doneIds.add(r.id);
+      }
+    }
+  } catch { /* can't confirm → fall through and alert, better a false warn than a silent loss */ }
+
+  const live = rows.filter((r) => !doneIds.has(r.id));
+  // Quietly close out the ones that really did complete, so they stop being scanned.
+  for (const r of rows) {
+    if (!doneIds.has(r.id)) continue;
+    await fetch(`${SB_URL}/rest/v1/pending_signings?id=eq.${encodeURIComponent(r.id)}`, {
+      method: "PATCH", headers: { ...sb, "Content-Type": "application/json", Prefer: "return=minimal" },
+      body: JSON.stringify({ status: "signed" }),
+    }).catch(() => {});
+  }
+  if (!live.length) return json(200, { ok: true, stalled: 0, already_signed: doneIds.size });
+  rows = live;
 
   // Rep phone numbers, by name — pending_signings only carries the name.
   const names = [...new Set(rows.map((r) => (r.sales_rep_name || "").trim()).filter(Boolean))];
