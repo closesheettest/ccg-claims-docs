@@ -17,12 +17,10 @@
 //
 // SMS is the primary channel — a phone is the one thing everybody here has.
 //
-// The texts carry NO LINK on purpose. US carriers block messages containing
-// links on shared hosting domains (*.netlify.app), and they do it AFTER the API
-// returns 200 — GHL reports "undelivered, error 30007" seconds later. That cost
-// a whole morning of nudges reaching nobody, silently. Links live in the email
-// version, which has no such problem. If the app ever gets a custom domain
-// (timecard.shingleusa.com), links can come back to SMS.
+// Texts carry the link in BARE form — "free-roof-inspections.netlify.app/?…"
+// rather than "https://free-roof-inspections.netlify.app/?…". Carriers block the
+// second and deliver the first (error 30007, silently, after the API returns
+// 200). Verified both ways on two numbers. Emails keep the full URL.
 //
 // Every send is verified against the carrier's verdict. When a text doesn't
 // land, the employee gets an email instead if they have one, and if they don't,
@@ -99,10 +97,9 @@ export const handler = async (event) => {
     if (!e.phone && !e.email) { skipped.push({ who: name(e), why: `${kind} due but no phone or email on file` }); continue; }
 
     const link = `${BASE}/?mode=timecard`;
-    // Plain ASCII, no URL — see the note at the top of this file.
     const msg = kind === "checkin"
-      ? `Good ${greeting(shift)} ${e.first_name} - you are not checked in for your ${shift.name} shift yet. Open your U.S. Shingle time card and tap Check in.`
-      : `${e.first_name}, wrapping up? Open your U.S. Shingle time card and take 30 seconds to say what you got done today.`;
+      ? `Good ${greeting(shift)} ${e.first_name} - you are not checked in for your ${shift.name} shift yet. Check in: ${smsLink()}`
+      : `${e.first_name}, wrapping up? Take 30 seconds and say what you got done today: ${smsLink()}`;
 
     if (dry) { sent.push({ who: name(e), shift: shift.name, work_date: wd, kind, phone: e.phone || null, email: e.email || null, dry: true }); continue; }
 
@@ -152,6 +149,11 @@ async function payrollConfig() {
   return { checkin_nudge_after_minutes: DEFAULT_CHECKIN_AFTER, recap_nudge_after_minutes: DEFAULT_RECAP_AFTER, ...cfg };
 }
 
+// US carriers block texts containing "https://…netlify.app" links (error 30007,
+// silently, after the API returns 200) but deliver the SAME link written bare as
+// "domain/path". Verified on two different numbers, both ways. So every SMS uses
+// smsLink(); emails keep the full https:// URL.
+const smsLink = () => `${BASE.replace(/^https?:\/\//, "")}/?mode=timecard`;
 function name(e) { return `${e.first_name} ${e.last_name}`.trim(); }
 function greeting(shift) { return mins(shift.start_time) < 720 ? "morning" : mins(shift.start_time) < 1020 ? "afternoon" : "evening"; }
 function wrap(m) { return ((m % 1440) + 1440) % 1440; }

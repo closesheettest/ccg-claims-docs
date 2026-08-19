@@ -69,9 +69,8 @@ export const handler = async (event) => {
     if (noRecap.length) bits.push(`no recap: ${noRecap.slice(0, 6).join(", ")}${noRecap.length > 6 ? ` +${noRecap.length - 6}` : ""}`);
     const gaps = bits.length ? ` Gaps — ${bits.join("; ")}.` : " Everyone checked in and recapped.";
 
-    // No URL in the text — US carriers block links on *.netlify.app (error
-    // 30007). The email below carries the link.
-    const sms = `US Shingle: ${d.name} hours for ${pretty(day)} need your sign-off.${gaps} Open your time card app to sign.`;
+    // Bare link — carriers block the https:// form on *.netlify.app (30007).
+    const sms = `US Shingle: ${d.name} hours for ${pretty(day)} need your sign-off.${gaps} ${link.replace(/^https?:\/\//, "")}`;
     const html =
       `<p>Good morning ${mgr.first_name},</p>` +
       `<p><b>${d.name}</b> hours for <b>${pretty(day)}</b> are waiting on your sign-off. Payroll runs off what you approve, so please review the day and sign it.</p>` +

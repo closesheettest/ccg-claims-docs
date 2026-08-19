@@ -162,14 +162,27 @@ US carriers **block SMS containing links on shared hosting domains**, and they d
 seconds later. A morning of check-in reminders reached nobody before this was caught,
 with nothing anywhere showing a failure.
 
-So: **texts carry no URL.** They say "open your U.S. Shingle time card"; the link lives
-in the email version, which carriers don't filter this way. Every text is now sent with
-`verify: true`, which waits for the carrier's verdict instead of trusting the 200, and:
+The trigger is specifically the **`https://` form** of the link. Verified both ways on
+two different numbers:
+
+| text | result |
+|---|---|
+| `… https://free-roof-inspections.netlify.app/?mode=timecard` | **undelivered 30007** |
+| `… free-roof-inspections.netlify.app/?mode=timecard` | **delivered** |
+
+So every SMS writes the link **bare, without the scheme**; emails keep the full URL.
+Every text is also sent with `verify: true`, which waits for the carrier's verdict
+instead of trusting the 200, and:
 
 1. if the text didn't land and the person has an email, they get it there;
 2. if they have no email either, **their manager is emailed** so a person knows.
 
-**The real fix is a custom domain.** Point something like `timecard.shingleusa.com` at
+**Inviting people.** People → **Invite N not signed in** texts (and emails) the sign-in
+link to everyone who hasn't set a passcode yet, and reports the *carrier's verdict* per
+person — a silently-failed invite is how somebody never onboards and nobody notices.
+There's a per-person **Invite** button too.
+
+**The real fix is still a custom domain.** Point something like `timecard.shingleusa.com` at
 this site and links can go back into the texts — carrier filters treat a real company
 domain very differently from `*.netlify.app`.
 
