@@ -182,7 +182,15 @@ link to everyone who hasn't set a passcode yet, and reports the *carrier's verdi
 person — a silently-failed invite is how somebody never onboards and nobody notices.
 There's a per-person **Invite** button too.
 
-**The real fix is still a custom domain.** Point something like `timecard.shingleusa.com` at
+**Adding it to the home screen.** The app is installable, and "Add to Home Screen"
+bakes the manifest's `start_url` into the icon. The default manifest starts at the rep
+Field Visit page, so an employee who installed from the time card link used to launch
+into "Who are you?" — a sales-rep list they aren't on. `index.html` now swaps in
+`manifest-timecard.webmanifest` (start_url `/?app=1&mode=timecard`) whenever the page is
+the time card, the same trick DoorDispatcher uses. Anyone who installed the icon BEFORE
+this shipped has the old start_url baked in and must delete the icon and re-add it.
+
+**The real fix for links is still a custom domain.** Point something like `timecard.shingleusa.com` at
 this site and links can go back into the texts — carrier filters treat a real company
 domain very differently from `*.netlify.app`.
 

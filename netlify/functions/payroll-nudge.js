@@ -98,8 +98,8 @@ export const handler = async (event) => {
 
     const link = `${BASE}/?mode=timecard`;
     const msg = kind === "checkin"
-      ? `Good ${greeting(shift)} ${e.first_name} - you are not checked in for your ${shift.name} shift yet. Check in: ${smsLink()}`
-      : `${e.first_name}, wrapping up? Take 30 seconds and say what you got done today: ${smsLink()}`;
+      ? `Good ${greeting(shift)} ${e.first_name} - you are not checked in for your ${shift.name} shift yet.\n\n${smsLink()}`
+      : `${e.first_name}, wrapping up? Take 30 seconds and say what you got done today.\n\n${smsLink()}`;
 
     if (dry) { sent.push({ who: name(e), shift: shift.name, work_date: wd, kind, phone: e.phone || null, email: e.email || null, dry: true }); continue; }
 

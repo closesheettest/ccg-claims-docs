@@ -56,6 +56,15 @@
             if (fav) { fav.setAttribute("href", "/doordispatcher-icon.svg"); fav.setAttribute("type", "image/svg+xml"); }
             if (idp) { localStorage.setItem("harvest_home", location.href); }
           }
+          // Same problem on the time card: "Add to Home Screen" bakes the DEFAULT
+          // manifest's start_url into the icon, so the installed app opened the rep
+          // Field Visit page ("Who are you?") instead of the person's time card —
+          // and a marketing or warehouse employee isn't on that rep list at all.
+          // Point the icon at /timecard before the phone reads the manifest.
+          if (params.get("mode") === "timecard" || location.pathname === "/timecard") {
+            var tml = document.querySelector('link[rel="manifest"]');
+            if (tml) tml.setAttribute("href", "/manifest-timecard.webmanifest");
+          }
           var standalone = window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true;
           var launched = standalone || params.get("app") === "1";
           // The MAP icon (separate manifest) launches with go=harvest → ALWAYS open the
