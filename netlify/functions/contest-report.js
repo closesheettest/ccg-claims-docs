@@ -23,7 +23,11 @@ const sb = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` };
 const TMS_REP_ZONES_URL = "https://trainingmanagementsys.netlify.app/.netlify/functions/rep-zones";
 // Reps excluded from the CONTEST only (kept in sync with zone-contest-leaderboard).
 // Dropped from the roster so they don't count for or against their team.
-const CONTEST_EXCLUDE = new Set(["vic sandre", "zach smith"]);
+  // "chris hill" — SHARKS/Zone 3. In retraining as of 2026-08-19, not in the
+  // field, so he must not dilute his team's average. REMOVE HIM FROM THIS LIST
+  // when he goes back out. (Week 1 is already frozen, so this only affects
+  // Week 2 onward — the finished week keeps the roster it was scored on.)
+const CONTEST_EXCLUDE = new Set(["vic sandre", "zach smith", "chris hill"]);
 
 const WEEKS = [
   { label: "Week 1", start: "2026-08-12", end: "2026-08-13" },

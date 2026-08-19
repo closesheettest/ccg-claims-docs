@@ -77,7 +77,11 @@ const ZONE_TEAMS = { "Zone 1": "SQUAD", "Zone 2": "SitSold", "Zone 3": "SHARKS",
 // Reps excluded from the CONTEST only (still active everywhere else). They don't count
 // for OR against their team — dropped from the roster so they never dilute the average.
 // Normalized names (see normalizeName).
-const CONTEST_EXCLUDE = new Set(["vic sandre", "zach smith"]);
+  // "chris hill" — SHARKS/Zone 3. In retraining as of 2026-08-19, not in the
+  // field, so he must not dilute his team's average. REMOVE HIM FROM THIS LIST
+  // when he goes back out. (Week 1 is already frozen, so this only affects
+  // Week 2 onward — the finished week keeps the roster it was scored on.)
+const CONTEST_EXCLUDE = new Set(["vic sandre", "zach smith", "chris hill"]);
 const ZONE_ORDER = ["Zone 1", "Zone 2", "Zone 3", "Zone 4"];
 
 // Sold-stage status names (exact JN spellings, to pull only sold jobs) + a normalized
