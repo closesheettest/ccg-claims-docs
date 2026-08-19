@@ -1129,7 +1129,9 @@ export default function CanvassMap() {
   const bearingRef = useRef(0);
   const twistRef = useRef(null);                       // { startAngle, startBearing } during a two-finger twist
   const [ignoreDist, setIgnoreDist] = useState(false); // admin test toggle: skip the distance gate
-  const [manualHere, setManualHere] = useState(null);  // stop id the rep confirmed "I'm at the door" (GPS/geocode wrong)
+  const [manualHere, setManualHere] = useState(null);
+  const [fixOpen, setFixOpen] = useState(false);   // "statused wrong? fix it" panel on the off-route pin card
+  useEffect(() => { setFixOpen(false); }, [selected?.id]);   // never carry the panel over to another door  // stop id the rep confirmed "I'm at the door" (GPS/geocode wrong)
   const [capped, setCapped] = useState(false);         // more pins in view than the cap → "zoom in"
   const [shownCount, setShownCount] = useState(0);     // pins actually drawn after the category filter
   const [dbCounts, setDbCounts] = useState(null);      // TRUE per-status counts (RPC), so chips are right even when the load is capped
@@ -1924,6 +1926,27 @@ export default function CanvassMap() {
     if (outcome !== "nothome") { const ok = await setStatus(pin, outcome); if (ok === false) return; }
     setSelected(null);
   }
+  // FIXING A WRONG STATUS — deliberately not the same thing as knocking.
+  //
+  // Statusing is gated to being on a route AND at the door, which is what keeps
+  // couch-canvassing out of the numbers. But that also meant a door someone
+  // statused WRONG could only be fixed by driving to it and routing it — Sam hit
+  // this on a door Yehudah had marked Dead/DNK by mistake (Neal, 2026-08-19).
+  //
+  // So corrections are allowed from anywhere, and logged as kind:"correction"
+  // rather than "visit" — the status gets fixed, and nobody is credited with a
+  // knock they didn't make. The office report can still see who changed what.
+  async function correctPin(pin, outcome) {
+    if (spotCheck) { alert("🔍 Spot-check — statusing is off."); return; }
+    const from = S[pin.status]?.label || pin.status || "no status";
+    const to = S[outcome]?.label || outcome;
+    if (!window.confirm(`Fix this door's status?\n\n${from}  →  ${to}\n\nThis corrects a mistake — it is NOT recorded as a door you knocked.`)) return;
+    logActivity({ pin_id: pin.id, kind: "correction", to_status: outcome, ...locAudit(pin) });
+    const ok = await setStatus(pin, outcome);
+    if (ok === false) return;
+    setSelected(null);
+  }
+
   // Where the rep physically was when they logged an action, and how trustworthy the
   // GPS was. Feeds the office report so couch-canvassing (a whole route statused from
   // one spot) is obvious. loc_flag: 'verified' = at the door; 'gps_off' = phone had no
@@ -5071,6 +5094,35 @@ export default function CanvassMap() {
             <div style={{ marginTop: 14, background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 12, padding: "14px 16px", textAlign: "center" }}>
               <div style={{ fontSize: 13.5, fontWeight: 800, color: "#1e3a8a" }}>Work this door on a route</div>
               <div style={{ fontSize: 12.5, color: "#334155", marginTop: 4, lineHeight: 1.5 }}>To status it (signed, not interested, appt, …), tap {assignedIds && assignedIds.size > 0 ? <><b>▶ Start my day</b> or </> : null}<b>▢ Route an area</b>. It comes up in order with the <b>“How’d it go?”</b> buttons when you're at the door.</div>
+              {selected.status && S[selected.status] && (
+                <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid #bfdbfe" }}>
+                  {!fixOpen ? (
+                    <button type="button" onClick={() => setFixOpen(true)}
+                      style={{ background: "none", border: "none", padding: 0, color: "#1d4ed8", fontWeight: 800, fontSize: 12.5, cursor: "pointer", textDecoration: "underline" }}>
+                      Statused wrong? Fix it
+                    </button>
+                  ) : (
+                    <div>
+                      <div style={{ fontSize: 11, fontWeight: 800, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 6 }}>
+                        Correct this door’s status
+                      </div>
+                      <div style={{ fontSize: 12, color: "#334155", marginBottom: 8, lineHeight: 1.45 }}>
+                        For fixing a mistake — it won’t be counted as a door you knocked.
+                      </div>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                        {(visTypes || []).filter((t) => t && t.key !== selected.status).map((t) => (
+                          <button key={t.key} type="button" onClick={() => correctPin(selected, t.key)}
+                            style={{ flex: "1 1 44%", minWidth: 92, padding: "10px 8px", borderRadius: 11, fontSize: 13, fontWeight: 800, cursor: "pointer", border: `1px solid ${t.color}`, background: "#fff", color: t.color }}>
+                            {t.label}
+                          </button>
+                        ))}
+                      </div>
+                      <button type="button" onClick={() => setFixOpen(false)}
+                        style={{ marginTop: 8, background: "none", border: "none", padding: 0, color: "#64748b", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>Cancel</button>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           ) : actingRep ? (() => {
             // ON a route: let the rep RE-STATUS any door from its pin sheet — e.g.
