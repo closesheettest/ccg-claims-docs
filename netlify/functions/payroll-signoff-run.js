@@ -70,7 +70,7 @@ export const handler = async (event) => {
     const gaps = bits.length ? ` Gaps — ${bits.join("; ")}.` : " Everyone checked in and recapped.";
 
     // Bare link — carriers block the https:// form on *.netlify.app (30007).
-    const sms = `US Shingle: ${d.name} hours for ${pretty(day)} need your sign-off.${gaps} ${link.replace(/^https?:\/\//, "")}`;
+    const sms = `US Shingle: ${d.name} hours for ${pretty(day)} need your sign-off.${gaps} ${BASE.replace(/^https?:\/\//, "")}/timecard`;
     const html =
       `<p>Good morning ${mgr.first_name},</p>` +
       `<p><b>${d.name}</b> hours for <b>${pretty(day)}</b> are waiting on your sign-off. Payroll runs off what you approve, so please review the day and sign it.</p>` +

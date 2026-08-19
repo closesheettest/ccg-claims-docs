@@ -819,7 +819,7 @@ async function notifyManager(emp, { subject, line, detail, cta }) {
 
   const link = `${BASE}/?mode=timecard`;
   // Bare link in the text — carriers block the https:// form on *.netlify.app.
-  const body = [line, detail ? `"${detail}"` : "", `${cta}: ${link.replace(/^https?:\/\//, "")}`].filter(Boolean).join(" ");
+  const body = [line, detail ? `"${detail}"` : "", `${cta}: ${BASE.replace(/^https?:\/\//, "")}/timecard`].filter(Boolean).join(" ");
   if (mgr.phone) out.sms = await sendSms(mgr.phone, fullName(mgr), body);
   if (mgr.email) {
     out.email = await sendEmail(mgr.email, subject,

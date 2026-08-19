@@ -297,7 +297,7 @@ export const handler = async (event) => {
       if (!rows.length) return cors(200, j({ ok: true, sent: [], note: "Everyone active has already signed in." }));
 
       const base = (process.env.URL || "https://free-roof-inspections.netlify.app").replace(/\/$/, "");
-      const bare = `${base.replace(/^https?:\/\//, "")}/?mode=timecard`;
+      const bare = `${base.replace(/^https?:\/\//, "")}/timecard`;
       const out = [];
       for (const e of rows) {
         const res = { name: `${e.first_name} ${e.last_name}`.trim(), sms: null, email: null };
