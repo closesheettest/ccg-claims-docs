@@ -12,8 +12,10 @@
 // kept in harvest_token_revoked so a returning trainee can be restored rather
 // than re-issued (their training results are keyed to it).
 //
-//   GET  ?dry=1      → who WOULD be revoked, changes nothing   (default)
-//   GET  ?confirm=1  → actually revoke
+//   GET  ?dry=1        → who WOULD be revoked, changes nothing   (default)
+//   GET  ?confirm=1    → actually revoke
+//   GET  ?only=<name>  → restrict to one person (substring, case-insensitive),
+//                        for revoking a single leaver without sweeping everyone
 //
 // TWO KINDS OF LEAVER:
 //   • training dropouts   — TMS dropped_out
@@ -83,15 +85,23 @@ export const handler = async (event) => {
       if (why && !isActive) hit.push({ ...r, why });
     }
 
+    // Narrow to one person when asked. Applied AFTER the safety checks, so ?only=
+    // can never revoke someone the sweep itself wouldn't have.
+    const only = String(q.only || "").trim().toLowerCase();
+    const targets = only ? hit.filter((r) => String(r.name || "").toLowerCase().includes(only)) : hit;
+    if (only && !targets.length) {
+      return json(404, { ok: false, error: `nobody matching "${q.only}" is eligible to be revoked`, candidates: hit.length });
+    }
+
     if (!confirm) {
       return json(200, {
-        ok: true, dry_run: true, would_revoke: hit.length,
-        reps: hit.map((r) => ({ name: r.name, why: r.why, level: r.harvest_level, link_sent: r.harvest_link_sent_at })),
+        ok: true, dry_run: true, would_revoke: targets.length,
+        reps: targets.map((r) => ({ name: r.name, why: r.why, level: r.harvest_level, link_sent: r.harvest_link_sent_at })),
       });
     }
 
     const done = [], failed = [];
-    for (const r of hit) {
+    for (const r of targets) {
       const res = await fetch(`${SB_URL}/rest/v1/sales_reps?id=eq.${encodeURIComponent(r.id)}`, {
         method: "PATCH",
         headers: { ...sb, Prefer: "return=representation" },
