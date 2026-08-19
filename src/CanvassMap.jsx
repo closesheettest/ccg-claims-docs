@@ -1135,7 +1135,7 @@ export default function CanvassMap() {
   // re-status off-route would undo the whole point of the at-the-door gate — a rep
   // could rewrite their own day from the truck. A manager fixing someone else's
   // mistake is a different act, and it's the one Neal wants (2026-08-19).
-  const isManagerView = !auth.rt || me?.level === "admin";
+  const isManagerView = !auth.rt || me?.level === "admin" || me?.manager === true;
   useEffect(() => { setFixOpen(false); }, [selected?.id]);   // never carry the panel over to another door  // stop id the rep confirmed "I'm at the door" (GPS/geocode wrong)
   const [capped, setCapped] = useState(false);         // more pins in view than the cap → "zoom in"
   const [shownCount, setShownCount] = useState(0);     // pins actually drawn after the category filter
