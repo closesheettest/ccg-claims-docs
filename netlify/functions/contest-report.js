@@ -189,10 +189,16 @@ export const handler = async (event) => {
           points += dayPoints; sales += sold;
           dayList.push({ day, counts, sold, attrCount, dayPoints });
         }
+        // Ineligible reps are SHOWN but score nothing — their work this week isn't
+        // part of the contest, so it must not reach the team total either.
+        if (m.ineligible) return { name: m.name, points: 0, sales: 0, totals: { booked: 0, went: 0, signed: 0, goback: 0, review: 0 }, days: [], isManager: !!m.isManager, ineligible: true };
         return { name: m.name, points, sales, totals, days: dayList, isManager: !!m.isManager };
       }).sort((a, b) => b.points - a.points);
       const points = reps.reduce((s, r) => s + r.points, 0);
-      const activeReps = repsOverride[zone] != null ? repsOverride[zone] : roster.length;
+      // The divisor counts ELIGIBLE reps only — an excluded rep on the list must
+      // not dilute the average, which is the whole reason they were excluded.
+      const eligibleCount = roster.filter((m) => !m.ineligible).length;
+      const activeReps = repsOverride[zone] != null ? repsOverride[zone] : eligibleCount;
       return { zone, team: ZONE_TEAMS[zone] || zone, points, avg: Math.round((points / activeReps) * 10) / 10, activeReps, reps };
     }).filter(Boolean).sort((a, b) => b.avg - a.avg);
 
@@ -266,11 +272,19 @@ async function fetchZoneResolver() {
     // how Danny Pasicolan ended up scoring for SQUAD (Neal, 2026-08-18).
     if (!r.name || !r.zone || r.active === false || r.in_training === true || r.pregrad === true) continue;
     const norm = normalizeName(r.name);
-    if (CONTEST_EXCLUDE.has(norm)) continue; // excluded from the contest — not in the divisor
     if (seen.has(norm)) continue; seen.add(norm);
     // managed_region set = this person is the zone's MANAGER. Their points count
     // toward the team average, but they're NOT eligible for the prize split.
-    (rosterByZone[r.zone] || (rosterByZone[r.zone] = [])).push({ name: String(r.name).trim(), norm, isManager: !!r.managed_region });
+    //
+    // An EXCLUDED rep (in training, etc.) stays on the roster so their manager can
+    // see them and doesn't think the report has lost somebody — but they're out of
+    // the divisor and score nothing (Neal, 2026-08-19). Removing them outright was
+    // the wrong call: silence looks like a bug.
+    (rosterByZone[r.zone] || (rosterByZone[r.zone] = [])).push({
+      name: String(r.name).trim(), norm,
+      isManager: !!r.managed_region,
+      ineligible: CONTEST_EXCLUDE.has(norm),
+    });
   }
   return { rosterByZone };
 }
