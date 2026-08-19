@@ -129,11 +129,53 @@ exports.handler = async (event) => {
   // real inspections. It fires straight through with its note instead. (The
   // Damage variant already skips the PA handoff on its own.)
   const mode = (body.mode || "submit").trim();
-  if (mode !== "confirm" && insp.inspector_id && !note) {
+
+  // WHO IS SUBMITTING THIS. The gate used to key off insp.inspector_id alone —
+  // but the inspector MAP doesn't stamp that field, only inspector_name, so a
+  // gated inspector's results sailed straight through to JobNimbus and the
+  // "Inspections to confirm" tile stayed empty. Dustin Chrans was gated the
+  // whole time and 11 of his 19 results since Aug 10 were never held (Neal,
+  // 2026-08-19).
+  //
+  // So: fall back to the NAME when the row carries no id, and stamp the id back
+  // on so everything downstream (reports, the confirm replay) has it too.
+  let gateInspectorId = insp.inspector_id || (body.inspector_id || "").trim() || null;
+  const idCameFromApp = !insp.inspector_id && !!gateInspectorId;
+  if (!gateInspectorId && inspectorName) {
+    try {
+      const nr = await fetch(
+        `${SB_URL}/rest/v1/inspectors?name=eq.${encodeURIComponent(inspectorName)}&select=id&limit=1`,
+        { headers: sbHeaders },
+      );
+      if (nr.ok) {
+        const nrows = await nr.json();
+        gateInspectorId = nrows?.[0]?.id || null;
+        if (gateInspectorId) {
+          await fetch(`${SB_URL}/rest/v1/inspections?id=eq.${encodeURIComponent(inspectionId)}`, {
+            method: "PATCH",
+            headers: { ...sbHeaders, "Content-Type": "application/json", Prefer: "return=minimal" },
+            body: JSON.stringify({ inspector_id: gateInspectorId }),
+          }).catch(() => {});
+        }
+      }
+    } catch (e) {
+      console.warn("inspector name→id lookup failed:", e.message);
+    }
+  }
+
+  if (idCameFromApp) {
+    await fetch(`${SB_URL}/rest/v1/inspections?id=eq.${encodeURIComponent(inspectionId)}`, {
+      method: "PATCH",
+      headers: { ...sbHeaders, "Content-Type": "application/json", Prefer: "return=minimal" },
+      body: JSON.stringify({ inspector_id: gateInspectorId }),
+    }).catch(() => {});
+  }
+
+  if (mode !== "confirm" && gateInspectorId && !note) {
     let requiresConfirmation = false;
     try {
       const ir = await fetch(
-        `${SB_URL}/rest/v1/inspectors?id=eq.${encodeURIComponent(insp.inspector_id)}&select=requires_confirmation&limit=1`,
+        `${SB_URL}/rest/v1/inspectors?id=eq.${encodeURIComponent(gateInspectorId)}&select=requires_confirmation&limit=1`,
         { headers: sbHeaders },
       );
       if (ir.ok) {
