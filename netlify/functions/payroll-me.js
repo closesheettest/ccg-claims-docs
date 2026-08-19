@@ -114,7 +114,7 @@ export const handler = async (event) => {
     if (action === "login") {
       const emp = await empByLogin(body.login ?? body.phone ?? body.email);
       const pass = String(body.passcode || "").trim();
-      if (!emp) return cors(404, j({ ok: false, error: "We don't have that number on the payroll roster. Check with the office." }));
+      if (!emp) return cors(404, j({ ok: false, error: "We don't have that number on the roster. Use the mobile number the office texts you on." }));
       if (!emp.active) return cors(403, j({ ok: false, error: "That employee record is inactive. Check with the office." }));
       if (!/^\d{4,8}$/.test(pass)) return cors(400, j({ ok: false, error: "Passcode must be 4–8 digits." }));
       if (!emp.passcode_hash) {
