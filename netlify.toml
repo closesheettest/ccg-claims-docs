@@ -303,3 +303,11 @@
 # so the office can run ?dry=1 (Netlify 403s manual calls to scheduled functions).
 [functions."cron-shift-nudge"]
   schedule = "*/15 * * * *"
+
+# Scheduled function: warn the rep when a signing STALLS. The homeowner passes the
+# phone code and then the signature never lands — six inspections were lost that
+# way between July 2 and Aug 18 and nobody was told, because the final PDF is
+# built on the homeowner's own phone. Every 15 min; texts once per signing.
+# (In-file schedule alone does NOT fire in this project — declare it here.)
+[functions."cron-signing-stalled"]
+  schedule = "*/15 * * * *"
