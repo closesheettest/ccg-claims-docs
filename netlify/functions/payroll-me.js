@@ -818,7 +818,8 @@ async function notifyManager(emp, { subject, line, detail, cta }) {
   out.manager = fullName(mgr);
 
   const link = `${BASE}/?mode=timecard`;
-  const body = [line, detail ? `"${detail}"` : "", `${cta}: ${link}`].filter(Boolean).join(" ");
+  // The text carries no URL on purpose — carriers block links on *.netlify.app.
+  const body = [line, detail ? `"${detail}"` : "", `${cta} in your time card app.`].filter(Boolean).join(" ");
   if (mgr.phone) out.sms = await sendSms(mgr.phone, fullName(mgr), body);
   if (mgr.email) {
     out.email = await sendEmail(mgr.email, subject,
