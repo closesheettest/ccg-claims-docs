@@ -1131,11 +1131,6 @@ export default function CanvassMap() {
   const [ignoreDist, setIgnoreDist] = useState(false); // admin test toggle: skip the distance gate
   const [manualHere, setManualHere] = useState(null);
   const [fixOpen, setFixOpen] = useState(false);   // "statused wrong? fix it" panel on the off-route pin card
-  // WHO MAY CORRECT A STATUS. Managers/office only (the admin link). Letting any rep
-  // re-status off-route would undo the whole point of the at-the-door gate — a rep
-  // could rewrite their own day from the truck. A manager fixing someone else's
-  // mistake is a different act, and it's the one Neal wants (2026-08-19).
-  const isManagerView = !auth.rt || me?.level === "admin" || me?.manager === true;
   useEffect(() => { setFixOpen(false); }, [selected?.id]);   // never carry the panel over to another door  // stop id the rep confirmed "I'm at the door" (GPS/geocode wrong)
   const [capped, setCapped] = useState(false);         // more pins in view than the cap → "zoom in"
   const [shownCount, setShownCount] = useState(0);     // pins actually drawn after the category filter
@@ -1314,6 +1309,13 @@ export default function CanvassMap() {
       return { rt: q.get("rt") || "", admin: q.get("admin") || "" };
     } catch { return { rt: "", admin: "" }; }
   })();
+
+  // WHO MAY CORRECT A STATUS. Managers/office only (the admin link). Letting any rep
+  // re-status off-route would undo the whole point of the at-the-door gate — a rep
+  // could rewrite their own day from the truck. A manager fixing someone else's
+  // mistake is a different act, and it's the one Neal wants (2026-08-19).
+  // MUST stay below `const auth` — referencing it earlier white-screened the map.
+  const isManagerView = !auth.rt || me?.level === "admin" || me?.manager === true;
   // Spot-check = office opened a rep's link WITH the admin token: we render the rep's
   // exact view but must NOT act as them — no live ping, no seat billing, no ended
   // beacon (it's just watching, not the rep working).
