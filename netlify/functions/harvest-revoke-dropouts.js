@@ -63,8 +63,12 @@ export const handler = async (event) => {
       // Offboarded: TMS says not active, and they're not a pre-grad (who read as
       // active:false purely so the contest and pay skip them).
       else if (r.active === false && !inTraining) markGone(r, "no longer an active rep");
-      // Anyone TMS still calls active — or who is mid-training — is off limits.
-      if ((r.active === true && !r.dropped_out) || inTraining) {
+      // Off limits: anyone TMS still calls active, anyone mid-training, and every
+      // REGIONAL MANAGER (managed_region set). A manager isn't always flagged as an
+      // active selling rep, and cutting a manager's map access would be the worst
+      // possible false positive — Neal's rule is active reps, managers, admins and
+      // trainees keep their links (2026-08-19).
+      if ((r.active === true && !r.dropped_out) || inTraining || r.managed_region) {
         if (r.jobnimbus_id) activeJn.add(String(r.jobnimbus_id));
         if (nn) activeName.add(nn);
       }
