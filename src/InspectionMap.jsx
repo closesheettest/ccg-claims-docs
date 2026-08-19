@@ -47,6 +47,12 @@ export default function InspectionMap() {
   const [stopIdx, setStopIdx] = useState(0);
   const [dayMode, setDayMode] = useState(null); // null | "active"
   const [selected, setSelected] = useState(null);
+  // Gate code for the selected pin. Two booked inspections were lost to a gate in
+  // one week — the drive was made and the roof never got looked at for want of
+  // four digits. Whoever gets in saves it here for whoever goes next.
+  const [gateEdit, setGateEdit] = useState(false);
+  const [gateVal, setGateVal] = useState("");
+  const [gateBusy, setGateBusy] = useState(false);
   const [loc, setLoc] = useState(null);
   const [mapReady, setMapReady] = useState(false);
   const [showInspected, setShowInspected] = useState(false); // "Roofs Inspected" panel
@@ -209,6 +215,27 @@ export default function InspectionMap() {
     else endDay();
   };
   const endDay = () => { const ids = route.map((p) => p.id); release(ids); setDayMode(null); setRoute([]); setStopIdx(0); trail.current?.clearLayers(); setSelected(null); try { localStorage.removeItem("ccg_inspect_route"); } catch { /* ignore */ } loadPins(); };
+  // Save the gate code onto the pin (empty clears it). Updates the pin in place so
+  // the card and every later route stop show it without a refetch.
+  const saveGate = async () => {
+    if (!selected) return;
+    setGateBusy(true);
+    try {
+      const r = await fetch("/.netlify/functions/inspection-gate-code", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ inspection_id: selected.id, gate_code: gateVal, by: (me && me.name) || "" }),
+      });
+      const j = await r.json();
+      if (!j.ok) { alert(j.error || "Could not save the gate code."); return; }
+      const patch = { gate_code: j.gate_code, gate_code_by: j.gate_code_by };
+      setPins((ps) => ps.map((p) => (p.id === selected.id ? { ...p, ...patch } : p)));
+      setSelected((sl) => (sl ? { ...sl, ...patch } : sl));
+      setGateEdit(false);
+    } catch (e) {
+      alert(e.message || "Network error saving the gate code.");
+    } finally { setGateBusy(false); }
+  };
+
   // Open the inspection portal FOR THIS ROOF: carry the inspector's identity into
   // the inspector app (so they land signed-in as themselves) and deep-link straight
   // to this inspection's flow.
@@ -330,8 +357,44 @@ export default function InspectionMap() {
                   📝 {selected.inspector_notes}
                 </div>
               )}
+
+              {/* GATE CODE. Big and readable — it gets read off a phone at a call
+                  box, often one-handed, often in the sun. */}
+              {!gateEdit && selected.gate_code && (
+                <button type="button"
+                  onClick={() => { setGateVal(selected.gate_code || ""); setGateEdit(true); }}
+                  style={{ display: "block", width: "100%", textAlign: "left", marginTop: 8, cursor: "pointer",
+                           background: "#ecfdf5", border: "1px solid #6ee7b7", borderRadius: 10, padding: "9px 12px" }}>
+                  <div style={{ fontSize: 11, fontWeight: 800, color: "#047857", letterSpacing: ".05em", textTransform: "uppercase" }}>🔐 Gate code</div>
+                  <div style={{ fontSize: 24, fontWeight: 900, fontFamily: OSWALD, color: "#065f46", letterSpacing: ".06em", lineHeight: 1.15 }}>{selected.gate_code}</div>
+                  <div style={{ fontSize: 11, color: "#059669" }}>{selected.gate_code_by ? `added by ${selected.gate_code_by} · tap to edit` : "tap to edit"}</div>
+                </button>
+              )}
+              {!gateEdit && !selected.gate_code && (
+                <button type="button"
+                  onClick={() => { setGateVal(""); setGateEdit(true); }}
+                  style={{ display: "block", width: "100%", textAlign: "left", marginTop: 8, cursor: "pointer",
+                           background: "#f8fafc", border: "1px dashed #cbd5e1", borderRadius: 10, padding: "9px 12px",
+                           fontSize: 13, fontWeight: 700, color: "#475569" }}>
+                  🔐 Add a gate code
+                </button>
+              )}
+              {gateEdit && (
+                <div style={{ marginTop: 8, background: "#f8fafc", border: "1px solid #cbd5e1", borderRadius: 10, padding: "10px 12px" }}>
+                  <div style={{ fontSize: 11, fontWeight: 800, color: "#475569", letterSpacing: ".05em", textTransform: "uppercase", marginBottom: 6 }}>🔐 Gate code</div>
+                  <input autoFocus value={gateVal} onChange={(e) => setGateVal(e.target.value)}
+                    placeholder="e.g. 1234, or #2580 then call box"
+                    style={{ width: "100%", boxSizing: "border-box", padding: "10px 12px", borderRadius: 9, border: "1px solid #cbd5e1", fontSize: 16 }} />
+                  <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                    <button onClick={saveGate} disabled={gateBusy}
+                      style={{ ...btnStyle("#16a34a", 14), flex: 1, opacity: gateBusy ? .6 : 1 }}>{gateBusy ? "Saving…" : "Save"}</button>
+                    <button onClick={() => setGateEdit(false)}
+                      style={{ ...btnStyle("#94a3b8", 14), flex: 0 }}>Cancel</button>
+                  </div>
+                </div>
+              )}
             </div>
-            <button onClick={() => setSelected(null)} style={{ background: "none", border: "none", fontSize: 22, color: "#cbd5e1", cursor: "pointer", lineHeight: 1 }}>×</button>
+            <button onClick={() => { setSelected(null); setGateEdit(false); }} style={{ background: "none", border: "none", fontSize: 22, color: "#cbd5e1", cursor: "pointer", lineHeight: 1 }}>×</button>
           </div>
           <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
             <button onClick={() => startInspection(selected)} style={{ ...btnStyle("#16a34a", 15), flex: 1 }}>🏠 Start inspection</button>

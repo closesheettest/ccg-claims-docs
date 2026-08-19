@@ -12513,6 +12513,13 @@ const renderSmsTemplate = (key, vars) => {
         client_name: inspData.clientName,
         mobile: inspData.mobile,
         email: inspData.email,
+        // Only send the gate columns when there IS a code — the insert must keep
+        // working on any deploy where sql/gate_code.sql hasn't been run yet.
+        ...(String(inspData.gateCode || "").trim()
+          ? { gate_code: String(inspData.gateCode).trim().slice(0, 60),
+              gate_code_at: new Date().toISOString(),
+              gate_code_by: data.salesRepName || "" }
+          : {}),
         address: inspData.address,
         city: inspData.city,
         state: inspData.state,
@@ -17041,6 +17048,17 @@ if (!hasDamage) {
                       <Label>Zip</Label>
                       <input type="text" value={inspData.zip} onChange={e => updateInsp("zip", e.target.value)}
                         placeholder="33762"
+                        style={{ width: "100%", height: 44, borderRadius: 14, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box" }} />
+                    </div>
+                    <div>
+                      {/* GATE CODE. Asked here because the rep is standing at the
+                          house with the homeowner — the only moment anyone can
+                          easily get it. Two booked inspections were lost at a gate
+                          in one week for want of four digits. Optional: most homes
+                          aren't gated, so it must never block a signing. */}
+                      <Label>Gate code (if the property is gated)</Label>
+                      <input type="text" value={inspData.gateCode || ""} onChange={e => updateInsp("gateCode", e.target.value)}
+                        placeholder="e.g. 1234 — leave blank if there's no gate"
                         style={{ width: "100%", height: 44, borderRadius: 14, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box" }} />
                     </div>
                     <div>
