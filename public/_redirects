@@ -9,4 +9,5 @@
 # browser has to actually land on /?mode=… A rewrite would leave location.search
 # empty and drop the visitor on the homeowner intake page instead.
 /timecard   /?mode=timecard   302
+/checkin    /?mode=timecard&checkin=1   302
 /payroll    /?mode=payroll    302

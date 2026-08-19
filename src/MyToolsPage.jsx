@@ -59,6 +59,7 @@ const CATALOG = [
   // ── People & Payroll ──
   { key: "payroll", cat: "People & Payroll", emoji: "🧾", label: "Employee Payroll (office)", desc: "W-2 timekeeping: shifts, roster, PTO allotments, holidays, daily recaps, and who has signed off last week.", href: "/?mode=payroll" },
   { key: "timecard", cat: "People & Payroll", emoji: "🕒", label: "My Time Card", desc: "Check in, recap your day, request time off — and read your team's day + sign off the week if you run a department.", href: "/?mode=timecard" },
+  { key: "checkinqr", cat: "People & Payroll", emoji: "🔳", label: "Check-in QR (door sign)", desc: "Printable sign for the door — people scan it on the way in and it checks them in.", href: "/?mode=checkinqr" },
 
   // ── Sales & Settings ──
   { key: "contest", cat: "Sales & Settings", emoji: "🏁", label: "Contest Leaderboard", desc: "Turn the Positive-Effort Contest board on/off + preview standings.", href: "/?mode=contest" },
@@ -160,7 +161,7 @@ const MODE_TITLES = {
   pareschedule: "Reschedule", installs: "Installs Map", foremanlinks: "Foreman Links",
   contest: "Contest Leaderboard", manager: "Manager Console", setter: "Setter Portal",
   crews: "Crew Onboarding", pa: "PA Portal", inspector: "Inspector App", admin: "Admin",
-  payroll: "Employee Payroll", timecard: "My Time Card",
+  payroll: "Employee Payroll", timecard: "My Time Card", checkinqr: "Check-in QR",
   roofmeasure: "Roof Measurement", rooftakeoff: "Roof Takeoff", masterinspreport2: "Reports",
 };
 

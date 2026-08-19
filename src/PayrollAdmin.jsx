@@ -118,7 +118,10 @@ export default function PayrollAdmin() {
             <div style={{ fontSize: 24, fontWeight: 900, color: NAVY }}>🧾 Employee Payroll</div>
             <div style={{ fontSize: 13, color: MUTE }}>Hours, time off and the Monday sign-off for W-2 staff. Subcontractor crews are paid in the crew portal.</div>
           </div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <a href="/?mode=checkinqr" target="_blank" rel="noopener noreferrer" style={{ ...ghost, textDecoration: "none" }}>🔳 Check-in QR for the door ↗</a>
           <a href="/?mode=timecard" target="_blank" rel="noopener noreferrer" style={{ ...ghost, textDecoration: "none" }}>Open the employee time card ↗</a>
+        </div>
         </div>
 
         <div style={{ display: "flex", gap: 7, flexWrap: "wrap", marginBottom: 14 }}>

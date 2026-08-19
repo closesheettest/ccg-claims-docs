@@ -47,6 +47,7 @@ import HarvestTrainingPage from "./HarvestTrainingPage";
 import HarvestJnSync from "./HarvestJnSync";
 import TimeCard from "./TimeCard";
 import PayrollAdmin from "./PayrollAdmin";
+import CheckInQR from "./CheckInQR";
 
 // Open the DoorDispatcher as the OFFICE (all pins) — fetches the view-all token
 // so the office link isn't hardcoded. Reps use their own personal ?rt= links.
@@ -9716,6 +9717,11 @@ export default function App() {
     // company-wide daily recap board, and the payroll export. PIN-gated.
     if (portalMode === "payroll") {
       return <PayrollAdmin />;
+    }
+    // ?mode=checkinqr — the printable "Scan to check in" sign for the door. The
+    // code it carries checks the scanner in on arrival.
+    if (portalMode === "checkinqr") {
+      return <CheckInQR />;
     }
     // /?crew=<token> — the crew owner's onboarding portal (the link we texted).
     const crewToken = params.get("crew");

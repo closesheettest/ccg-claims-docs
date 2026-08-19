@@ -20,7 +20,7 @@
 //
 // Tabs:  Today  ·  My Week  ·  Time Off  ·  Team (managers only)
 
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 
 const API = "/.netlify/functions/payroll-me";
 const TOKEN_KEY = "uss_payroll_token";
@@ -261,6 +261,14 @@ function SignIn({ onIn }) {
 // ── TODAY: check in, then recap ─────────────────────────────────────────
 function Today({ me, api, onErr, onChanged }) {
   const [d, setD] = useState(null);
+  // Arrived by scanning the door QR (/checkin). Check them in the moment the
+  // page can — including right after a first-time sign-in, since the flag rides
+  // along in the URL through that whole flow.
+  const [scanned] = useState(() => {
+    try { return new URLSearchParams(window.location.search).get("checkin") === "1"; } catch { return false; }
+  });
+  const [autoDone, setAutoDone] = useState(false);
+  const autoRan = useRef(false);
   const [busy, setBusy] = useState(false);
   const [recap, setRecap] = useState("");
   const [lunch, setLunch] = useState(30);
@@ -277,6 +285,20 @@ function Today({ me, api, onErr, onChanged }) {
   useEffect(() => { load(); }, [load]);
   // keep the "on shift for 3h 20m" counter honest without re-fetching
   useEffect(() => { const t = setInterval(() => setTick((x) => x + 1), 60000); return () => clearInterval(t); }, []);
+
+  // The scan-to-check-in handoff. Runs once, and only when there's genuinely
+  // nothing on the day yet — scanning again later must never disturb a day
+  // that's already under way, closed out, or marked off.
+  useEffect(() => {
+    if (!scanned || autoRan.current || !d) return;
+    if (d.state !== "not_started" || d.locked) return;
+    autoRan.current = true;
+    (async () => {
+      const r = await api("check_in");
+      if (r.ok) { setD(r); setAutoDone(true); onChanged(); }
+      else onErr(r.error || "Couldn't check you in.");
+    })();
+  }, [scanned, d, api, onErr, onChanged]);
 
   const call = async (action, extra) => {
     setBusy(true); onErr("");
@@ -317,6 +339,12 @@ function Today({ me, api, onErr, onChanged }) {
           </div>
         ) : <Pill color={AMBER}>no shift set</Pill>}
       </div>
+
+      {autoDone ? (
+        <div style={{ background: "#ecfdf5", border: "1px solid #a7f3d0", color: "#065f46", borderRadius: 12, padding: "14px 16px", fontWeight: 800, fontSize: 16, textAlign: "center" }}>
+          ✅ You're checked in at {hhmm(d.entry?.time_in)}. Have a good one.
+        </div>
+      ) : null}
 
       {d.holiday ? (
         <div style={{ background: "#fdf2f8", border: "1px solid #fbcfe8", color: "#9d174d", borderRadius: 12, padding: "10px 12px", fontWeight: 700, fontSize: 13.5 }}>
