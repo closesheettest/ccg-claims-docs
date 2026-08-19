@@ -155,6 +155,27 @@ Dry runs — these show exactly who would be texted and why, and send nothing:
 call to a scheduled function, which is why each schedule is a thin wrapper around a
 plain HTTP worker — the same split `cron-harvest-nosits` uses.)
 
+## Text messages and the link problem
+
+US carriers **block SMS containing links on shared hosting domains**, and they do it
+*after* the API returns success — GoHighLevel reports `undelivered, error 30007` a few
+seconds later. A morning of check-in reminders reached nobody before this was caught,
+with nothing anywhere showing a failure.
+
+So: **texts carry no URL.** They say "open your U.S. Shingle time card"; the link lives
+in the email version, which carriers don't filter this way. Every text is now sent with
+`verify: true`, which waits for the carrier's verdict instead of trusting the 200, and:
+
+1. if the text didn't land and the person has an email, they get it there;
+2. if they have no email either, **their manager is emailed** so a person knows.
+
+**The real fix is a custom domain.** Point something like `timecard.shingleusa.com` at
+this site and links can go back into the texts — carrier filters treat a real company
+domain very differently from `*.netlify.app`.
+
+To check what actually happened to a message, GHL's API reports per-message status:
+`GET https://services.leadconnectorhq.com/conversations/messages/<messageId>`.
+
 ## Notes / limits
 
 - Passcodes are stored salted + hashed. Sessions last 30 days per device.

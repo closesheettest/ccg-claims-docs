@@ -15,10 +15,18 @@
 // Night shifts are handled by work DATE, not calendar date: a 6pm–6am shift
 // belongs to the day it started, so the 6am recap text lands on the right row.
 //
-// SMS is the primary channel — a phone is the one thing everybody here has. But
-// a number can be unsubscribed at the SMS provider, which fails silently from
-// the employee's point of view, so anyone with an email gets it there instead
-// when the text doesn't go through.
+// SMS is the primary channel — a phone is the one thing everybody here has.
+//
+// The texts carry NO LINK on purpose. US carriers block messages containing
+// links on shared hosting domains (*.netlify.app), and they do it AFTER the API
+// returns 200 — GHL reports "undelivered, error 30007" seconds later. That cost
+// a whole morning of nudges reaching nobody, silently. Links live in the email
+// version, which has no such problem. If the app ever gets a custom domain
+// (timecard.shingleusa.com), links can come back to SMS.
+//
+// Every send is verified against the carrier's verdict. When a text doesn't
+// land, the employee gets an email instead if they have one, and if they don't,
+// their manager is told so a person knows rather than nobody.
 //
 // This is the WORKER — a plain HTTP function, NOT scheduled. Netlify returns 403
 // for a manual call to a scheduled function, so the schedule lives in the thin
@@ -50,7 +58,7 @@ export const handler = async (event) => {
 
   const [shifts, emps, holidays] = await Promise.all([
     get("payroll_shifts?active=is.true&select=*"),
-    get("payroll_employees?active=is.true&select=id,first_name,last_name,phone,email,shift_id,standard_day_hours"),
+    get("payroll_employees?active=is.true&select=id,first_name,last_name,phone,email,shift_id,department_id,standard_day_hours"),
     get("payroll_holidays?active=is.true&paid=is.true&select=holiday_date"),
   ]);
   const holSet = new Set(holidays.map((h) => h.holiday_date));
@@ -91,16 +99,30 @@ export const handler = async (event) => {
     if (!e.phone && !e.email) { skipped.push({ who: name(e), why: `${kind} due but no phone or email on file` }); continue; }
 
     const link = `${BASE}/?mode=timecard`;
+    // Plain ASCII, no URL — see the note at the top of this file.
     const msg = kind === "checkin"
-      ? `Good ${greeting(shift)} ${e.first_name} — you're not checked in for your ${shift.name.toLowerCase()} shift yet. Tap to check in: ${link}`
-      : `${e.first_name}, wrapping up? Take 30 seconds and tell us what you got done today: ${link}`;
+      ? `Good ${greeting(shift)} ${e.first_name} - you are not checked in for your ${shift.name} shift yet. Open your U.S. Shingle time card and tap Check in.`
+      : `${e.first_name}, wrapping up? Open your U.S. Shingle time card and take 30 seconds to say what you got done today.`;
 
     if (dry) { sent.push({ who: name(e), shift: shift.name, work_date: wd, kind, phone: e.phone || null, email: e.email || null, dry: true }); continue; }
 
-    const via = { sms: false, email: false };
-    if (e.phone) via.sms = await postOk("ghl-sms", { to: e.phone, name: name(e), message: msg });
-    // Text didn't go (no number, or the number is unsubscribed at the provider) —
-    // fall back to email so the nudge isn't lost in silence.
+    // Stamp BEFORE sending. Netlify can invoke a schedule twice within the same
+    // minute; stamping afterwards let both invocations through and sent two
+    // texts seconds apart.
+    await upsert({
+      employee_id: e.id, work_date: wd,
+      ...(kind === "checkin" ? { checkin_nudged_at: nowIso() } : { recap_nudged_at: nowIso() }),
+      ...(entry ? {} : { day_type: "worked", shift_id: shift.id, source: "auto" }),
+    });
+
+    const via = { sms: false, email: false, sms_status: null };
+    if (e.phone) {
+      const r = await postJson("ghl-sms", { to: e.phone, name: name(e), message: msg, verify: true });
+      via.sms = !!r?.delivered || (r?.success === true && !r?.status);
+      via.sms_status = r?.status || (r?.error ? "error" : null);
+      if (!via.sms) via.sms_error = r?.error || r?.details?.message || "not delivered";
+    }
+    // The text didn't land — carrier block, opt-out, bad number. Email instead.
     if (!via.sms && e.email) {
       const subject = kind === "checkin" ? `Check in — ${shift.name} shift` : "What did you get done today?";
       via.email = await postOk("send-email", {
@@ -110,13 +132,11 @@ export const handler = async (event) => {
           `<p style="color:#64748b;font-size:13px;">U.S. Shingle &amp; Metal time cards</p>`,
       });
     }
-    // Stamp it even if both failed, so a broken address doesn't get retried
-    // every 15 minutes all shift long.
-    await upsert({
-      employee_id: e.id, work_date: wd,
-      ...(kind === "checkin" ? { checkin_nudged_at: nowIso() } : { recap_nudged_at: nowIso() }),
-      ...(entry ? {} : { day_type: "worked", shift_id: shift.id, source: "auto" }),
-    });
+    // Nothing reached them and there's no email to fall back on — tell their
+    // manager, so a person knows instead of nobody.
+    if (!via.sms && !via.email) {
+      via.manager_alerted = await alertManager(e, kind, via.sms_error, wd);
+    }
     sent.push({ who: name(e), shift: shift.name, work_date: wd, kind, via });
   }
 
@@ -150,6 +170,27 @@ function nowET() {
 function addDays(s, n) { const d = new Date(`${s}T12:00:00Z`); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); }
 function nowIso() { return new Date().toISOString(); }
 
+// Tell the department manager when we couldn't reach one of their people.
+async function alertManager(emp, kind, why, wd) {
+  if (!emp.department_id) return false;
+  const dept = (await get(`payroll_departments?id=eq.${emp.department_id}&select=name,manager_employee_id&limit=1`))[0];
+  if (!dept?.manager_employee_id) return false;
+  const mgr = (await get(`payroll_employees?id=eq.${dept.manager_employee_id}&select=first_name,email,phone&limit=1`))[0];
+  if (!mgr) return false;
+  const what = kind === "checkin" ? "check-in reminder" : "end-of-shift recap reminder";
+  const line = `We couldn't get the ${what} to ${name(emp)} for ${wd} (${why || "text not delivered"}), and they have no email on file. Please remind them directly.`;
+  let ok = false;
+  if (mgr.email) ok = await postOk("send-email", { to: mgr.email, subject: `Couldn't reach ${name(emp)}`, html: `<p>Hi ${mgr.first_name},</p><p>${line}</p><p style="color:#64748b;font-size:13px;">${dept.name} · U.S. Shingle &amp; Metal time cards</p>` });
+  if (!ok && mgr.phone) ok = await postOk("ghl-sms", { to: mgr.phone, name: mgr.first_name, message: line });
+  return ok;
+}
+
+async function postJson(fn, body) {
+  try {
+    const r = await fetch(`${BASE}/.netlify/functions/${fn}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    return await r.json().catch(() => null);
+  } catch { return null; }
+}
 async function postOk(fn, body) {
   try {
     const r = await fetch(`${BASE}/.netlify/functions/${fn}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });

@@ -74,6 +74,22 @@ async function getOrCreateConversation(contactId) {
   return conversationId;
 }
 
+// Poll one message until the carrier reports back (it settles in a few seconds).
+async function deliveryStatus(messageId, tries = 4) {
+  for (let i = 0; i < tries; i++) {
+    await new Promise((r) => setTimeout(r, 2500));
+    try {
+      const r = await fetch(`https://services.leadconnectorhq.com/conversations/messages/${messageId}`, { headers: GHL_HEADERS });
+      if (!r.ok) continue;
+      const m = (await r.json())?.message || {};
+      const st = String(m.status || "").toLowerCase();
+      if (["delivered", "undelivered", "failed", "read"].includes(st)) return { status: m.status, error: m.error || null };
+      if (i === tries - 1) return { status: m.status || "unknown", error: m.error || null };
+    } catch { /* keep waiting */ }
+  }
+  return { status: "unknown", error: null };
+}
+
 exports.handler = async (event) => {
   if (event.httpMethod !== "POST") {
     return { statusCode: 405, body: JSON.stringify({ error: "Method not allowed" }) };
@@ -121,6 +137,17 @@ exports.handler = async (event) => {
       return { statusCode: sendRes.status, body: JSON.stringify({ error: "GHL send failed", details: result }) };
     }
     console.log("GHL SMS sent:", result);
+
+    // GHL returns 200 the moment it QUEUES the message — the carrier can still
+    // reject it seconds later (error 30007, "blocked due to carrier policies",
+    // which is what happens to links on shared hosting domains). Callers that
+    // need to know whether it actually landed can pass verify:true and get the
+    // carrier's verdict back instead of a false success.
+    if (body.verify && result?.messageId) {
+      const status = await deliveryStatus(result.messageId);
+      const delivered = !["undelivered", "failed"].includes(String(status.status || "").toLowerCase());
+      return { statusCode: 200, body: JSON.stringify({ success: delivered, delivered, result, ...status }) };
+    }
     return { statusCode: 200, body: JSON.stringify({ success: true, result }) };
   } catch (err) {
     console.error("GHL SMS error:", err.message);
