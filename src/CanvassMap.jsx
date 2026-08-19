@@ -1131,6 +1131,11 @@ export default function CanvassMap() {
   const [ignoreDist, setIgnoreDist] = useState(false); // admin test toggle: skip the distance gate
   const [manualHere, setManualHere] = useState(null);
   const [fixOpen, setFixOpen] = useState(false);   // "statused wrong? fix it" panel on the off-route pin card
+  // WHO MAY CORRECT A STATUS. Managers/office only (the admin link). Letting any rep
+  // re-status off-route would undo the whole point of the at-the-door gate — a rep
+  // could rewrite their own day from the truck. A manager fixing someone else's
+  // mistake is a different act, and it's the one Neal wants (2026-08-19).
+  const isManagerView = !auth.rt || me?.level === "admin";
   useEffect(() => { setFixOpen(false); }, [selected?.id]);   // never carry the panel over to another door  // stop id the rep confirmed "I'm at the door" (GPS/geocode wrong)
   const [capped, setCapped] = useState(false);         // more pins in view than the cap → "zoom in"
   const [shownCount, setShownCount] = useState(0);     // pins actually drawn after the category filter
@@ -5094,7 +5099,7 @@ export default function CanvassMap() {
             <div style={{ marginTop: 14, background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 12, padding: "14px 16px", textAlign: "center" }}>
               <div style={{ fontSize: 13.5, fontWeight: 800, color: "#1e3a8a" }}>Work this door on a route</div>
               <div style={{ fontSize: 12.5, color: "#334155", marginTop: 4, lineHeight: 1.5 }}>To status it (signed, not interested, appt, …), tap {assignedIds && assignedIds.size > 0 ? <><b>▶ Start my day</b> or </> : null}<b>▢ Route an area</b>. It comes up in order with the <b>“How’d it go?”</b> buttons when you're at the door.</div>
-              {selected.status && S[selected.status] && (
+              {isManagerView && selected.status && S[selected.status] && (
                 <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid #bfdbfe" }}>
                   {!fixOpen ? (
                     <button type="button" onClick={() => setFixOpen(true)}
@@ -5107,7 +5112,7 @@ export default function CanvassMap() {
                         Correct this door’s status
                       </div>
                       <div style={{ fontSize: 12, color: "#334155", marginBottom: 8, lineHeight: 1.45 }}>
-                        For fixing a mistake — it won’t be counted as a door you knocked.
+                        Manager fix for a mis-statused door — it won’t be counted as a door anyone knocked.
                       </div>
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
                         {(visTypes || []).filter((t) => t && t.key !== selected.status).map((t) => (
