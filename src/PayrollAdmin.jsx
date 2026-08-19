@@ -877,7 +877,6 @@ function ImportRoster({ api, onErr, onDone }) {
   const STATUS = {
     new: { label: "will add", color: GREEN },
     exists: { label: "already on roster", color: MUTE },
-    needs_phone: { label: "no mobile", color: AMBER },
     duplicate: { label: "duplicate number", color: RED },
   };
 
@@ -927,7 +926,7 @@ function ImportRoster({ api, onErr, onDone }) {
           <div style={{ ...card, display: "flex", gap: 18, flexWrap: "wrap" }}>
             <div><div style={{ fontSize: 11, color: MUTE, fontWeight: 800 }}>WILL ADD</div><div style={{ fontSize: 21, fontWeight: 900, color: GREEN }}>{p.counts.new}</div></div>
             <div><div style={{ fontSize: 11, color: MUTE, fontWeight: 800 }}>ALREADY THERE</div><div style={{ fontSize: 21, fontWeight: 900 }}>{p.counts.exists}</div></div>
-            <div><div style={{ fontSize: 11, color: MUTE, fontWeight: 800 }}>NO MOBILE</div><div style={{ fontSize: 21, fontWeight: 900, color: p.counts.needs_phone ? AMBER : INK }}>{p.counts.needs_phone}</div></div>
+            <div><div style={{ fontSize: 11, color: MUTE, fontWeight: 800 }}>NO MOBILE YET</div><div style={{ fontSize: 21, fontWeight: 900, color: p.counts.needs_phone ? AMBER : INK }}>{p.counts.needs_phone}</div></div>
             <div><div style={{ fontSize: 11, color: MUTE, fontWeight: 800 }}>NEW DEPARTMENTS</div><div style={{ fontSize: 21, fontWeight: 900 }}>{p.counts.departments_new}</div></div>
           </div>
 
@@ -962,9 +961,9 @@ function ImportRoster({ api, onErr, onDone }) {
                     <tr key={i}>
                       <td style={{ ...td, fontWeight: 700 }}>{r.last_name}, {r.first_name}</td>
                       <td style={td}>{r.department || <span style={{ color: AMBER }}>none</span>}</td>
-                      <td style={td}>{r.phone || <span style={{ color: AMBER }}>—</span>}</td>
+                      <td style={td}>{r.phone || <span style={{ color: AMBER }}>none — can't sign in yet</span>}</td>
                       <td style={td}>{r.signs_off || "—"}{r.manager_overridden ? <span style={{ color: MUTE }}> (sheet said {r.manager})</span> : ""}</td>
-                      <td style={td}><Pill color={st.color}>{st.label}</Pill></td>
+                      <td style={td}><Pill color={st.color}>{st.label}</Pill>{r.no_phone && r.status === "new" ? <span style={{ marginLeft: 5 }}><Pill color={AMBER}>no mobile</Pill></span> : null}</td>
                     </tr>
                   );
                 })}

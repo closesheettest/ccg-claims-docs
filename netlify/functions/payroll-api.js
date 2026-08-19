@@ -101,11 +101,12 @@ export const handler = async (event) => {
       const rows = parsed.rows.map((r) => {
         const key = phoneKey(r.phone);
         const dupeInSheet = parsed.rows.filter((x) => x !== r && key && phoneKey(x.phone) === key).length > 0;
-        const already = key ? byKey[key] : byName[`${r.first_name} ${r.last_name}`.toLowerCase()];
+        const already = (key && byKey[key]) || byName[`${r.first_name} ${r.last_name}`.toLowerCase()];
         const differs = r.manager && deptManager[r.department] && r.manager.toLowerCase() !== deptManager[r.department].toLowerCase();
         return {
           ...r,
-          status: already ? "exists" : !key ? "needs_phone" : dupeInSheet ? "duplicate" : "new",
+          status: already ? "exists" : dupeInSheet ? "duplicate" : "new",
+          no_phone: !key,
           existing_name: already ? `${already.first_name} ${already.last_name}` : null,
           signs_off: deptManager[r.department] || null,
           manager_overridden: differs ? deptManager[r.department] : null,
@@ -120,15 +121,16 @@ export const handler = async (event) => {
         if (!resolved) warnings.push(`"${mgr}" signs off ${name} but isn't on this list — add them as an employee, then set ${name}'s manager on the Teams tab.`);
         return { name, manager_first: mgr, manager_name: resolved, exists: !!deptByName[name.toLowerCase()] };
       });
+      const noPhone = rows.filter((r) => r.no_phone && r.status !== "exists").map((r) => `${r.first_name} ${r.last_name}`);
+      if (noPhone.length) warnings.push(`${noPhone.length} ${noPhone.length === 1 ? "person has" : "people have"} no mobile number, so they'll be on the roster but can't sign in or be texted until one is added: ${noPhone.join(", ")}.`);
       for (const r of rows) {
-        if (r.status === "needs_phone") warnings.push(`${r.first_name} ${r.last_name} has no mobile number — they can't sign in or be texted until the office adds one.`);
         if (r.manager_overridden) warnings.push(`Your sheet says ${r.first_name} ${r.last_name} reports to ${r.manager}, but ${r.department} is signed off by ${r.manager_overridden} — that's who will sign their week.`);
       }
 
       const counts = {
         new: rows.filter((r) => r.status === "new").length,
         exists: rows.filter((r) => r.status === "exists").length,
-        needs_phone: rows.filter((r) => r.status === "needs_phone").length,
+        needs_phone: rows.filter((r) => r.no_phone && r.status !== "exists").length,
         duplicate: rows.filter((r) => r.status === "duplicate").length,
         departments_new: deptPlan.filter((d) => !d.exists).length,
       };
@@ -264,15 +266,16 @@ export const handler = async (event) => {
       }
       if (!b.id) {
         if (!row.first_name || !row.last_name) return cors(400, j({ ok: false, error: "First and last name are required." }));
-        if (!phoneKey(row.phone)) return cors(400, j({ ok: false, error: "A mobile number is required — it's how they log in and how the check-in/recap texts reach them." }));
+        // A mobile is how they sign in, but a roster can be built before the
+        // numbers are collected — the People tab flags anyone who can't log in yet.
+        if (phoneKey(row.phone)) {
+          const dupe = await get(`payroll_employees?phone=eq.${phoneKey(row.phone)}&select=id,first_name,last_name&limit=1`);
+          if (dupe.length) return cors(400, j({ ok: false, error: `That number is already on the roster (${dupe[0].first_name} ${dupe[0].last_name}).` }));
+        }
       }
       row.updated_at = nowIso();
       if (b.id) await patch(`payroll_employees?id=eq.${str(b.id, 64)}`, row);
-      else {
-        const dupe = await get(`payroll_employees?phone=eq.${phoneKey(row.phone)}&select=id,first_name,last_name&limit=1`);
-        if (dupe.length) return cors(400, j({ ok: false, error: `That number is already on the roster (${dupe[0].first_name} ${dupe[0].last_name}).` }));
-        await post("payroll_employees", row);
-      }
+      else await post("payroll_employees", row);
       return cors(200, j({ ok: true }));
     }
 
