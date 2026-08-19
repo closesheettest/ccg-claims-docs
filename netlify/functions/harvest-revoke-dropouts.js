@@ -60,9 +60,22 @@ export const handler = async (event) => {
       const nn = normName(r.name);
       const inTraining = r.in_training === true || r.pregrad === true;
       if (r.dropped_out) markGone(r, "dropped out of training");
-      // Offboarded: TMS says not active, and they're not a pre-grad (who read as
-      // active:false purely so the contest and pay skip them).
-      else if (r.active === false && !inTraining) markGone(r, "no longer an active rep");
+      // Offboarded: TMS says not active, they're not a pre-grad (who read as
+      // active:false purely so the contest and pay skip them), AND they are not
+      // simply someone still in class.
+      //
+      // A trainee mid-Week-A reads as active:false with NO training flags yet —
+      // is_field_trainee isn't set until they check in on the last classroom day —
+      // so they looked identical to an offboarded rep and I revoked two of them
+      // hours after Neal had texted them their links (Bret Dethlefsen, Noah
+      // Mamane, 2026-08-19). "Not yet started" is not "left".
+      //
+      // rep_level 'pregrad' or no rep_level at all means they have never been
+      // graded as a field rep, i.e. they were never active in the first place —
+      // there is nothing to offboard. Only revoke someone who WAS a real rep.
+      else if (r.active === false && !inTraining && r.rep_level && r.rep_level !== "pregrad") {
+        markGone(r, "no longer an active rep");
+      }
       // Off limits: anyone TMS still calls active, anyone mid-training, and every
       // REGIONAL MANAGER (managed_region set). A manager isn't always flagged as an
       // active selling rep, and cutting a manager's map access would be the worst
