@@ -196,7 +196,7 @@ function SignIn({ onIn }) {
     setBusy(true); setErr("");
     const d = await call("who", { login: v });
     setBusy(false);
-    if (!d.ok || !d.found) { setErr("That number isn't on the payroll roster yet — check with the office."); return; }
+    if (!d.ok || !d.found) { setErr("That number isn't on the roster. Use the mobile number the office texts you on — the one this link came to. Still stuck? Ask the office to check the number on your record."); return; }
     setName(d.name || ""); setStep(d.passcode_set ? "passcode" : "create");
   };
 
@@ -228,7 +228,7 @@ function SignIn({ onIn }) {
                 onKeyDown={(e) => e.key === "Enter" && findMe()} placeholder="(813) 555-0123" />
               <Err>{err}</Err>
               <button style={btn(NAVY)} disabled={busy} onClick={findMe}>{busy ? "Checking…" : "Continue"}</button>
-              <div style={{ fontSize: 12, color: MUTE, textAlign: "center" }}>The number the office has on file for you.</div>
+              <div style={{ fontSize: 12, color: MUTE, textAlign: "center" }}>The mobile number the office texts you on.</div>
             </>
           ) : (
             <>
