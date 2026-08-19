@@ -153,7 +153,7 @@ async function payrollConfig() {
 // silently, after the API returns 200) but deliver the SAME link written bare as
 // "domain/path". Verified on two different numbers, both ways. So every SMS uses
 // smsLink(); emails keep the full https:// URL.
-const smsLink = () => `${BASE.replace(/^https?:\/\//, "")}/?mode=timecard`;
+const smsLink = () => `${BASE.replace(/^https?:\/\//, "")}/timecard`;
 function name(e) { return `${e.first_name} ${e.last_name}`.trim(); }
 function greeting(shift) { return mins(shift.start_time) < 720 ? "morning" : mins(shift.start_time) < 1020 ? "afternoon" : "evening"; }
 function wrap(m) { return ((m % 1440) + 1440) % 1440; }

@@ -1,0 +1,12 @@
+# Short, tappable entry points for the links we TEXT people.
+#
+# Two constraints collide in an SMS: US carriers block "https://…netlify.app/?…"
+# outright (error 30007), and phones won't linkify a bare ".app" domain that
+# carries a query string. A clean path clears both — written bare it survives the
+# carrier filter, and iOS/Android turn it into a tappable link.
+#
+# 302, NOT a 200 rewrite: the app reads ?mode from the browser's own URL, so the
+# browser has to actually land on /?mode=… A rewrite would leave location.search
+# empty and drop the visitor on the homeowner intake page instead.
+/timecard   /?mode=timecard   302
+/payroll    /?mode=payroll    302
