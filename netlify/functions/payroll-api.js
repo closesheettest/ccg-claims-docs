@@ -303,7 +303,9 @@ export const handler = async (event) => {
         const res = { name: `${e.first_name} ${e.last_name}`.trim(), sms: null, email: null };
         if (e.phone) {
           // Bare link on purpose — the https:// form gets blocked by carriers.
-          const msg = `Hi ${e.first_name} - this is your U.S. Shingle time card. Sign in with THIS mobile number and pick a 4-8 digit passcode: ${bare}  Check in when your day starts, and at the end say what you got done.`;
+          // Link on its own line: easy to tap, and easy to select-and-copy if a
+          // phone declines to linkify it.
+          const msg = `Hi ${e.first_name} - this is your U.S. Shingle time card.\n\n${bare}\n\nSign in with THIS mobile number and pick a 4-8 digit passcode. Check in when your day starts, and at the end say what you got done.`;
           const r = await postJson("ghl-sms", { to: e.phone, name: res.name, message: msg, verify: true });
           res.sms = r?.delivered ? "delivered" : (r?.status || r?.error || r?.details?.message || "not delivered");
         }
