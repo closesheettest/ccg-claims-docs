@@ -251,16 +251,21 @@ create table if not exists public.payroll_sessions (
 
 create index if not exists payroll_sessions_emp_idx on public.payroll_sessions(employee_id);
 
--- ── Same posture as the rest of the app ──────────────────────
-alter table public.payroll_shifts         disable row level security;
-alter table public.payroll_departments    disable row level security;
-alter table public.payroll_employees      disable row level security;
-alter table public.payroll_time_entries   disable row level security;
-alter table public.payroll_time_off       disable row level security;
-alter table public.payroll_holidays       disable row level security;
-alter table public.payroll_week_approvals disable row level security;
-alter table public.payroll_week_submits   disable row level security;
-alter table public.payroll_sessions       disable row level security;
+-- ── LOCKED DOWN, unlike the rest of the app ──────────────────
+-- Everywhere else here runs with RLS off because the anon key is the only key.
+-- Payroll can't: that key is in the public page bundle, and these tables hold
+-- the roster, people's hours, and LIVE LOGIN TOKENS. RLS on with no policies
+-- denies the anon key everything; the Netlify functions use the service key,
+-- which bypasses RLS, so they stay the only way in.
+alter table public.payroll_shifts         enable row level security;
+alter table public.payroll_departments    enable row level security;
+alter table public.payroll_employees      enable row level security;
+alter table public.payroll_time_entries   enable row level security;
+alter table public.payroll_time_off       enable row level security;
+alter table public.payroll_holidays       enable row level security;
+alter table public.payroll_week_approvals enable row level security;
+alter table public.payroll_week_submits   enable row level security;
+alter table public.payroll_sessions       enable row level security;
 
 -- ── Defaults the tools read from app_settings ────────────────
 insert into public.app_settings (key, value) values

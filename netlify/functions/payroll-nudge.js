@@ -36,7 +36,11 @@
 // Env: VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY, URL.
 
 const SB_URL = process.env.VITE_SUPABASE_URL;
-const SB_KEY = process.env.VITE_SUPABASE_ANON_KEY;
+// SERVICE KEY, not the anon key. The anon key ships in the public page bundle,
+// so anything it can reach is world-readable — and once RLS is on for the
+// payroll tables it can reach nothing here at all. Falls back to anon so this
+// deploy is safe BEFORE the service key is set and RLS is enabled.
+const SB_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY;
 const H = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, "Content-Type": "application/json" };
 const TZ = "America/New_York";
 const BASE = (process.env.URL || "https://free-roof-inspections.netlify.app").replace(/\/$/, "");
