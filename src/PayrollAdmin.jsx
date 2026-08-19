@@ -293,7 +293,7 @@ function DrillRow({ d, onSave }) {
 // ── PEOPLE ──────────────────────────────────────────────────────────────
 const BLANK_EMP = {
   first_name: "", last_name: "", email: "", phone: "", department_id: "", title: "",
-  shift_id: "", pay_type: "hourly", hourly_rate: "", annual_salary: "", standard_day_hours: 8, standard_week_hours: 40,
+  shift_id: "", pay_type: "hourly", standard_day_hours: 8, standard_week_hours: 40,
   hire_date: "", pto_days_per_year: 0, pto_carryover_days: 0, sick_days_per_year: 0,
   paid_holidays: true, is_manager: false, is_admin: false, active: true, notes: "",
 };
@@ -383,9 +383,6 @@ function People({ api, onErr }) {
                 <option value="hourly">Hourly</option><option value="salary">Salary</option>
               </select>
             </Field>
-            {edit.pay_type === "hourly"
-              ? <Field label="Hourly rate"><input style={fld} type="number" step="0.01" value={edit.hourly_rate ?? ""} onChange={(e) => setEdit({ ...edit, hourly_rate: e.target.value })} /></Field>
-              : <Field label="Annual salary"><input style={fld} type="number" step="100" value={edit.annual_salary ?? ""} onChange={(e) => setEdit({ ...edit, annual_salary: e.target.value })} /></Field>}
             <Field label="Day hours"><input style={fld} type="number" step="0.5" value={edit.standard_day_hours} onChange={(e) => setEdit({ ...edit, standard_day_hours: e.target.value })} /></Field>
             <Field label="Week hours (OT after)"><input style={fld} type="number" step="0.5" value={edit.standard_week_hours} onChange={(e) => setEdit({ ...edit, standard_week_hours: e.target.value })} /></Field>
           </div>
@@ -428,7 +425,7 @@ function People({ api, onErr }) {
       <div style={{ ...card, padding: 0, overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 860 }}>
           <thead><tr>
-            <th style={th}>Name</th><th style={th}>Department</th><th style={th}>Shift</th><th style={th}>Pay</th><th style={th}>Vac/yr</th>
+            <th style={th}>Name</th><th style={th}>Department</th><th style={th}>Shift</th><th style={th}>Paid as</th><th style={th}>Vac/yr</th>
             <th style={th}>Role</th><th style={th}>Login</th><th style={th}></th>
           </tr></thead>
           <tbody>
@@ -437,7 +434,7 @@ function People({ api, onErr }) {
                 <td style={{ ...td, fontWeight: 800 }}>{e.last_name}, {e.first_name}<div style={{ fontWeight: 500, fontSize: 12, color: MUTE }}>{e.title || e.email || ""}</div></td>
                 <td style={td}>{e.department_name || <Pill color={AMBER}>none</Pill>}</td>
                 <td style={td}>{e.shift_name || <Pill color={AMBER}>none</Pill>}</td>
-                <td style={td}>{e.pay_type === "hourly" ? `${money(e.hourly_rate)}/hr` : `${money(e.annual_salary)}/yr`}</td>
+                <td style={td}>{e.pay_type}</td>
                 <td style={td}>{e.pto_days_per_year}{e.pto_carryover_days ? ` +${e.pto_carryover_days}` : ""}</td>
                 <td style={td}>{e.is_admin ? <Pill color={NAVY}>office</Pill> : e.is_manager ? <Pill color="#0369a1">manager</Pill> : <span style={{ color: MUTE }}>employee</span>}</td>
                 <td style={td}>
@@ -680,8 +677,8 @@ function Export({ api, onErr }) {
 
   const totals = (d?.rows || []).reduce((s, r) => ({
     regular: s.regular + r.regular, overtime: s.overtime + r.overtime,
-    paid_total: s.paid_total + r.paid_total, gross: s.gross + r.gross_estimate,
-  }), { regular: 0, overtime: 0, paid_total: 0, gross: 0 });
+    paid_total: s.paid_total + r.paid_total,
+  }), { regular: 0, overtime: 0, paid_total: 0 });
 
   return (
     <div style={{ display: "grid", gap: 12 }}>
@@ -698,25 +695,24 @@ function Export({ api, onErr }) {
             <div><div style={{ fontSize: 11, color: MUTE, fontWeight: 800 }}>REGULAR</div><div style={{ fontSize: 20, fontWeight: 900 }}>{totals.regular.toFixed(2)}h</div></div>
             <div><div style={{ fontSize: 11, color: MUTE, fontWeight: 800 }}>OVERTIME</div><div style={{ fontSize: 20, fontWeight: 900, color: totals.overtime ? AMBER : INK }}>{totals.overtime.toFixed(2)}h</div></div>
             <div><div style={{ fontSize: 11, color: MUTE, fontWeight: 800 }}>PAID HOURS</div><div style={{ fontSize: 20, fontWeight: 900 }}>{totals.paid_total.toFixed(2)}h</div></div>
-            <div><div style={{ fontSize: 11, color: MUTE, fontWeight: 800 }}>GROSS (ESTIMATE)</div><div style={{ fontSize: 20, fontWeight: 900 }}>{money(totals.gross)}</div></div>
+
           </div>
           <div style={{ ...card, padding: 0, overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 900 }}>
               <thead><tr>
-                <th style={th}>Employee</th><th style={th}>Dept</th><th style={th}>Rate</th><th style={th}>Reg</th><th style={th}>OT</th>
-                <th style={th}>Hol</th><th style={th}>PTO</th><th style={th}>Sick</th><th style={th}>Unpaid</th><th style={th}>Gross est.</th>
+                <th style={th}>Employee</th><th style={th}>Dept</th><th style={th}>Reg</th><th style={th}>OT</th>
+                <th style={th}>Hol</th><th style={th}>PTO</th><th style={th}>Sick</th><th style={th}>Unpaid</th><th style={th}>Paid total</th>
               </tr></thead>
               <tbody>
                 {d.rows.map((r) => (
                   <tr key={r.employee}>
                     <td style={{ ...td, fontWeight: 700 }}>{r.employee}</td>
                     <td style={td}>{r.department}</td>
-                    <td style={td}>{r.pay_type === "hourly" ? `${money(r.rate)}/hr` : "salary"}</td>
                     <td style={td}>{r.regular}</td>
                     <td style={{ ...td, color: r.overtime ? AMBER : INK }}>{r.overtime}</td>
                     <td style={td}>{r.holiday}</td><td style={td}>{r.pto}</td><td style={td}>{r.sick}</td>
                     <td style={td}>{r.unpaid}</td>
-                    <td style={{ ...td, fontWeight: 800 }}>{money(r.gross_estimate)}</td>
+                    <td style={{ ...td, fontWeight: 800 }}>{r.paid_total}</td>
                   </tr>
                 ))}
               </tbody>
