@@ -4425,6 +4425,7 @@ function InspectorJobDetail({ me, jobId, onBack, mapReturn }) {
           result: "lost",
           lost_reason: reason,
           inspector_name: me.name,
+          inspector_id: me.id,
         }),
       });
       const body = await res.json().catch(() => ({}));
