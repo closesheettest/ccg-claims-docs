@@ -18,11 +18,14 @@
 //   Holidays   the paid-holiday calendar everyone sees
 //   Export     one row per employee for the pay period, CSV for whoever runs payroll
 //
-// Sign-in is the office person's OWN mobile number + passcode — the same login
-// employees use — and the API checks that session is flagged office/HR on every
-// call. It used to be the shared manager PIN plus a token read out of
-// app_settings, but the public page key can read app_settings, so that token
-// protected nothing.
+// ONE DOOR. Everybody signs in here with their mobile number + passcode, and
+// the screen routes by who they are:
+//   • office/HR  → the admin tool below
+//   • anyone else → their own time card, in place
+// So a warehouse hand who opens the Payroll box on the internal dashboard just
+// lands in their portal instead of being told they lack access. The API still
+// checks office/HR on every admin call — the routing is convenience, not the
+// security boundary.
 
 import React, { useCallback, useEffect, useState } from "react";
 import { EmployeeScreens } from "./TimeCard";
@@ -80,7 +83,7 @@ const OFFICE_TOKEN_KEY = "uss_payroll_office_token";
 
 export default function PayrollAdmin() {
   const [token, setToken] = useState(() => { try { return localStorage.getItem(OFFICE_TOKEN_KEY) || ""; } catch { return ""; } });
-  const [me, setMe] = useState(null);
+  const [me, setMe] = useState(null);          // the signed-in person, or null
   const [tab, setTab] = useState("myday");
   const [err, setErr] = useState("");
   const [booting, setBooting] = useState(true);
@@ -90,25 +93,49 @@ export default function PayrollAdmin() {
     return r.json().catch(() => ({ ok: false, error: "Bad response" }));
   }, [token]);
 
-  // Confirm the saved session is still good, and still office/HR.
+  // Who is this session? payroll-me answers for anybody, office or not.
   useEffect(() => {
     let dead = false;
     (async () => {
       if (!token) { setBooting(false); return; }
-      const d = await api("departments");
+      const r = await fetch("/.netlify/functions/payroll-me", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "me", token }),
+      });
+      const d = await r.json().catch(() => ({}));
       if (dead) return;
-      if (d.ok) setMe(true);
+      if (d.ok) setMe(d.me);
       else { try { localStorage.removeItem(OFFICE_TOKEN_KEY); } catch { /* private mode */ } setToken(""); }
       setBooting(false);
     })();
     return () => { dead = true; };
-  }, [token, api]);
+  }, [token]);
+
+  const signOut = () => {
+    try { localStorage.removeItem(OFFICE_TOKEN_KEY); } catch { /* private mode */ }
+    setToken(""); setMe(null);
+  };
 
   if (booting && token) {
     return <div style={{ minHeight: "100vh", background: BG, display: "flex", alignItems: "center", justifyContent: "center", color: MUTE, fontFamily: "system-ui, sans-serif" }}>Loading…</div>;
   }
   if (!token || !me) {
-    return <OfficeSignIn onIn={(t) => { setToken(t); setMe(true); try { localStorage.setItem(OFFICE_TOKEN_KEY, t); } catch { /* private mode */ } }} />;
+    return <OfficeSignIn onIn={(t, who) => { setToken(t); setMe(who); try { localStorage.setItem(OFFICE_TOKEN_KEY, t); } catch { /* private mode */ } }} />;
+  }
+
+  // Not office/HR — this is their own time card, right here in the box.
+  if (!me.is_admin) {
+    return (
+      <div style={{ minHeight: "100vh", background: BG, padding: "16px 12px 60px", fontFamily: "system-ui, -apple-system, 'Segoe UI', sans-serif", color: INK }}>
+        <div style={{ maxWidth: 760, margin: "0 auto", display: "grid", gap: 12 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <div style={{ fontSize: 20, fontWeight: 900, color: NAVY }}>🕒 My Time Card</div>
+            <button style={ghost} onClick={signOut}>Sign out</button>
+          </div>
+          <EmployeeScreens token={token} />
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -122,7 +149,7 @@ export default function PayrollAdmin() {
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <a href="/?mode=checkinqr" target="_blank" rel="noopener noreferrer" style={{ ...ghost, textDecoration: "none" }}>🔳 Check-in QR for the door ↗</a>
           <a href="/?mode=timecard" target="_blank" rel="noopener noreferrer" style={{ ...ghost, textDecoration: "none" }}>Open the employee time card ↗</a>
-          <button style={ghost} onClick={() => { try { localStorage.removeItem(OFFICE_TOKEN_KEY); } catch { /* private mode */ } setToken(""); setMe(null); }}>Sign out</button>
+          <button style={ghost} onClick={signOut}>Sign out</button>
         </div>
         </div>
 
@@ -1024,8 +1051,9 @@ function OfficeSignIn({ onIn }) {
     const d = await call("login", { login: login.trim(), passcode: pass });
     setBusy(false);
     if (!d.ok) { setErr(d.error || "Sign-in failed."); return; }
-    if (!d.me?.is_admin) { setErr("That account doesn't have office access. Ask whoever runs payroll to tick “office/HR” on your record."); return; }
-    onIn(d.token);
+    // Anybody may sign in here. Office/HR gets the admin tool; everyone else
+    // gets their own time card in this same box.
+    onIn(d.token, d.me);
   };
 
   return (
@@ -1035,10 +1063,10 @@ function OfficeSignIn({ onIn }) {
     <div style={{ minHeight: "100vh", background: BG, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "8vh 20px 20px", fontFamily: "system-ui, sans-serif" }}>
       <div style={{ ...card, width: 350, display: "grid", gap: 12, textAlign: "center" }}>
         <div style={{ fontSize: 30 }}>🧾</div>
-        <div style={{ fontSize: 20, fontWeight: 900, color: NAVY }}>Employee Payroll</div>
+        <div style={{ fontSize: 20, fontWeight: 900, color: NAVY }}>U.S. Shingle Time Card</div>
         {step === "who" ? (
           <>
-            <div style={{ fontSize: 13, color: MUTE }}>Office screen — sign in with your mobile number.</div>
+            <div style={{ fontSize: 13, color: MUTE }}>Sign in with your mobile number — staff and office use the same login.</div>
             <input style={{ ...fld, textAlign: "center", fontSize: 17 }} type="tel" inputMode="tel" autoComplete="tel"
               value={login} onChange={(e) => setLogin(e.target.value)} onKeyDown={(e) => e.key === "Enter" && find()} placeholder="(813) 555-0123" />
             <Err>{err}</Err>
@@ -1055,7 +1083,7 @@ function OfficeSignIn({ onIn }) {
             <button style={{ ...ghost, border: "none", color: MUTE }} onClick={() => { setStep("who"); setPass(""); setErr(""); }}>Use a different number</button>
           </>
         )}
-        <a href="/?mode=timecard" style={{ fontSize: 12.5, color: MUTE }}>Looking for your own time card?</a>
+        <div style={{ fontSize: 12, color: MUTE }}>Not office? You'll land straight on your own time card.</div>
       </div>
     </div>
   );

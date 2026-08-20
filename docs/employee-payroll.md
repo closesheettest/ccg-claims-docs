@@ -224,6 +224,14 @@ They will still show as *External* in Gmail, because the address genuinely is ou
 shingleusa.com. That only goes away by verifying shingleusa.com itself in Resend and
 sending from there.
 
+## One door
+
+`/?mode=payroll` — the Payroll tab on the internal dashboard — takes **anybody's**
+login and routes by who they are: office/HR lands in the admin tool, everyone else
+lands on their own time card in the same box. A warehouse hand who opens that tab is
+not told they lack access; they just get their portal. The API still checks office/HR
+on every admin call, so the routing is convenience, not the security boundary.
+
 ## The office screen also clocks you in
 
 The office login is the same kind of session an employee gets, so the payroll screen
