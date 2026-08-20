@@ -68,6 +68,14 @@ const ST_ABBR = { STREET: "ST", AVENUE: "AVE", BOULEVARD: "BLVD", DRIVE: "DR", R
   // directionals — Google spells them out ("27th Avenue West", "West San Nicholas"), county DBs abbreviate
   NORTH: "N", SOUTH: "S", EAST: "E", WEST: "W", NORTHEAST: "NE", NORTHWEST: "NW", SOUTHEAST: "SE", SOUTHWEST: "SW" };
 const streetOf = (addr) => addr.split(",")[0].trim().toUpperCase().replace(/'/g, "").replace(/\./g, " ").split(/\s+/).map((w) => ST_ABBR[w] || w).filter(Boolean).join(" ");
+// Same street, NOT abbreviated. Florida has compound street types — "67TH STREET CT E",
+// "12TH STREET CT W", "RIVERSEDGE STREET CIRCLE" — where STREET is part of the NAME and
+// the suffix comes after it. Abbreviating turns that into "67TH ST CT E", which matches
+// nothing: Manatee stores it spelled out. Four of twelve Bradenton addresses missed on
+// exactly this (Neal, 2026-08-20). Adapters try the abbreviated form first, then this.
+const streetRaw = (addr) => addr.split(",")[0].trim().toUpperCase().replace(/'/g, "").replace(/\./g, " ").split(/\s+/).filter(Boolean).join(" ");
+// True when the two differ, so an adapter only pays for a second query when it could help.
+const streetAlt = (addr) => { const a = streetOf(addr), b = streetRaw(addr); return a === b ? null : b; };
 async function j(url, opts) { const r = await fetch(url, { headers: { ...BROWSER_HDRS, ...(opts && opts.headers) }, ...opts }); if (!r.ok) throw new Error(`${url.slice(0, 60)} → ${r.status}`); return r.json(); }
 async function t(url, opts) { const r = await fetch(url, { headers: { ...BROWSER_HDRS, ...(opts && opts.headers) }, redirect: "follow", ...opts }); if (!r.ok) throw new Error(`${url.slice(0, 60)} → ${r.status}`); return r.text(); }
 async function imgB64(url, opts) {
@@ -167,9 +175,15 @@ async function pinellas(address) {
 
 // ── MANATEE — one ArcGIS call (under-roof + porch sqft; sketch gated) ────────
 async function manatee(address) {
-  const where = encodeURIComponent(`UPPER(SITUS_ADDRESS) LIKE '${streetOf(address)}%'`);
-  const d = await j(`https://gis.manateepao.gov/arcgis/rest/services/Website/WebLayers/MapServer/0/query?where=${where}&outFields=PARID,SITUS_ADDRESS,BLDGS_SQFT_UNROOF,BLDGS_SQFT_LIVING,FEATS_SQFT_UNROOF&returnGeometry=false&f=json`);
-  const a = (d.features || [])[0]?.attributes; if (!a) return null;
+  const q = async (street) => {
+    const where = encodeURIComponent(`UPPER(SITUS_ADDRESS) LIKE '${street}%'`);
+    const d = await j(`https://gis.manateepao.gov/arcgis/rest/services/Website/WebLayers/MapServer/0/query?where=${where}&outFields=PARID,SITUS_ADDRESS,BLDGS_SQFT_UNROOF,BLDGS_SQFT_LIVING,FEATS_SQFT_UNROOF&returnGeometry=false&f=json`);
+    return (d.features || [])[0]?.attributes || null;
+  };
+  // Abbreviated first (the common case), then spelled-out for compound street types.
+  let a = await q(streetOf(address));
+  if (!a) { const alt = streetAlt(address); if (alt) a = await q(alt); }
+  if (!a) return null;
   const bld = Math.round(Number(a.BLDGS_SQFT_UNROOF) || 0), feat = Math.round(Number(a.FEATS_SQFT_UNROOF) || 0);
   const footprint = bld + feat; if (!footprint) return null;
   return { footprint_sqft: footprint, subareas: [{ desc: "Building under roof", sqft: bld }, ...(feat ? [{ desc: "Porch/feature under roof", sqft: feat }] : [])], sketch: null, parcel_id: String(a.PARID || ""), matched_address: (a.SITUS_ADDRESS || "").trim() };
