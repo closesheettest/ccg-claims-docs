@@ -167,7 +167,7 @@ export default function PayrollAdmin() {
         {tab === "shifts" && <Shifts api={api} onErr={setErr} />}
         {tab === "people" && <People api={api} onErr={setErr} />}
         {tab === "teams" && <Teams api={api} onErr={setErr} />}
-        {tab === "timeoff" && <TimeOffAll api={api} onErr={setErr} />}
+        {tab === "timeoff" && <TimeOffAll api={api} token={token} onErr={setErr} />}
         {tab === "balances" && <Balances api={api} onErr={setErr} />}
         {tab === "holidays" && <Holidays api={api} onErr={setErr} />}
         {tab === "export" && <Export api={api} onErr={setErr} />}
@@ -566,20 +566,44 @@ function Teams({ api, onErr }) {
 }
 
 // ── TIME OFF (company-wide) ─────────────────────────────────────────────
-function TimeOffAll({ api, onErr }) {
+function TimeOffAll({ api, token, onErr }) {
   const [rows, setRows] = useState(null);
-  const [status, setStatus] = useState("");
-  useEffect(() => { (async () => { const d = await api("time_off", { status }); if (d.ok) setRows(d.requests); else onErr(d.error || "Couldn't load."); })(); }, [api, status, onErr]);
+  const [status, setStatus] = useState("pending");   // what you came here for
+  const [busy, setBusy] = useState("");
+
+  const load = useCallback(async () => {
+    const d = await api("time_off", { status });
+    if (d.ok) setRows(d.requests); else onErr(d.error || "Couldn't load.");
+  }, [api, status, onErr]);
+  useEffect(() => { load(); }, [load]);
+
+  // Approving lives in payroll-me — the same call a manager makes. The office
+  // session IS a payroll session and is_admin counts as managing anyone, so the
+  // office can clear a request without working out whose team they're on.
+  const decide = async (r, decision) => {
+    if (decision === "denied" && !window.confirm(`Deny ${r.employee_name}'s ${r.request_type} request?`)) return;
+    setBusy(r.id); onErr("");
+    const res = await fetch("/.netlify/functions/payroll-me", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "decide_off", token, id: r.id, decision }),
+    }).then((x) => x.json()).catch(() => ({ ok: false, error: "Network error" }));
+    setBusy("");
+    if (!res.ok) { onErr(res.error || "Couldn't record that."); return; }
+    load();
+  };
   return (
     <div style={{ display: "grid", gap: 12 }}>
+      <div style={{ fontSize: 13, color: MUTE }}>
+        Approving writes the days straight onto their time card — weekends and company holidays inside the range aren't counted against their allotment.
+      </div>
       <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
-        {[["", "All"], ["pending", "Pending"], ["approved", "Approved"], ["denied", "Denied"]].map(([k, l]) => (
+        {[["pending", "Pending"], ["approved", "Approved"], ["denied", "Denied"], ["", "All"]].map(([k, l]) => (
           <button key={k} onClick={() => setStatus(k)} style={{ ...ghost, background: status === k ? NAVY : "#fff", color: status === k ? "#fff" : NAVY }}>{l}</button>
         ))}
       </div>
       <div style={{ ...card, padding: 0, overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 700 }}>
-          <thead><tr><th style={th}>Employee</th><th style={th}>Type</th><th style={th}>Dates</th><th style={th}>Days</th><th style={th}>Status</th><th style={th}>Decided by</th><th style={th}>Note</th></tr></thead>
+          <thead><tr><th style={th}>Employee</th><th style={th}>Type</th><th style={th}>Dates</th><th style={th}>Days</th><th style={th}>Status</th><th style={th}>Decided by</th><th style={th}>Note</th><th style={th}></th></tr></thead>
           <tbody>
             {(rows || []).map((r) => (
               <tr key={r.id}>
@@ -590,9 +614,19 @@ function TimeOffAll({ api, onErr }) {
                 <td style={td}><Pill color={r.status === "approved" ? GREEN : r.status === "denied" ? RED : r.status === "cancelled" ? MUTE : AMBER}>{r.status}</Pill></td>
                 <td style={td}>{r.decided_by_name || "—"}</td>
                 <td style={{ ...td, color: MUTE }}>{r.note || r.decision_note || ""}</td>
+                <td style={{ ...td, whiteSpace: "nowrap" }}>
+                  {r.status === "pending" ? (
+                    <>
+                      <button style={btn(GREEN, { padding: "7px 13px", fontSize: 13 })} disabled={busy === r.id}
+                        onClick={() => decide(r, "approved")}>{busy === r.id ? "…" : "Approve"}</button>
+                      <button style={{ ...ghost, marginLeft: 5, color: RED, borderColor: "#fecaca" }} disabled={busy === r.id}
+                        onClick={() => decide(r, "denied")}>Deny</button>
+                    </>
+                  ) : null}
+                </td>
               </tr>
             ))}
-            {rows && !rows.length ? <tr><td style={{ ...td, color: MUTE }} colSpan={7}>Nothing here.</td></tr> : null}
+            {rows && !rows.length ? <tr><td style={{ ...td, color: MUTE }} colSpan={8}>Nothing here.</td></tr> : null}
           </tbody>
         </table>
       </div>

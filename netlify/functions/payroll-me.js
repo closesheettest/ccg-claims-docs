@@ -231,13 +231,24 @@ export const handler = async (event) => {
       const t = await todayFor(me);
       if (t.locked) return cors(400, j({ ok: false, error: "That day is already signed off." }));
       if (!t.entry?.checked_in_at) return cors(400, j({ ok: false, error: "Check in first." }));
-      const minutes = Math.round(clampNum(body.minutes, 1, 720));
+      // A break can't be longer than the shift it happens in, and the day's
+      // breaks together can't exceed it either. Without this a fat-fingered
+      // "720" wiped a whole day's hours to 0 and looked like the tool was broken.
+      const shiftMins = shiftLength(t.shift) || Math.round((Number(me.standard_day_hours || 8) || 8) * 60);
+      const alreadyAway = Math.round(Number(t.entry.off_hours || 0) * 60);
+      const remaining = Math.max(0, shiftMins - alreadyAway);
+      const asked = Math.round(clampNum(body.minutes, 1, 1440));
+      const minutes = Math.min(asked, remaining);
       const reason = str(body.reason, 200);
-      if (!minutes) return cors(400, j({ ok: false, error: "How long were you away?" }));
+      if (!asked) return cors(400, j({ ok: false, error: "How long were you away?" }));
       if (reason.length < 2) return cors(400, j({ ok: false, error: "Add a quick reason for the break." }));
+      if (!remaining) {
+        return cors(400, j({ ok: false, error: `You've already logged ${Math.round(alreadyAway / 60 * 10) / 10}h of breaks — that's your whole ${Math.round(shiftMins / 60)}h shift. Fix the earlier one instead.` }));
+      }
       const kind = BREAK_TYPES.includes(body.break_type) ? body.break_type : "personal";
       const now = nowET();
       const line = `🕑 ${now.time} · ${minutes} min ${kind} break — ${reason}`;
+      const capped = minutes < asked;
       await upsert("payroll_time_entries", {
         employee_id: me.id, work_date: t.work_date,
         off_type: kind === "personal" ? "other" : kind,
@@ -245,7 +256,11 @@ export const handler = async (event) => {
         note: [t.entry.note, line].filter(Boolean).join("\n").slice(0, 2000),
         updated_at: nowIso(),
       }, "employee_id,work_date");
-      return cors(200, j({ ok: true, ...(await todayFor(me)) }));
+      return cors(200, j({
+        ok: true, minutes, capped,
+        ...(capped ? { notice: `Logged ${minutes} min — a break can't run longer than your ${Math.round(shiftMins / 60)}h shift.` } : {}),
+        ...(await todayFor(me)),
+      }));
     }
 
     // Ended the shift early by mistake — put them back on the clock. The recap
@@ -871,6 +886,11 @@ function earlyBy(shift, t) {
   if (!shift) return 0;
   const raw = (mins(shift.end_time) - mins(t) + 1440) % 1440;
   return raw > 720 ? 0 : raw;                    // stayed past the end
+}
+// Minutes from a shift's start to its end, wrapped for one that crosses midnight.
+function shiftLength(sh) {
+  if (!sh) return 0;
+  return ((mins(sh.end_time) - mins(sh.start_time)) + 1440) % 1440;
 }
 function hoursBetween(startIso, endIso, lunchMinutes) {
   const ms = new Date(endIso).getTime() - new Date(startIso).getTime();
