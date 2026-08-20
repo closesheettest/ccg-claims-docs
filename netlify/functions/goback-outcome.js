@@ -41,13 +41,17 @@ export const handler = async (event) => {
   if (!rt || !inspectionId) return cors(400, JSON.stringify({ ok: false, error: "rt + inspection required" }));
 
   try {
-    const rep = (await sbGet(`sales_reps?harvest_token=eq.${encodeURIComponent(rt)}&select=name,jobnimbus_id,active&limit=1`))[0];
+    // harvest_token is a uuid column, so a mangled token (a truncated SMS link, a
+    // copy-paste that grabbed trailing punctuation) makes Postgres 400 before we
+    // ever get to compare it. That's still just an invalid link — say so, rather
+    // than showing a rep a server error.
+    const rep = (await sbGet(`sales_reps?harvest_token=eq.${encodeURIComponent(rt)}&select=name,jobnimbus_id,active&limit=1`).catch(() => []))[0];
     if (!rep) return cors(401, JSON.stringify({ ok: false, error: "This link isn't valid any more." }));
 
     const insp = (await sbGet(
       `inspections?id=eq.${encodeURIComponent(inspectionId)}` +
       `&select=id,client_name,address,city,result,review_appt_at,retail_outcome,retail_outcome_by,sales_rep_name,cancelled_at&limit=1`,
-    ))[0];
+    ).catch(() => []))[0];
     if (!insp) return cors(404, JSON.stringify({ ok: false, error: "That deal isn't here any more." }));
 
     if (event.httpMethod !== "POST") {
