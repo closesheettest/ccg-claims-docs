@@ -1023,7 +1023,10 @@ function OfficeSignIn({ onIn }) {
   };
 
   return (
-    <div style={{ minHeight: "100vh", background: BG, display: "flex", alignItems: "center", justifyContent: "center", padding: 20, fontFamily: "system-ui, sans-serif" }}>
+    // Sits near the top rather than dead-centre: this screen is embedded in a
+    // tall iframe on the USSM Internal Dashboard, and a vertically centred card
+    // there reads as an empty box until you scroll to it.
+    <div style={{ minHeight: "100vh", background: BG, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "8vh 20px 20px", fontFamily: "system-ui, sans-serif" }}>
       <div style={{ ...card, width: 350, display: "grid", gap: 12, textAlign: "center" }}>
         <div style={{ fontSize: 30 }}>🧾</div>
         <div style={{ fontSize: 20, fontWeight: 900, color: NAVY }}>Employee Payroll</div>
