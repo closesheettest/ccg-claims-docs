@@ -1265,7 +1265,7 @@ export function EmployeeScreens({ token, asEmployeeId, tabs }) {
             <button key={k} onClick={() => setTab(k)} style={{
               ...ghost, padding: "8px 14px",
               background: tab === k ? NAVY : "#fff", color: tab === k ? "#fff" : NAVY, borderColor: tab === k ? NAVY : LINE,
-            }}>{{ today: "Today", week: "Their week", off: "Time Off", team: "Team" }[k] || k}</button>
+            }}>{{ today: "Today", week: readOnly ? "Their week" : "My Week", off: "Time Off", team: "Team" }[k] || k}</button>
           ))}
         </div>
       </div>
