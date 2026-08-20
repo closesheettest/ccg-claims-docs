@@ -675,6 +675,13 @@ const CLUSTER_ZOOM = 13;
 // With ~1.3M pins, aggregating the whole state is what made the map hang; a rep
 // only ever works a neighborhood, so nothing needs to load until they're close.
 const MIN_LOAD_ZOOM = 11;
+// ...but Inspection Lead is the ONLY heavy pin type: ~1.25M rows statewide
+// against ~7.6k for EVERY other type combined. So the gate above only has to
+// bite while Inspection Lead is one of the picked types. With it off, the whole
+// selection is a few thousand pins, so a rep (or a manager looking at a zone)
+// can pull back to a county/region view and still load instantly.
+const HEAVY_KEYS = ["insp"];
+const LIGHT_LOAD_ZOOM = 8;
 // Seniors work these TWO together — the filter is locked to both (they can't
 // narrow to just one).
 const SENIOR_STATUSES = ["iq", "no_sit_reschedule"];
@@ -968,6 +975,14 @@ export default function CanvassMap() {
     try { const q = new URLSearchParams(window.location.search); return !!q.get("admin") && !q.get("rt"); } catch { return false; }
   })());
   const inFilter = (status) => { if (showNone) return false; const k = status === "install_home" ? "clover" : status; return sel.size === 0 || sel.has(k); };
+  // Does the current chip selection include a high-volume type? An empty
+  // selection means "everything this level can see", which includes Inspection
+  // Lead. Drives how far out the map is allowed to load (see LIGHT_LOAD_ZOOM).
+  const heavySel = showNone ? false : (sel.size ? [...sel].some((k) => HEAVY_KEYS.includes(k)) : true);
+  const heavySelRef = useRef(true);
+  const minLoadZoomRef = useRef(MIN_LOAD_ZOOM);
+  heavySelRef.current = heavySel;
+  minLoadZoomRef.current = heavySel ? MIN_LOAD_ZOOM : LIGHT_LOAD_ZOOM;
   // A door scheduled for a come-back on a FUTURE day is held out of the route
   // until that day arrives (it still shows on the map, just not routed early).
   const cbDateOf = (p) => (p && (p.callback_date || (p.extra && p.extra.callback && p.extra.callback.date))) || null;
@@ -1370,7 +1385,7 @@ export default function CanvassMap() {
   // it through the harvest-pins function (which buffers into one response and hit
   // Netlify's ~6MB limit at scale). The function is only used ONCE, for auth: it
   // resolves the rep's level + pin types from their token.
-  async function load(bounds) {
+  async function load(bounds, force) {
     setLoading(true);
     try {
       // 1) Resolve auth/level once (tiny call). Demo mode skips it — a synthetic
@@ -1433,14 +1448,25 @@ export default function CanvassMap() {
       if (!bounds && !showAllRef.current) {
         setProspects([]); setInstalls([]); setWorkedPins([]); setClusters([]); setCapped(false);
         if (!fitted.current) { fitted.current = true; if (map.current) { try { map.current.invalidateSize(); } catch { /* ignore */ } } }
-        setZoomToLoad((map.current ? map.current.getZoom() : 0) < MIN_LOAD_ZOOM);
+        setZoomToLoad((map.current ? map.current.getZoom() : 0) < minLoadZoomRef.current);
         setLoading(false);
         return [];
       }
 
+      // Viewport load — apply the same zoom gate here. Without it, a chip toggle
+      // at state zoom bbox-scanned the whole Inspection Lead table. Route builders
+      // pass force=true so "Route an area" still works at any zoom.
+      if (bounds && !showAllRef.current && !force
+          && (map.current ? map.current.getZoom() : 99) < minLoadZoomRef.current) {
+        setProspects([]); setInstalls([]); setWorkedPins([]); setClusters([]); setCapped(false);
+        setZoomToLoad(true); setLoading(false);
+        return [];
+      }
+      if (bounds) setZoomToLoad(false);
+
       // 2) Pins + installs, straight from Supabase (range-paginated → no payload cap).
       const showAll = showAllRef.current;
-      const CAP = showAll ? 40000 : bounds ? 6000 : 3000;
+      const CAP = showAll ? 40000 : bounds ? (heavySelRef.current ? 6000 : 12000) : 3000;
       const box = (q) => (!showAll && bounds)
         ? q.gte("latitude", bounds.getSouth()).lte("latitude", bounds.getNorth()).gte("longitude", bounds.getWest()).lte("longitude", bounds.getEast())
         : q;
@@ -1581,7 +1607,7 @@ export default function CanvassMap() {
   // Re-cluster when the chip filter changes while zoomed out.
   useEffect(() => {
     const m = map.current;
-    if (m && fitted.current && !showAllRef.current && m.getZoom() < CLUSTER_ZOOM) loadClusters(m.getBounds());
+    if (m && fitted.current && !showAllRef.current && heavySelRef.current && m.getZoom() < CLUSTER_ZOOM) loadClusters(m.getBounds());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sel]);
 
@@ -1633,13 +1659,15 @@ export default function CanvassMap() {
       moveTimer.current = setTimeout(async () => {
         // Too far out (state / multi-county) → load NOTHING, show the "zoom in"
         // prompt. Aggregating 1.3M rows here is what hung the map.
-        if (m.getZoom() < MIN_LOAD_ZOOM) {
+        if (m.getZoom() < minLoadZoomRef.current) {
           setZoomToLoad(true); setProspects([]); setInstalls([]); setWorkedPins([]); setClusters([]); setLoading(false);
           return;
         }
         setZoomToLoad(false);
         // Zoomed out (but in range) → server cluster bubbles; zoomed in → pins.
-        if (m.getZoom() < CLUSTER_ZOOM && loadClustersRef.current) {
+        // Light selections skip the server cluster bubbles entirely — a few
+        // thousand real pins render fine and are more useful than counts.
+        if (m.getZoom() < CLUSTER_ZOOM && heavySelRef.current && loadClustersRef.current) {
           const ok = await loadClustersRef.current(m.getBounds());
           if (ok) return;
         }
@@ -2770,7 +2798,7 @@ export default function CanvassMap() {
     // so "Route an area" works at ANY zoom — even zoomed way out where the map is
     // showing clusters, not individual pins. No more "zoom in first" just to box a
     // spread-out area on a phone. Falls back to whatever's already on screen.
-    const loaded = await load(b);
+    const loaded = await load(b, true);
     const source = (loaded && loaded.length) ? loaded : (shownRef.current || []);
     const inBox = source.filter((p) =>
       typeof p.latitude === "number" && typeof p.longitude === "number" && b.contains([p.latitude, p.longitude])
@@ -2831,7 +2859,7 @@ export default function CanvassMap() {
     // routing whatever few pins happened to be loaded in view.
     const R = 0.36;
     const wide = { getNorth: () => pt.lat + R, getSouth: () => pt.lat - R, getEast: () => pt.lng + R, getWest: () => pt.lng - R };
-    const loaded = await load(wide);
+    const loaded = await load(wide, true);
     const pool = (loaded.length ? loaded : (shownRef.current || [])).filter((p) => inFilter(p.status) && typeof p.latitude === "number" && (!visKeys || visKeys.has(p.status)));
     const r = buildRoute(pt, pool);
     if (!r.length) { alert("No stops near here to route. Zoom to your area or change the filter, then start your day."); setDayMode(null); return; }
@@ -2951,7 +2979,7 @@ export default function CanvassMap() {
       const lats = [start.lat, ...appts.map((a) => a.lat)], lngs = [start.lng, ...appts.map((a) => a.lng)];
       const R = 0.15;
       const wide = { getNorth: () => Math.max(...lats) + R, getSouth: () => Math.min(...lats) - R, getEast: () => Math.max(...lngs) + R, getWest: () => Math.min(...lngs) - R };
-      const loaded = await load(wide);
+      const loaded = await load(wide, true);
       // The wide load is capped (6000) and UNORDERED on a huge table, so it can miss the
       // doors CLOSEST to the appointments and route the rep far away. Guarantee each
       // appointment's + the start's immediate vicinity is in the pool: pull a tight box
@@ -3885,7 +3913,11 @@ export default function CanvassMap() {
             boxShadow: "0 4px 20px rgba(0,0,0,.35)", maxWidth: 340 }}>
             <div style={{ fontSize: 26, marginBottom: 2 }}>🔍</div>
             <div style={{ fontWeight: 800, fontSize: 14.5 }}>Zoom into the area you want to work</div>
-            <div style={{ fontSize: 12, color: "#cbd5e1", marginTop: 3, lineHeight: 1.35 }}>The map holds over a million homes — pins load once you're close enough to knock.</div>
+            <div style={{ fontSize: 12, color: "#cbd5e1", marginTop: 3, lineHeight: 1.35 }}>
+              {heavySel
+                ? <>There are over a million inspection leads — they load once you're close enough to knock. Switch <b>Inspection Lead</b> off and you can pull back to a whole county.</>
+                : <>Pins load once you're zoomed into your area.</>}
+            </div>
           </div>
         )}
         <style>{`@keyframes hpulse{0%{box-shadow:0 1px 5px rgba(0,0,0,.5),0 0 0 0 rgba(124,58,237,.5)}70%{box-shadow:0 1px 5px rgba(0,0,0,.5),0 0 0 14px rgba(124,58,237,0)}100%{box-shadow:0 1px 5px rgba(0,0,0,.5),0 0 0 0 rgba(124,58,237,0)}}@keyframes hpulse2{0%{box-shadow:0 1px 4px rgba(0,0,0,.5),0 0 0 0 rgba(249,115,22,.55)}70%{box-shadow:0 1px 4px rgba(0,0,0,.5),0 0 0 16px rgba(249,115,22,0)}100%{box-shadow:0 1px 4px rgba(0,0,0,.5),0 0 0 0 rgba(249,115,22,0)}}@keyframes hbounce{0%,100%{transform:translateY(0)}50%{transform:translateY(-7px)}}`}</style>
