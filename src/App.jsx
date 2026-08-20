@@ -8702,8 +8702,8 @@ function InspectionLookup({ endpoint = "/.netlify/functions/inspection-lookup", 
           {d.timeline && d.timeline.length > 0 && (
             <div style={{ marginTop: 10, borderTop: "1px solid #e5e7eb", paddingTop: 10 }}>
               {d.timeline.map((t, i) => (
-                <div key={i} style={{ fontSize: 12.5, color: t.note ? "#6b7280" : "#111827", marginBottom: 3, fontStyle: t.note ? "italic" : "normal" }}>
-                  <span style={{ color: "#9ca3af" }}>{fmt(t.at)}</span>  ·  {t.label}
+                <div key={i} style={{ fontSize: 12.5, color: t.warn ? "#b45309" : t.note ? "#6b7280" : "#111827", marginBottom: 3, fontStyle: t.note ? "italic" : "normal", fontWeight: t.warn ? 700 : 400 }}>
+                  <span style={{ color: "#9ca3af" }}>{fmt(t.at)}</span>  ·  {t.warn ? "⚠ " : ""}{t.label}
                 </div>
               ))}
             </div>

@@ -23,7 +23,8 @@ const JN_KEY = process.env.JOBNIMBUS_API_KEY;
 
 const SEL = "id,client_name,address,city,state,zip,mobile,email,sales_rep_name,original_sales_rep_name," +
   "signed_at,cancelled_at,cancel_reason,result,result_at,inspector_name,jn_job_id,jn_status," +
-  "jn_cert_uploaded_at,pa_id,pa_stage,pa_opened_at,pa_signed_at,docs_signed,pa_notes_log";
+  "jn_cert_uploaded_at,pa_id,pa_stage,pa_opened_at,pa_signed_at,docs_signed,pa_notes_log," +
+  "review_appt_at,retail_outcome";
 
 exports.handler = async (event) => {
   if (event.httpMethod === "OPTIONS") return cors(200, "");
@@ -50,6 +51,22 @@ exports.handler = async (event) => {
       } catch { /* best-effort */ }
     }));
 
+    // APPOINTMENTS. The timeline was built purely from columns on `inspections`,
+    // so a booked PA appointment lived only in pa_appointments and never showed
+    // up here at all — theda Wilhelm had an 11 AM appointment on 8/8 and this
+    // card's last entry was 6/9 (Neal, 2026-08-20). Worse, an appointment whose
+    // time has passed while it's still "scheduled" is exactly the deal someone
+    // needs to chase, and it was the one thing the card couldn't show.
+    const apptsByInsp = {};
+    if (rows.length) {
+      const inIds = rows.map((r) => `"${r.id}"`).join(",");
+      const appts = await sbGet(
+        `pa_appointments?inspection_id=in.(${encodeURIComponent(inIds)})` +
+        `&select=inspection_id,start_at,status,booked_by,created_at&order=start_at`,
+      ).catch(() => []);
+      for (const a of appts) (apptsByInsp[a.inspection_id] = apptsByInsp[a.inspection_id] || []).push(a);
+    }
+
     // Resolve which PA has each deal (pa_id → name / phone / company) so the card
     // can say WHO has it, not just "assigned to a PA".
     const paIds = [...new Set(rows.map((r) => r.pa_id).filter(Boolean))];
@@ -66,14 +83,14 @@ exports.handler = async (event) => {
       for (const p of pas) paById[p.id] = { name: p.name || null, phone: p.phone || null, company: compById[p.pa_company_id] || null };
     }
 
-    const results = rows.map((r) => shape(r, jnById[r.jn_job_id], paById[r.pa_id]));
+    const results = rows.map((r) => shape(r, jnById[r.jn_job_id], paById[r.pa_id], apptsByInsp[r.id] || []));
     return cors(200, JSON.stringify({ ok: true, count: results.length, results }));
   } catch (e) {
     return cors(500, JSON.stringify({ ok: false, error: e.message || "error" }));
   }
 };
 
-function shape(r, jn, pa) {
+function shape(r, jn, pa, appts) {
   const notes = Array.isArray(r.pa_notes_log) ? r.pa_notes_log : [];
   const released = notes.some((n) => n.stage === "released" || /released back/i.test(n.text || ""));
   const jnStatus = (jn && jn.status_name) || r.jn_status || null;
@@ -87,6 +104,28 @@ function shape(r, jn, pa) {
   if (r.jn_cert_uploaded_at) timeline.push({ label: "Certificate uploaded to JobNimbus", at: r.jn_cert_uploaded_at });
   if (r.pa_opened_at) timeline.push({ label: "Public adjuster opened the deal", at: r.pa_opened_at });
   if (r.pa_signed_at) timeline.push({ label: "PA signed the homeowner", at: r.pa_signed_at });
+  // PA appointments — booked, and (once the time is past) whether anyone ever
+  // said how it went. A visit sitting at "scheduled" days after the fact is not
+  // a visit that happened, it's a visit nobody closed out.
+  for (const a of appts || []) {
+    const when = etWhen(a.start_at);
+    timeline.push({ label: `PA appointment booked — ${when}${a.booked_by ? ` (by ${a.booked_by})` : ""}`, at: a.created_at || null });
+    const past = a.start_at && Date.parse(a.start_at) < Date.now();
+    if (past) {
+      timeline.push(String(a.status) === "scheduled"
+        ? { label: `PA appointment time passed (${when}) — no outcome recorded`, at: a.start_at, warn: true }
+        : { label: `PA appointment ${a.status} — ${when}`, at: a.start_at });
+    }
+  }
+  // The rep's come-back review, same treatment.
+  if (r.review_appt_at) {
+    const when = etWhen(r.review_appt_at);
+    const past = Date.parse(r.review_appt_at) < Date.now();
+    const answered = r.retail_outcome && !["retail_appt", "btr_appt"].includes(String(r.retail_outcome));
+    timeline.push(past && !answered
+      ? { label: `Come-back review time passed (${when}) — no outcome recorded`, at: r.review_appt_at, warn: true }
+      : { label: `Come-back review ${past ? "was" : "booked for"} ${when}`, at: r.review_appt_at });
+  }
   for (const n of notes) timeline.push({ label: n.text || "(note)", at: n.at || null, note: true });
   if (r.cancelled_at) timeline.push({ label: `Cancelled${r.cancel_reason ? ` — ${r.cancel_reason}` : ""}`, at: r.cancelled_at });
   timeline.sort((a, b) => new Date(a.at || 0) - new Date(b.at || 0));
@@ -104,7 +143,19 @@ function shape(r, jn, pa) {
   } else if (r.result === "damage") {
     if (r.pa_signed_at) { stage = "Damage — PA working the claim"; stage_detail = "A PA has signed the homeowner and is filing the claim."; }
     else if (r.pa_stage === "waiting_docs") { stage = "Damage — PA waiting on docs"; stage_detail = "A PA is engaged and waiting on paperwork."; }
-    else if (r.pa_id) { stage = "Damage — assigned to a PA"; stage_detail = "Assigned to a PA; not yet signed up."; }
+    else if (r.pa_id) {
+      stage = "Damage — assigned to a PA";
+      // Name the stuck appointment in the headline. "Assigned to a PA; not yet
+      // signed up" reads like nothing has happened, when in fact a visit was
+      // booked, came and went, and nobody recorded it.
+      const stale = (appts || []).find((a) => String(a.status) === "scheduled" && a.start_at && Date.parse(a.start_at) < Date.now());
+      const next = (appts || []).find((a) => String(a.status) === "scheduled" && a.start_at && Date.parse(a.start_at) >= Date.now());
+      stage_detail = stale
+        ? `A PA appointment on ${etWhen(stale.start_at)} came and went and no outcome was ever recorded. Chase the PA for what happened.`
+        : next
+        ? `Assigned to a PA. Appointment set for ${etWhen(next.start_at)}.`
+        : "Assigned to a PA; not yet signed up.";
+    }
     else if (released) { stage = "Damage — released back to the rep"; stage_detail = "A PA dropped it (dead PA deal); it's back on the rep's plate. Fix the reason in the notes, then reassign a PA."; }
     else if (r.pa_opened_at) { stage = "Damage — with a PA (opened, not signed)"; stage_detail = "A PA opened it but hasn't signed the homeowner. Parked — nudge or reassign the PA."; }
     else { stage = "Damage — needs a PA"; stage_detail = "Damage found but no PA assigned yet. Assign one to start the claim."; }
@@ -142,6 +193,16 @@ function shape(r, jn, pa) {
   };
 }
 
+// Appointment times, always Eastern — the whole company reads ET and a raw UTC
+// timestamp on this card would be read as local and be an hour or four wrong.
+function etWhen(iso) {
+  if (!iso) return "—";
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return "—";
+  return new Date(t).toLocaleString("en-US", {
+    timeZone: "America/New_York", weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
+  }) + " ET";
+}
 function resultLabel(r) { return r === "damage" ? "Damage found" : r === "no_damage" ? "No damage" : r === "retail" ? "Retail" : r; }
 function ymdET(sec) { try { return new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", month: "numeric", day: "numeric", year: "numeric" }).format(new Date(sec * 1000)); } catch { return null; } }
 async function sbGet(path) { const r = await fetch(`${SB_URL}/rest/v1/${path}`, { headers: sb }); if (!r.ok) return []; return r.json().catch(() => []); }
