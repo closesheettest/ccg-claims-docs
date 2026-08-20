@@ -74,14 +74,29 @@ export const handler = async (event) => {
       // inspections and rendered every homeowner as "—". Ask for it, and fall
       // back to the same query without it so a pre-migration database still
       // shows names — it just can't show opens yet.
-      const SEL = "id,client_name,mobile,sales_rep_name,review_appt_at,result_at,result";
+      const SEL = "id,client_name,mobile,sales_rep_name,review_appt_at,result_at,result,retail_outcome,retail_outcome_at,jn_status,cancelled_at";
       let chunkRows = await sbGetAll(`inspections?id=in.(${chunk})&select=${SEL},goback_opened_at`);
       if (!chunkRows.length) chunkRows = await sbGetAll(`inspections?id=in.(${chunk})&select=${SEL}`);
       insps.push(...chunkRows);
     }
     const inspById = Object.fromEntries(insps.map((i) => [i.id, i]));
 
-    let booked = 0, opened = 0, warm = 0;
+    // WHAT HAPPENED AFTER THEY BOOKED. Booking was the end of the funnel, which is
+    // the least interesting end of it — a self-scheduled review only matters if the
+    // rep turned up and it went somewhere (Neal, 2026-08-20).
+    //
+    //   ran   = the booked time has passed (so it should have happened)
+    //   sold  = the deal is in a sold state now
+    //   lost  = worked and didn't sell, or cancelled
+    //   upcoming = booked, still in the future
+    //
+    // "ran" is time-based on purpose: nothing records a rep physically sitting, so
+    // claiming a sit we can't see would be worse than admitting we infer it.
+    const SOLD_JN = new Set(["Sit - Sold","Signed Contract","Production Review","Job Prep","In Funding",
+      "Waiting on PACE","Upcoming Installs","Install Set","Roof Started","New Roof","Paid & Closed",
+      "Upcoming Commissions","Holds","Extras","Commission","Install Complete - Collect Payment"]);
+    const nowMs = Date.now();
+    let booked = 0, opened = 0, warm = 0, ran = 0, sold = 0, lost = 0, upcoming = 0;
     const rows = ids.map((id) => {
       const e = byInsp.get(id), i = inspById[id] || {};
       const isBooked = !!i.review_appt_at;
@@ -89,6 +104,18 @@ export const handler = async (event) => {
       if (isBooked) booked++;
       if (isOpen) opened++;
       if (isOpen && !isBooked) warm++;
+
+      const apptMs = i.review_appt_at ? Date.parse(i.review_appt_at) : 0;
+      const hasRan = isBooked && Number.isFinite(apptMs) && apptMs <= nowMs;
+      const isSold = String(i.retail_outcome || "") === "sold" || SOLD_JN.has(String(i.jn_status || ""));
+      const isLost = !isSold && (!!i.cancelled_at || ["no_sale","ni","credit_denial"].includes(String(i.retail_outcome || "")));
+      let outcome = null;
+      if (isBooked) {
+        if (isSold) { sold++; ran++; outcome = "sold"; }
+        else if (isLost) { lost++; ran++; outcome = "lost"; }
+        else if (hasRan) { ran++; outcome = "ran"; }
+        else { upcoming++; outcome = "upcoming"; }
+      }
       const zone = zones[normName(i.sales_rep_name)] || null;
       return {
         name: i.client_name || "—", phone: i.mobile || "", rep: i.sales_rep_name || "—",
@@ -98,6 +125,7 @@ export const handler = async (event) => {
         result: i.result || null,
         texts: e.texts, first_sent: e.first, last_sent: e.last,
         opened_at: i.goback_opened_at || null, booked: isBooked, review_appt_at: i.review_appt_at || null,
+        outcome, retail_outcome: i.retail_outcome || null, jn_status: i.jn_status || null,
       };
     })
       // Grouped by rep, and inside a rep the WARM ones first — the whole point is
@@ -113,8 +141,11 @@ export const handler = async (event) => {
       ok: true, period,
       summary: {
         texted, opened, booked, warm,
+        ran, sold, lost, upcoming,
         rate: texted ? Math.round((booked / texted) * 100) : 0,
         open_rate: texted ? Math.round((opened / texted) * 100) : 0,
+        // of the appointments that have actually come round, how many sold
+        close_rate: ran ? Math.round((sold / ran) * 100) : 0,
       },
       rows,
     });

@@ -250,6 +250,18 @@ function GobackReport() {
             {stat("Soft interest", S.warm, "#b45309", "Opened their booking page and didn\u2019t pick a time.")}
             {stat("Book rate", `${S.rate}%`, "#c0392b", "Booked ÷ contacted")}
           </div>
+          {/* AFTER THE BOOKING. The funnel used to stop at "booked", which is the
+              least interesting end of it — what matters is whether the rep turned up
+              and whether it sold (Neal, 2026-08-20). "Ran" is inferred from the
+              appointment time having passed; nothing records a rep physically
+              sitting, so it is not claimed as one. */}
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 10 }}>
+            {stat("Upcoming", S.upcoming ?? 0, "#64748b", "Booked, still in the future")}
+            {stat("Ran", S.ran ?? 0, "#0f2a4a", "Their booked time has passed")}
+            {stat("Sold", S.sold ?? 0, "#16a34a", "Sold after the come-back review")}
+            {stat("Didn\u2019t sell", S.lost ?? 0, "#b45309", "Worked and didn\u2019t sell, or cancelled")}
+            {stat("Close rate", `${S.close_rate ?? 0}%`, "#7c3aed", "Sold \u00f7 appointments that have come round")}
+          </div>
 
           {!data ? <div style={{ color: "#94a3b8", fontSize: 13 }}>Loading…</div>
             : !data.rows.length ? <div style={{ background: "#f8fafc", border: "1px solid #e5e7eb", borderRadius: 12, padding: 16, color: "#94a3b8", fontSize: 13.5 }}>Nobody was contacted in this period.</div>
@@ -286,7 +298,7 @@ function GobackReport() {
                     <div style={{ overflowX: "auto" }}>
                       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                         <thead><tr style={{ background: "#fff", textAlign: "left" }}>
-                          {["Homeowner", "Sent", "First", "Last", "Opened", "Booked?"].map((h) => <th key={h} style={{ padding: "8px 12px", fontSize: 10.5, fontWeight: 800, textTransform: "uppercase", letterSpacing: ".04em", color: "#94a3b8", whiteSpace: "nowrap" }}>{h}</th>)}
+                          {["Homeowner", "Sent", "First", "Last", "Opened", "Booked?", "Outcome"].map((h) => <th key={h} style={{ padding: "8px 12px", fontSize: 10.5, fontWeight: 800, textTransform: "uppercase", letterSpacing: ".04em", color: "#94a3b8", whiteSpace: "nowrap" }}>{h}</th>)}
                         </tr></thead>
                         <tbody>
                           {/* In the TEAM view the rep still has to be visible —
@@ -318,6 +330,18 @@ function GobackReport() {
                               <td style={{ padding: "9px 12px", color: "#64748b", whiteSpace: "nowrap" }}>{when(r.last_sent)}</td>
                               <td style={{ padding: "9px 12px", whiteSpace: "nowrap" }}>{r.opened_at ? <span style={{ color: "#1d4ed8", fontWeight: 800 }}>👀 {when(r.opened_at)}</span> : <span style={{ color: "#cbd5e1" }}>—</span>}</td>
                               <td style={{ padding: "9px 12px", whiteSpace: "nowrap" }}>{r.booked ? <span style={{ color: "#16a34a", fontWeight: 800 }}>✓ {when(r.review_appt_at)}</span> : (r.opened_at ? <span style={{ color: "#b45309", fontWeight: 800 }}>soft interest</span> : <span style={{ color: "#cbd5e1" }}>—</span>)}</td>
+                              {/* What came of it once the booked time arrived. */}
+                              <td style={{ padding: "9px 12px", whiteSpace: "nowrap" }}>{(() => {
+                                const O = {
+                                  sold:     ["SOLD",        "#16a34a", "#dcfce7"],
+                                  lost:     ["didn\u2019t sell", "#b45309", "#fffbeb"],
+                                  ran:      ["ran \u00b7 no result yet", "#475569", "#f1f5f9"],
+                                  upcoming: ["upcoming",    "#64748b", "#f8fafc"],
+                                }[r.outcome];
+                                if (!O) return <span style={{ color: "#cbd5e1" }}>—</span>;
+                                const [label, fg, bg] = O;
+                                return <span title={r.jn_status || ""} style={{ background: bg, color: fg, fontWeight: 800, fontSize: 11.5, padding: "3px 8px", borderRadius: 999 }}>{label}</span>;
+                              })()}</td>
                             </tr>
                             )
                           ))}
