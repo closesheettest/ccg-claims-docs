@@ -22,6 +22,11 @@
 //   POST { action, token, ... }
 //
 //   ── anyone ──────────────────────────────────────────────────────────
+//   Office/HR (is_admin) may add  as_employee_id  to any READ action to see the
+//   app exactly as that person sees it — for checking a screen while building it
+//   out. Writes are refused while viewing as somebody else, so looking at a
+//   screen can never clock them in, book their time off or sign their day.
+//
 //   "who"           { login }                    → { found, passcode_set, name }
 //   "login"         { login, passcode }          → { token, me }
 //                   ("login" is a phone number, or an email for office staff)
@@ -99,6 +104,9 @@ const OFF_REQUEST_TYPES = ["pto", "sick", "doctor", "unpaid", "bereavement", "ju
 // A time-off request type → the day_type it writes onto the timecard.
 const REQ_TO_DAY = { pto: "pto", sick: "sick", doctor: "doctor", unpaid: "unpaid", bereavement: "bereavement", jury: "jury", other: "other" };
 // Which day types burn which balance.
+// Everything an admin may do while wearing somebody else's shoes. Deliberately
+// short: reads only.
+const VIEW_AS_READ_ONLY = ["me", "today", "week", "my_time_off", "team_today", "team_week", "off_queue"];
 const PTO_TYPES = ["pto"];
 const SICK_TYPES = ["sick", "doctor"];
 
@@ -142,8 +150,23 @@ export const handler = async (event) => {
     }
 
     // ── Everything below needs a live session ───────────────────────
-    const me = await session(body.token);
-    if (!me) return cors(401, j({ ok: false, error: "Your session expired — sign in again." }));
+    const signedIn = await session(body.token);
+    if (!signedIn) return cors(401, j({ ok: false, error: "Your session expired — sign in again." }));
+
+    // "View as" — office/HR only, and read-only. `me` becomes the person being
+    // looked at, so every screen below renders exactly what THEY would see.
+    let me = signedIn, viewingAs = null;
+    const asId = str(body.as_employee_id, 64);
+    if (asId && asId !== signedIn.id) {
+      if (!signedIn.is_admin) return cors(403, j({ ok: false, error: "Only the office can view as someone else." }));
+      if (!VIEW_AS_READ_ONLY.includes(action)) {
+        return cors(403, j({ ok: false, error: "You're viewing as someone else — this is a look, not a change. Switch back to your own login to do that." }));
+      }
+      const target = (await get(`payroll_employees?id=eq.${asId}&select=${EMP_SEL}&limit=1`))[0];
+      if (!target) return cors(404, j({ ok: false, error: "That employee isn't on the roster." }));
+      me = target;
+      viewingAs = { id: target.id, name: fullName(target) };
+    }
 
     if (action === "logout") {
       await del(`payroll_sessions?token=eq.${encodeURIComponent(String(body.token))}`);
@@ -158,7 +181,7 @@ export const handler = async (event) => {
       return cors(200, j({ ok: true }));
     }
 
-    if (action === "me") return cors(200, j({ ok: true, me: await meBundle(me) }));
+    if (action === "me") return cors(200, j({ ok: true, me: await meBundle(me), viewing_as: viewingAs }));
 
     // ── Today: the check-in / recap screen ──────────────────────────
     if (action === "today") return cors(200, j({ ok: true, ...(await todayFor(me)) }));
