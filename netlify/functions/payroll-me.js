@@ -383,15 +383,51 @@ export const handler = async (event) => {
       return cors(200, j({ ok: true, request: row, manager_notified: sent }));
     }
 
+    // Changed their mind. Works whether or not it was approved yet — and if it
+    // WAS approved, the days it wrote onto the time card come back off, or the
+    // person would still show as away on a day they actually worked.
     if (action === "cancel_off") {
       const id = str(body.id, 64);
       const req = (await get(`payroll_time_off?id=eq.${id}&select=*&limit=1`))[0];
       if (!req) return cors(404, j({ ok: false, error: "Request not found." }));
       const mine = req.employee_id === me.id;
       if (!mine && !(await managesEmployee(me, req.employee_id))) return cors(403, j({ ok: false, error: "Not yours to cancel." }));
-      if (req.status === "approved" && !mine) { /* manager pulling back an approval is fine */ }
+      if (req.status === "cancelled") return cors(200, j({ ok: true, already: true }));
+      if (req.status === "denied") return cors(400, j({ ok: false, error: "That request was already denied." }));
+
+      const wasApproved = req.status === "approved";
       await patch(`payroll_time_off?id=eq.${id}`, { status: "cancelled" });
-      return cors(200, j({ ok: true }));
+
+      // Take back the days this request put on the card. Only the ones it
+      // created (source "auto") and only while the week is still open — a
+      // signed-off day is payroll's now, so it's reported instead of altered.
+      let removed = 0; const locked = [];
+      if (wasApproved) {
+        const dates = await workDaysBetween(req.start_date, req.end_date);
+        for (const d of dates) {
+          const ex = (await get(`payroll_time_entries?employee_id=eq.${req.employee_id}&work_date=eq.${d}&select=id,locked,source&limit=1`))[0];
+          if (!ex || ex.source !== "auto") continue;
+          if (ex.locked) { locked.push(d); continue; }
+          await del(`payroll_time_entries?id=eq.${ex.id}`);
+          removed++;
+        }
+      }
+
+      const emp = mine ? me : (await get(`payroll_employees?id=eq.${req.employee_id}&select=${EMP_SEL}&limit=1`))[0] || me;
+      const when = req.start_date === req.end_date ? pretty(req.start_date) : `${pretty(req.start_date)}–${pretty(req.end_date)}`;
+      if (mine) {
+        // Tell the manager: they approved it, or were waiting on it.
+        await notifyManager(emp, {
+          subject: `${fullName(emp)} cancelled time off — ${when}`,
+          line: `${fullName(emp)} cancelled their ${LABEL[req.request_type] || req.request_type} for ${when}${wasApproved ? " (it had been approved, so those days have come back off their time card)" : " — it was still pending, so there's nothing to approve"}.`,
+          detail: req.note || "",
+          cta: "See their week",
+        });
+      }
+      return cors(200, j({
+        ok: true, days_removed: removed,
+        ...(locked.length ? { notice: `${locked.length} of those days sit in a week that's already signed off, so they were left alone — ask the office if they need changing.` } : {}),
+      }));
     }
 
     if (action === "my_time_off") {

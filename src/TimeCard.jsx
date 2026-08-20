@@ -857,8 +857,20 @@ function TimeOff({ me, api, onErr, onChanged }) {
                       <Pill color={r.status === "approved" ? GREEN : r.status === "denied" ? RED : r.status === "cancelled" ? MUTE : AMBER}>
                         {r.status}
                       </Pill>
-                      {r.status === "pending" ? (
-                        <button style={{ ...ghost, padding: "5px 9px", fontSize: 12 }} onClick={async () => { await api("cancel_off", { id: r.id }); load(); onChanged(); }}>Cancel</button>
+                      {r.status === "pending" || r.status === "approved" ? (
+                        <button style={{ ...ghost, padding: "5px 9px", fontSize: 12 }}
+                          onClick={async () => {
+                            const msg = r.status === "approved"
+                              ? "Cancel this time off? Those days come off your time card and your manager is told."
+                              : "Cancel this request? Your manager is told.";
+                            if (!window.confirm(msg)) return;
+                            const d = await api("cancel_off", { id: r.id });
+                            if (!d.ok) { onErr(d.error || "Couldn't cancel that."); return; }
+                            if (d.notice) onErr(d.notice);
+                            load(); onChanged();
+                          }}>
+                          {r.status === "approved" ? "I'm not taking it" : "Cancel"}
+                        </button>
                       ) : null}
                     </div>
                   </div>

@@ -117,6 +117,12 @@ and looked like a bug)
 board. They can also undo a check-in they made by mistake, switch the day to a day off,
 or reopen a day they closed too early.
 
+**Calling time off back off.** Staff can cancel their own request from **Time Off** —
+before it's approved, or after. Cancelling an approved one **removes the days it put on
+their time card** (otherwise they'd still read as away on a day they worked) and tells
+their manager either way. Days sitting in an already signed-off week are left alone and
+reported instead, since those belong to payroll.
+
 **Time off.** A request goes to the department manager, who approves it on **Team → Week
 sign-off**; the office can also clear any request from the **Time Off** tab, which opens
 on Pending. Approving it writes the days
