@@ -638,7 +638,7 @@ function DayCard({ day, me, locked, expanded, onSave, onToggle }) {
       time_in: f.time_in, time_out: f.time_out, lunch_minutes: Number(f.lunch_minutes) || 0,
       hours: Number(f.hours) || 0, off_type: f.off_type || null, off_hours: Number(f.off_hours) || 0,
       late_minutes: Number(f.late_minutes) || 0, left_early_minutes: Number(f.left_early_minutes) || 0,
-      note: f.note,
+      note: f.note, recap: f.recap,
     });
     setSaving(false);
     onToggle();
@@ -673,7 +673,15 @@ function DayCard({ day, me, locked, expanded, onSave, onToggle }) {
       {expanded ? (
         <div style={{ borderTop: `1px solid ${LINE}`, padding: 13, display: "grid", gap: 11, background: "#fbfcfe" }}>
           {locked ? (
-            <div style={{ fontSize: 13, color: MUTE }}>🔒 This week is signed off — the office can still change it for you.</div>
+            <div style={{ display: "grid", gap: 9 }}>
+              {e?.recap ? (
+                <div>
+                  <div style={{ fontSize: 11.5, fontWeight: 800, color: MUTE, marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.3 }}>What you got done</div>
+                  <div style={{ background: "#f8fafc", border: `1px solid ${LINE}`, borderRadius: 10, padding: "10px 12px", fontSize: 14, whiteSpace: "pre-wrap", lineHeight: 1.45 }}>{e.recap}</div>
+                </div>
+              ) : null}
+              <div style={{ fontSize: 13, color: MUTE }}>🔒 This week is signed off — the office can still change it for you.</div>
+            </div>
           ) : (
             <>
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
@@ -724,6 +732,13 @@ function DayCard({ day, me, locked, expanded, onSave, onToggle }) {
                 </Field>
               )}
 
+              <Field label="What you got done">
+                <textarea style={{ ...fld, minHeight: 110, resize: "vertical", fontFamily: "inherit", lineHeight: 1.45 }}
+                  value={f.recap} maxLength={2000}
+                  placeholder="Jobs, addresses, deliveries, what got finished, anything that held you up…"
+                  onChange={(v) => setF((s) => ({ ...s, recap: v.target.value }))} />
+              </Field>
+
               <Field label="Note (optional)">
                 <input style={fld} value={f.note} maxLength={200} placeholder="Anything your manager should know"
                   onChange={(v) => setF((s) => ({ ...s, note: v.target.value }))} />
@@ -755,11 +770,12 @@ function fromEntry(e, hol, me) {
     day_type: e.day_type || "worked", time_in: e.time_in || "", time_out: e.time_out || "",
     lunch_minutes: e.lunch_minutes ?? 0, hours: e.hours ?? 0, off_type: e.off_type || "", off_hours: e.off_hours ?? 0,
     late_minutes: e.late_minutes ?? 0, left_early_minutes: e.left_early_minutes ?? 0, note: e.note || "",
+    recap: e.recap || "",
   };
   return {
     day_type: "worked", time_in: "", time_out: "", lunch_minutes: 30, hours: "",
     off_type: "", off_hours: 0, late_minutes: 0, left_early_minutes: 0,
-    note: hol ? hol.name : "", _dayHrs: me?.standard_day_hours || 8,
+    note: hol ? hol.name : "", recap: "", _dayHrs: me?.standard_day_hours || 8,
   };
 }
 
