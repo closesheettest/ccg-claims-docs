@@ -93,6 +93,16 @@ const SOLD_STATUS_NAMES = [
   'Upcoming Commissions',
   'Holds',
   'Extras',
+  // Downstream of a sale — an installed roof sitting in collections is obviously
+  // sold, but these were missing, so a deal quietly stopped counting as it aged.
+  // No effect on the WEEK view (nothing sold in the last week has moved this far —
+  // 0 of 46 measured), but the MONTH view was shrinking as deals matured
+  // (Neal, 2026-08-20). contest-report keeps its own shorter list on purpose: a
+  // contest week is always current, so nothing in it can have reached these.
+  'Commission',
+  'Install Complete - Collect Payment',
+  'Collections - Problem Files',
+  'Misc Collections Needed',
 ]
 
 const jnHeaders = {
