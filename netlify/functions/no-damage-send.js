@@ -94,6 +94,16 @@ exports.handler = async (event) => {
       texted = await postOk(`${base}/.netlify/functions/ghl-sms`, { to: insp.mobile, name: insp.client_name || "", message: msg });
     }
 
+
+    // CONTEST CREDIT — a no-damage go-back converts when the homeowner gives at
+    // least one REFERRAL. Logged here so the Rep Visit Hub link scores the same as
+    // the map (Neal, 2026-08-20); dedup is rep + day + inspection_id.
+    if (savedReferrals > 0 && repName) {
+      fetch(`${SB_URL}/rest/v1/canvass_activity`, {
+        method: "POST", headers: { ...sb, Prefer: "return=minimal" },
+        body: JSON.stringify({ rep_name: repName, kind: "goback", note: inspectionId }),
+      }).catch(() => {});
+    }
     return cors(200, JSON.stringify({ ok: true, emailed, texted, hadCert: !!pdfBase64 }));
   } catch (e) {
     return cors(500, JSON.stringify({ ok: false, error: e.message || "error" }));

@@ -107,6 +107,19 @@ exports.handler = async (event) => {
       body: JSON.stringify({ inspection_id: inspectionId, jn_job_id: insp.jn_job_id, jn_task_id: taskId, start_at: startAtIso, end_at: new Date(endMs).toISOString(), booked_by: bookedBy }),
     }).catch(() => {});
 
+
+    // CONTEST CREDIT — a go-back scores only when it CONVERTS, and this booking is
+    // a conversion. The map logged this client-side; the Rep Visit Hub (the texted
+    // go-back link) calls this endpoint directly and logged NOTHING, so the exact
+    // same conversion scored from the map and scored zero from the link. Tim Rush
+    // booked 1036 Groveland Ave from the link on Wed 08/19 and it never reached the
+    // board (Neal / Chad's team, 2026-08-20). Logged server-side so every path
+    // counts; contest-report dedups by rep + day + inspection_id, so the map's own
+    // row can't double it.
+    fetch(`${SB_URL}/rest/v1/canvass_activity`, {
+      method: "POST", headers: { ...sb, Prefer: "return=minimal" },
+      body: JSON.stringify({ rep_name: bookedBy, kind: "goback", note: inspectionId }),
+    }).catch(() => {});
     return cors(200, JSON.stringify({ ok: true, task_id: taskId, pa_stays: paEngaged }));
   } catch (e) {
     return cors(500, JSON.stringify({ ok: false, error: e.message || "error" }));

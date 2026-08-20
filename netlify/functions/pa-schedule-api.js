@@ -463,6 +463,18 @@ async function book(body) {
   // Monitor copy — so Neal can confirm notifications are firing (temporary).
   if (base && MONITOR_PHONE) await sms(base, MONITOR_PHONE, "Monitor", `🔔 PA appt set: ${homeowner || "homeowner"} — ${when} w/ ${pa.name}${co ? ` (${co.name})` : ""}. Booked by ${bookedBy}.`);
 
+
+  // CONTEST CREDIT — booking the PA appointment IS the damage go-back's conversion.
+  // Same hole as the retail path: the map logged it client-side, the Rep Visit Hub
+  // link logged nothing, so identical work scored or didn't depending on which
+  // screen the rep used (Neal, 2026-08-20). contest-report dedups by rep + day +
+  // inspection_id, so the map's own row can't double it.
+  if (inspectionId && bookedBy) {
+    fetch(`${SB_URL}/rest/v1/canvass_activity`, {
+      method: "POST", headers: { ...sb, Prefer: "return=minimal" },
+      body: JSON.stringify({ rep_name: bookedBy, kind: "goback", note: inspectionId }),
+    }).catch(() => {});
+  }
   return cors(200, JSON.stringify({ ok: true, appointment, reassigned_to: pa.name }));
 }
 
