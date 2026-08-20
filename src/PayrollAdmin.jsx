@@ -47,7 +47,6 @@ const todayET = () => new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_
 const mondayOf = (s) => { const dow = asDate(s).getUTCDay(); return addDays(s, dow === 0 ? -6 : 1 - dow); };
 const pretty = (s) => { if (!s) return ""; const [, m, d] = s.split("-"); return `${+m}/${+d}`; };
 const fmtPhone = (v) => { const d = String(v || "").replace(/\D/g, ""); return d.length === 10 ? `(${d.slice(0,3)}) ${d.slice(3,6)}-${d.slice(6)}` : (v || ""); };
-const money = (n) => `$${(Number(n) || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 const TABS = [
   ["myday", "My Day"], ["signoff", "Sign-off"], ["daily", "Daily"], ["viewas", "View as"],

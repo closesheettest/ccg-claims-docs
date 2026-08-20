@@ -40,10 +40,10 @@
 //   "check_out"     { token, recap, ... }        → recap + close the day out
 //   "reopen_day"    { token }                    → ended the shift too early, carry on
 //   "save_recap"    { token, work_date?, recap } → fix a recap afterwards
+//   "set_title"     { token, title }             → set my own job title
 //   "day_off"       { token, day_type, reason }  → "I'm off today" (a reason is required)
 //   "week"          { token, week_start? }       → my 7 days + totals + lock state
 //   "save_day"      { token, work_date, ... }    → upsert one day of my timecard
-//   "submit_week"   { token, week_start }        → "my week is done"
 //   "request_off"   { token, request_type, start_date, end_date, ... }
 //   "cancel_off"    { token, id }
 //   "my_time_off"   { token }
@@ -314,6 +314,14 @@ export const handler = async (event) => {
 
     // "I'm off today" — straight onto the card, no request/approval round-trip
     // (it still counts against their balance, and the manager sees it).
+    // People name their own job. The office isn't better placed to know what a
+    // person actually does, and it was reading as a label pinned on them.
+    if (action === "set_title") {
+      const title = str(body.title, 120);
+      await patch(`payroll_employees?id=eq.${me.id}`, { title: title || null, updated_at: nowIso() });
+      return cors(200, j({ ok: true, title: title || null }));
+    }
+
     if (action === "day_off") {
       const t = await todayFor(me);
       const wd = dstr(body.work_date) || t.work_date;
@@ -348,12 +356,6 @@ export const handler = async (event) => {
     if (action === "save_day") {
       const out = await saveDay(me, me, body, "employee");
       return cors(out.ok ? 200 : 400, j(out));
-    }
-
-    if (action === "submit_week") {
-      const ws = weekStart(body.week_start || todayET());
-      await upsert("payroll_week_submits", { employee_id: me.id, week_start: ws, submitted_at: nowIso() }, "employee_id,week_start");
-      return cors(200, j({ ok: true, submitted_at: nowIso() }));
     }
 
     // ── Time off ────────────────────────────────────────────────────
@@ -636,10 +638,9 @@ async function balances(emp) {
 // holiday auto-fill, running totals, and whether it's locked/submitted.
 async function weekFor(emp, ws) {
   const we = addDays(ws, 6);
-  const [rows, hols, submit, appr] = await Promise.all([
+  const [rows, hols, appr] = await Promise.all([
     get(`payroll_time_entries?employee_id=eq.${emp.id}&work_date=gte.${ws}&work_date=lte.${we}&select=*&order=work_date.asc`),
     get(`payroll_holidays?active=is.true&holiday_date=gte.${ws}&holiday_date=lte.${we}&select=holiday_date,name,paid,hours`),
-    get(`payroll_week_submits?employee_id=eq.${emp.id}&week_start=eq.${ws}&select=submitted_at&limit=1`),
     emp.department_id ? get(`payroll_week_approvals?department_id=eq.${emp.department_id}&week_start=eq.${ws}&select=*&limit=1`) : [],
   ]);
   const byDate = Object.fromEntries(rows.map((r) => [r.work_date, r]));
@@ -656,7 +657,6 @@ async function weekFor(emp, ws) {
   return {
     week_start: ws, week_end: we, days,
     totals: weekTotals(days.map((d) => d.entry).filter(Boolean), emp),
-    submitted_at: submit[0]?.submitted_at || null,
     approval: weekApproval,
     locked: rows.some((r) => r.locked) || weekApproval?.status === "approved",
   };
@@ -749,13 +749,11 @@ async function departmentWeek(dept, ws) {
   const we = addDays(ws, 6);
   const emps = await get(`payroll_employees?department_id=eq.${dept.id}&active=is.true&select=${EMP_SEL}&order=last_name.asc`);
   const ids = emps.map((e) => e.id);
-  const [entries, submits, appr, hols] = await Promise.all([
+  const [entries, appr, hols] = await Promise.all([
     ids.length ? get(`payroll_time_entries?employee_id=in.(${ids.join(",")})&work_date=gte.${ws}&work_date=lte.${we}&select=*`) : [],
-    ids.length ? get(`payroll_week_submits?employee_id=in.(${ids.join(",")})&week_start=eq.${ws}&select=employee_id,submitted_at`) : [],
     get(`payroll_week_approvals?department_id=eq.${dept.id}&week_start=eq.${ws}&select=*&limit=1`),
     get(`payroll_holidays?active=is.true&holiday_date=gte.${ws}&holiday_date=lte.${we}&select=holiday_date,name,paid,hours`),
   ]);
-  const subBy = Object.fromEntries(submits.map((s) => [s.employee_id, s.submitted_at]));
   const members = emps.map((e) => {
     const mine = entries.filter((x) => x.employee_id === e.id).sort((a, b) => a.work_date.localeCompare(b.work_date));
     const days = [];
@@ -769,7 +767,6 @@ async function departmentWeek(dept, ws) {
         standard_day_hours: Number(e.standard_day_hours || 8), standard_week_hours: Number(e.standard_week_hours || 40),
       },
       days, totals: weekTotals(mine, e),
-      submitted_at: subBy[e.id] || null,
       flags: flagsFor(mine, e, ws),
     };
   });

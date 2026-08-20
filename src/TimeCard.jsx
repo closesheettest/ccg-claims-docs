@@ -550,12 +550,6 @@ function MyWeek({ me, api, onErr, onChanged }) {
     return true;
   };
 
-  const submitWeek = async () => {
-    const d = await api("submit_week", { week_start: ws });
-    if (!d.ok) { onErr(d.error || "Couldn't submit."); return; }
-    load(ws);
-  };
-
   const t = data?.totals;
   const thisWeek = mondayOf(todayET());
   const isLocked = !!data?.locked;
@@ -941,7 +935,7 @@ function Team({ me, api, onErr }) {
   };
 
   const thisWeek = mondayOf(todayET());
-  const allSigned = (data?.departments || []).every((d) => (d.days_signed || 0) >= 5);
+  const allSigned = (data?.departments || []).every((d) => d.approval?.status === "approved");
   const needsSignoff = data && !allSigned;
 
   if (view === "today") {
@@ -994,7 +988,7 @@ function Team({ me, api, onErr }) {
             <div>
               <div style={{ fontWeight: 900, fontSize: 17, color: NAVY }}>{dep.department.name}</div>
               <div style={{ fontSize: 12.5, color: MUTE }}>
-                {(dep.members || []).length} on the team · {dep.days_signed || 0} of 7 days signed
+                {(dep.members || []).length} on the team · {dep.approval?.status === "approved" ? "week signed off" : "week not signed yet"}
               </div>
             </div>
             <div style={{ textAlign: "right" }}>
@@ -1087,7 +1081,6 @@ function TeamMember({ m, open, onToggle, onSave, locked, shifts, onSetShift, onD
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontWeight: 900, fontSize: 15 }}>{m.employee.name}</div>
           <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginTop: 3 }}>
-            {m.submitted_at ? <Pill color={GREEN}>done</Pill> : <Pill color={AMBER}>not marked done</Pill>}
             {m.flags.map((f, i) => <Pill key={i} color={f.kind === "ot" ? AMBER : f.kind === "missing" ? RED : MUTE}>{f.label}</Pill>)}
           </div>
         </div>
@@ -1296,6 +1289,8 @@ export function EmployeeScreens({ token, asEmployeeId, tabs }) {
   const [tab, setTab] = useState("today");
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(true);
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [titleDraft, setTitleDraft] = useState("");
   const readOnly = !!asEmployeeId;
 
   const api = useCallback(async (action, extra) => {
@@ -1316,6 +1311,12 @@ export function EmployeeScreens({ token, asEmployeeId, tabs }) {
   useEffect(() => { reload(); }, [reload]);
   useEffect(() => { setTab("today"); }, [asEmployeeId]);
 
+  const saveTitle = async () => {
+    const d = await api("set_title", { title: titleDraft.trim() });
+    if (!d.ok) { setErr(d.error || "Couldn't save that."); return; }
+    setEditingTitle(false); reload();
+  };
+
   if (loading) return <div style={{ ...card, color: MUTE, textAlign: "center" }}>Loading…</div>;
   if (!me) return <div style={{ ...card }}><Err>{err || "Nothing to show."}</Err></div>;
 
@@ -1333,8 +1334,27 @@ export function EmployeeScreens({ token, asEmployeeId, tabs }) {
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
         <div>
           <div style={{ fontSize: 17, fontWeight: 900, color: NAVY }}>{me.first_name} {me.last_name}</div>
-          <div style={{ fontSize: 12.5, color: MUTE }}>
-            {[me.title, me.department?.name, me.shift?.name].filter(Boolean).join(" · ") || "no department or shift set"}
+          <div style={{ fontSize: 12.5, color: MUTE, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+            {editingTitle && !readOnly ? (
+              <>
+                <input style={{ ...fld, padding: "5px 9px", fontSize: 13, width: 210 }} value={titleDraft} maxLength={80}
+                  placeholder="What do you do here?" autoFocus
+                  onChange={(e) => setTitleDraft(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") saveTitle(); if (e.key === "Escape") setEditingTitle(false); }} />
+                <button style={{ ...ghost, padding: "5px 10px", fontSize: 12 }} onClick={saveTitle}>Save</button>
+                <button style={{ ...ghost, padding: "5px 10px", fontSize: 12, border: "none", color: MUTE }} onClick={() => setEditingTitle(false)}>Cancel</button>
+              </>
+            ) : (
+              <>
+                <span>{[me.title, me.department?.name, me.shift?.name].filter(Boolean).join(" · ") || "no department or shift set"}</span>
+                {!readOnly ? (
+                  <button style={{ ...ghost, padding: "3px 8px", fontSize: 11.5, border: "none", color: NAVY }}
+                    onClick={() => { setTitleDraft(me.title || ""); setEditingTitle(true); }}>
+                    {me.title ? "edit job title" : "add your job title"}
+                  </button>
+                ) : null}
+              </>
+            )}
           </div>
         </div>
         <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
