@@ -323,6 +323,8 @@ function Today({ me, api, onErr, onChanged }) {
   const elapsed = e?.checked_in_at && !e?.checked_out_at
     ? Math.max(0, Math.round((Date.now() - new Date(e.checked_in_at).getTime()) / 60000)) : null;
   const isNight = shift && shift.end_time <= shift.start_time;
+  // A break can't be longer than the shift it happens in.
+  const shiftMinutes = shift ? (((mins(shift.end_time) - mins(shift.start_time)) + 1440) % 1440) : 0;
   const offType = e && e.day_type !== "worked" ? (DT[e.day_type] || null) : null;
 
   return (
@@ -439,7 +441,7 @@ function Today({ me, api, onErr, onChanged }) {
                       borderColor: Number(breaking.minutes) === m ? NAVY : LINE,
                     }}>{m} min</button>
                   ))}
-                  <Field label="or"><input style={fld} type="number" min="1" max="720" value={breaking.minutes}
+                  <Field label="or"><input style={fld} type="number" min="1" max={shiftMinutes || 720} value={breaking.minutes}
                     onChange={(ev) => setBreaking((b) => ({ ...b, minutes: ev.target.value }))} /></Field>
                 </div>
                 <Field label="Reason (your manager sees this)">

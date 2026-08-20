@@ -110,12 +110,16 @@ they're filled in, otherwise from a typed number. Arriving late and leaving earl
 minute counts on a worked day, so they show up as flags for the manager without
 changing the hours.
 
-**Breaks.** Mid-shift, an employee can log time stepped away with a required reason
+**Breaks.** Mid-shift, an employee can log time stepped away with a required reason, capped
+at the length of their shift (a fat-fingered "720" once wiped a whole day's hours to zero
+and looked like a bug)
 (school pickup, doctor). It comes off the hours worked and shows on the manager's
 board. They can also undo a check-in they made by mistake, switch the day to a day off,
 or reopen a day they closed too early.
 
-**Time off.** A request goes to the department manager. Approving it writes the days
+**Time off.** A request goes to the department manager, who approves it on **Team → Week
+sign-off**; the office can also clear any request from the **Time Off** tab, which opens
+on Pending. Approving it writes the days
 straight onto the time card — weekends and company holidays inside the range are
 skipped and never counted against an allotment. Balances are always counted off the
 time cards, so a day the office keyed in by hand counts exactly the same as one that
