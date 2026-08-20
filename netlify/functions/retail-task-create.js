@@ -2,8 +2,9 @@
 //
 // Retail visit flow: the rep picks a fixed slot for a retail re-visit; this
 // creates a JobNimbus APPOINTMENT task (record_type 17 = "Appointment") on the
-// inspection's job at that date/time, and records a retail_appointments row
-// (idempotent per inspection + start time).
+// inspection's job at that date/time, records a retail_appointments row
+// (idempotent per inspection + start time), AND marks the inspection's
+// retail_outcome so the deal shows as worked in the BTR reports.
 //
 // POST { token, inspection_id, start_at_iso, rep_jobnimbus_id?, booked_by? }
 //   → { ok, task_id }
@@ -35,7 +36,7 @@ exports.handler = async (event) => {
   if (!inspectionId || !startMs) return cors(400, JSON.stringify({ ok: false, error: "inspection_id and start_at_iso required" }));
 
   try {
-    const insp = (await sbGet(`inspections?id=eq.${encodeURIComponent(inspectionId)}&select=id,client_name,jn_job_id&limit=1`))[0];
+    const insp = (await sbGet(`inspections?id=eq.${encodeURIComponent(inspectionId)}&select=id,client_name,jn_job_id,result,retail_outcome&limit=1`))[0];
     if (!insp) return cors(404, JSON.stringify({ ok: false, error: "inspection not found" }));
     if (!insp.jn_job_id) return cors(409, JSON.stringify({ ok: false, error: "This deal has no JobNimbus job yet." }));
 
@@ -69,6 +70,27 @@ exports.handler = async (event) => {
         start_at: new Date(startMs).toISOString(), end_at: new Date(endMs).toISOString(), booked_by: bookedBy,
       }),
     }).catch(() => {});
+
+    // MARK THE DEAL WORKED. Booking the JN appointment and logging a
+    // retail_appointments row was only ever half the job — every BTR report reads
+    // inspections.retail_outcome, and this path never set it. 43 of 57 appointments
+    // booked here were sitting in the reports as "not worked yet (rep hasn't gone
+    // back)" while the appointment was on the calendar (Neal, 2026-08-20).
+    //
+    // btr_appt vs retail_appt: a deal whose result is "retail" came BACK to retail
+    // from an inspection — that's a BTR. Anything else is a born-retail appointment.
+    // Never overwrite an outcome that's already further along (sold, no_sale, …);
+    // a re-book must not walk a closed deal backwards.
+    if (!insp.retail_outcome) {
+      await fetch(`${SB_URL}/rest/v1/inspections?id=eq.${encodeURIComponent(inspectionId)}`, {
+        method: "PATCH", headers: { ...sb, "Content-Type": "application/json", Prefer: "return=minimal" },
+        body: JSON.stringify({
+          retail_outcome: insp.result === "retail" ? "btr_appt" : "retail_appt",
+          retail_outcome_at: new Date().toISOString(),
+          retail_outcome_by: bookedBy || null,
+        }),
+      }).catch(() => {});
+    }
 
     return cors(200, JSON.stringify({ ok: true, task_id: taskId }));
   } catch (e) {
