@@ -312,3 +312,10 @@
 # (In-file schedule alone does NOT fire in this project — declare it here.)
 [functions."cron-signing-stalled-tick"]
   schedule = "*/15 * * * *"
+
+# "How did the come-back go?" — an hour after a review appointment, ask the rep.
+# The WORKER (goback-followup) stays unscheduled so the office can run it dry
+# (?apply=0) to see who's due; Netlify 403s manual calls to scheduled functions,
+# so the schedule lives on this thin wrapper. Same split as cron-contest-freeze.
+[functions."cron-goback-followup"]
+  schedule = "*/15 * * * *"

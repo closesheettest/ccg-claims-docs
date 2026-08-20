@@ -33,6 +33,7 @@ import RoofMeasure from "./RoofMeasure";
 import MyToolsPage from "./MyToolsPage";
 import GobackBook from "./GobackBook";
 import GobackSchedule from "./GobackSchedule";
+import GobackOutcome from "./GobackOutcome";
 import ContestAdmin from "./ContestAdmin";
 import RoofTakeoff from "./RoofTakeoff";
 import InspectionVisitReport from "./InspectionVisitReport";
@@ -9798,6 +9799,11 @@ export default function App() {
     // ?mode=roofmeasure — office spot-check: satellite roof measurement (Google Solar).
     if (portalMode === "roofmeasure") {
       return <RoofMeasure />;
+    }
+    // ?mode=gobackresult — where the "how did the come-back go?" follow-up text
+    // lands: one question, four buttons, no map to load.
+    if (portalMode === "gobackresult") {
+      return <GobackOutcome />;
     }
     // ?mode=gobackschedule — admin CMS for the after-inspection self-scheduling texts.
     if (portalMode === "gobackschedule") {
