@@ -682,6 +682,13 @@ async function saveDay(actor, emp, b, source) {
     left_early_minutes: clampNum(b.left_early_minutes, 0, 600) || 0,
     note: str(b.note, 500) || null, source, updated_at: nowIso(),
   };
+  // The recap is only touched when the caller actually sends one — editing a
+  // day's times must never wipe what somebody wrote about it.
+  if (b.recap !== undefined) {
+    const recap = str(b.recap, 2000);
+    row.recap = recap || null;
+    row.recap_at = recap ? nowIso() : null;
+  }
   await upsert("payroll_time_entries", row, "employee_id,work_date");
   return { ok: true, entry: row };
 }
