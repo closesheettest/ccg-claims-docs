@@ -322,14 +322,14 @@ export const handler = async (event) => {
           // Bare link on purpose — the https:// form gets blocked by carriers.
           // Link on its own line: easy to tap, and easy to select-and-copy if a
           // phone declines to linkify it.
-          const msg = `Hi ${e.first_name} - this is your U.S. Shingle time card.\n\n${bare}\n\nSign in with THIS mobile number and pick a 4-8 digit passcode. Check in when your day starts, and at the end say what you got done.`;
+          const msg = `Hi ${e.first_name} - this is your U.S. Shingle time card.\n\n${bare}\n\nSign in with THIS mobile number (or your work email) and pick a 4-8 digit passcode. Check in when your day starts, and at the end say what you got done.`;
           const r = await postJson("ghl-sms", { to: e.phone, name: res.name, message: msg, verify: true });
           res.sms = r?.delivered ? "delivered" : (r?.status || r?.error || r?.details?.message || "not delivered");
         }
         if (e.email) {
           const ok = await postJson("send-email", {
             to: e.email, subject: "Your U.S. Shingle time card", fromName: "U.S. Shingle Time Cards",
-            html: `<p>Hi ${e.first_name},</p><p>This is your time card. Sign in with your <b>mobile number</b> — not an email — then pick your own 4–8 digit passcode.</p>` +
+            html: `<p>Hi ${e.first_name},</p><p>This is your time card. Sign in with your <b>mobile number</b> or your <b>work email</b>, then pick your own 4–8 digit passcode.</p>` +
               `<p><a href="${base}/?mode=timecard" style="display:inline-block;padding:12px 22px;background:#0f2a4a;color:#fff;text-decoration:none;border-radius:8px;font-weight:700;">Open my time card</a></p>` +
               `<p>Tap <b>Check in</b> when your day starts, and at the end write a quick recap of what you got done — that's what closes the day and sets your hours.</p>` +
               `<p style="color:#64748b;font-size:13px;">U.S. Shingle &amp; Metal</p>`,
