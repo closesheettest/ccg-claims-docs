@@ -1207,3 +1207,74 @@ function TeamToday({ me, api, onErr, initialDate }) {
     </div>
   );
 }
+
+// ── EMBEDDABLE: the employee screens, for the office side ───────────────
+// The payroll office screen signs in with the SAME credentials and gets the
+// same kind of session token, so it can render these directly:
+//   • no asEmployeeId  → your own day, fully interactive (clock in from admin)
+//   • asEmployeeId set → that person's screens, READ-ONLY (the server refuses
+//     writes while viewing as someone else)
+export function EmployeeScreens({ token, asEmployeeId, tabs }) {
+  const [me, setMe] = useState(null);
+  const [tab, setTab] = useState("today");
+  const [err, setErr] = useState("");
+  const [loading, setLoading] = useState(true);
+  const readOnly = !!asEmployeeId;
+
+  const api = useCallback(async (action, extra) => {
+    const r = await fetch(API, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action, token, ...(asEmployeeId ? { as_employee_id: asEmployeeId } : {}), ...extra }),
+    });
+    return r.json().catch(() => ({ ok: false, error: "Bad response" }));
+  }, [token, asEmployeeId]);
+
+  const reload = useCallback(async () => {
+    setLoading(true);
+    const d = await api("me");
+    setMe(d.ok ? d.me : null);
+    if (!d.ok) setErr(d.error || "Couldn't load that person.");
+    setLoading(false);
+  }, [api]);
+  useEffect(() => { reload(); }, [reload]);
+  useEffect(() => { setTab("today"); }, [asEmployeeId]);
+
+  if (loading) return <div style={{ ...card, color: MUTE, textAlign: "center" }}>Loading…</div>;
+  if (!me) return <div style={{ ...card }}><Err>{err || "Nothing to show."}</Err></div>;
+
+  const isMgr = me.is_manager || me.is_admin;
+  const available = (tabs || ["today", "week", "off"].concat(isMgr ? ["team"] : []));
+
+  return (
+    <div style={{ display: "grid", gap: 12 }}>
+      {readOnly ? (
+        <div style={{ background: "#fffbeb", border: "1px solid #fde68a", color: "#92400e", borderRadius: 12, padding: "10px 13px", fontSize: 13.5, fontWeight: 600 }}>
+          👀 Viewing as <b>{me.first_name} {me.last_name}</b> — this is exactly what they see. It's read-only: nothing here can check them in, book their time off, or sign their day.
+        </div>
+      ) : null}
+
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+        <div>
+          <div style={{ fontSize: 17, fontWeight: 900, color: NAVY }}>{me.first_name} {me.last_name}</div>
+          <div style={{ fontSize: 12.5, color: MUTE }}>
+            {[me.title, me.department?.name, me.shift?.name].filter(Boolean).join(" · ") || "no department or shift set"}
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
+          {available.map((k) => (
+            <button key={k} onClick={() => setTab(k)} style={{
+              ...ghost, padding: "8px 14px",
+              background: tab === k ? NAVY : "#fff", color: tab === k ? "#fff" : NAVY, borderColor: tab === k ? NAVY : LINE,
+            }}>{{ today: "Today", week: "Their week", off: "Time Off", team: "Team" }[k] || k}</button>
+          ))}
+        </div>
+      </div>
+
+      <Err>{err}</Err>
+      {tab === "today" && <Today me={me} api={api} onErr={setErr} onChanged={reload} />}
+      {tab === "week" && <MyWeek me={me} api={api} onErr={setErr} onChanged={reload} />}
+      {tab === "off" && <TimeOff me={me} api={api} onErr={setErr} onChanged={reload} />}
+      {tab === "team" && <Team me={me} api={api} onErr={setErr} />}
+    </div>
+  );
+}

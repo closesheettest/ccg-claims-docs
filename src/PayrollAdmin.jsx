@@ -25,6 +25,7 @@
 // protected nothing.
 
 import React, { useCallback, useEffect, useState } from "react";
+import { EmployeeScreens } from "./TimeCard";
 
 const API = "/.netlify/functions/payroll-api";
 const NAVY = "#0f2a4a", RED = "#c0392b", GREEN = "#15803d", AMBER = "#b45309";
@@ -46,7 +47,8 @@ const fmtPhone = (v) => { const d = String(v || "").replace(/\D/g, ""); return d
 const money = (n) => `$${(Number(n) || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 const TABS = [
-  ["signoff", "Sign-off"], ["daily", "Daily"], ["people", "People"], ["teams", "Teams"], ["shifts", "Shifts"],
+  ["myday", "My Day"], ["signoff", "Sign-off"], ["daily", "Daily"], ["viewas", "View as"],
+  ["people", "People"], ["teams", "Teams"], ["shifts", "Shifts"],
   ["timeoff", "Time Off"], ["balances", "Balances"], ["holidays", "Holidays"], ["export", "Export"],
 ];
 
@@ -79,7 +81,7 @@ const OFFICE_TOKEN_KEY = "uss_payroll_office_token";
 export default function PayrollAdmin() {
   const [token, setToken] = useState(() => { try { return localStorage.getItem(OFFICE_TOKEN_KEY) || ""; } catch { return ""; } });
   const [me, setMe] = useState(null);
-  const [tab, setTab] = useState("signoff");
+  const [tab, setTab] = useState("myday");
   const [err, setErr] = useState("");
   const [booting, setBooting] = useState(true);
 
@@ -133,6 +135,10 @@ export default function PayrollAdmin() {
         </div>
 
         <Err>{err}</Err>
+        {/* Your own day, right here — the office login is a payroll session too,
+            so you can check in and recap without leaving the admin screen. */}
+        {tab === "myday" && <EmployeeScreens token={token} />}
+        {tab === "viewas" && <ViewAs token={token} api={api} onErr={setErr} />}
         {tab === "signoff" && <SignOff api={api} onErr={setErr} />}
         {tab === "daily" && <Daily api={api} onErr={setErr} />}
         {tab === "shifts" && <Shifts api={api} onErr={setErr} />}
@@ -1051,6 +1057,55 @@ function OfficeSignIn({ onIn }) {
         )}
         <a href="/?mode=timecard" style={{ fontSize: 12.5, color: MUTE }}>Looking for your own time card?</a>
       </div>
+    </div>
+  );
+}
+
+// ── VIEW AS ─────────────────────────────────────────────────────────────
+// Pick anybody and see the app exactly as they see it — for checking a screen
+// while building this out. Read-only: the API refuses every write while an
+// admin is viewing as somebody else, so looking can't clock them in.
+function ViewAs({ token, api, onErr }) {
+  const [people, setPeople] = useState([]);
+  const [pick, setPick] = useState("");
+
+  useEffect(() => {
+    (async () => {
+      const d = await api("employees");
+      if (d.ok) setPeople(d.employees); else onErr(d.error || "Couldn't load the roster.");
+    })();
+  }, [api, onErr]);
+
+  const chosen = people.find((p) => p.id === pick);
+
+  return (
+    <div style={{ display: "grid", gap: 12 }}>
+      <div style={{ ...card, display: "flex", gap: 10, alignItems: "flex-end", flexWrap: "wrap" }}>
+        <Field label="See the app as" w={280}>
+          <select style={fld} value={pick} onChange={(e) => setPick(e.target.value)}>
+            <option value="">Pick a person…</option>
+            {people.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.last_name}, {p.first_name}
+                {p.department_name ? ` · ${p.department_name}` : ""}
+                {p.is_admin ? " · office" : p.is_manager ? " · manager" : ""}
+              </option>
+            ))}
+          </select>
+        </Field>
+        {chosen ? (
+          <div style={{ fontSize: 12.5, color: MUTE, paddingBottom: 10 }}>
+            {chosen.passcode_set_at ? "Has signed in." : "Hasn't signed in yet."}
+            {chosen.phone ? "" : " No mobile on file, so they can't log in."}
+          </div>
+        ) : (
+          <div style={{ fontSize: 12.5, color: MUTE, paddingBottom: 10 }}>
+            Handy for checking what a warehouse hand or a foreman actually sees before you roll it out to them.
+          </div>
+        )}
+      </div>
+
+      {pick ? <EmployeeScreens token={token} asEmployeeId={pick} /> : null}
     </div>
   );
 }

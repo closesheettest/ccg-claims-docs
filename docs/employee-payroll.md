@@ -15,7 +15,7 @@ Two screens, one system:
 |---|---|---|
 | Employee | `/?mode=timecard` | Sign in with their **mobile number** + a passcode they set. Check in at shift start, recap at shift end, or mark the day off. See holidays and what's left of their vacation days. |
 | Department manager | same screen, **Team** tab | **Today:** who's on shift, who never checked in, every recap — and the **sign-off for that day**. **Week sign-off:** which days of the week are signed. Also approves time-off requests. |
-| Office / HR | `/?mode=payroll` (manager PIN) | Shifts, the roster, departments and who signs each one off, PTO allotments, holidays, a company-wide daily recap board, and the payroll export. |
+| Office / HR | `/?mode=payroll` | Shifts, the roster, departments and who signs each one off, PTO allotments, holidays, a company-wide daily recap board, and the payroll export. |
 
 Both are also tiles in **My Tools** (`/?mode=mytools`) under *People & Payroll*.
 
@@ -223,6 +223,21 @@ before.
 They will still show as *External* in Gmail, because the address genuinely is outside
 shingleusa.com. That only goes away by verifying shingleusa.com itself in Resend and
 sending from there.
+
+## The office screen also clocks you in
+
+The office login is the same kind of session an employee gets, so the payroll screen
+opens on **My Day** — check in, log a break, file your recap — without switching to the
+time card. Managers who also run a department get their **Team** tab there too.
+
+**View as** renders the whole app as any person on the roster: their Today, their week,
+their time off, and their Team tab if they have one. It's for checking what a warehouse
+hand or a foreman actually sees before rolling something out to them.
+
+It is **read-only by construction** — the API refuses every write while an admin is
+viewing as somebody else (`VIEW_AS_READ_ONLY` in `payroll-me.js`), so opening someone's
+screen can't check them in, book their time off, or sign their day. Only office/HR
+accounts can do it at all.
 
 ## Security
 
