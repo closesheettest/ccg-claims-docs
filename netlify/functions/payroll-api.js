@@ -367,15 +367,13 @@ export const handler = async (event) => {
     if (action === "overview") {
       const ws = weekStart(b.week_start || lastWeekStart());
       const we = addDays(ws, 6);
-      const [depts, emps, entries, approvals, submits] = await Promise.all([
+      const [depts, emps, entries, approvals] = await Promise.all([
         get("payroll_departments?active=is.true&select=id,name,manager_employee_id&order=name.asc"),
         get("payroll_employees?active=is.true&select=id,first_name,last_name,department_id,pay_type,is_admin,standard_day_hours,standard_week_hours"),
         get(`payroll_time_entries?work_date=gte.${ws}&work_date=lte.${we}&select=*`),
         get(`payroll_week_approvals?week_start=eq.${ws}&select=*`),
-        get(`payroll_week_submits?week_start=eq.${ws}&select=employee_id`),
       ]);
       const name = Object.fromEntries(emps.map((e) => [e.id, `${e.first_name} ${e.last_name}`.trim()]));
-      const submitted = new Set(submits.map((s) => s.employee_id));
       const rows = depts.map((d) => {
         const team = emps.filter((e) => e.department_id === d.id);
         const mine = entries.filter((x) => team.some((t) => t.id === x.employee_id));
@@ -385,7 +383,6 @@ export const handler = async (event) => {
           manager_name: d.manager_employee_id ? name[d.manager_employee_id] || null : null,
           manager_missing: !d.manager_employee_id,
           headcount: team.length,
-          submitted: team.filter((t) => submitted.has(t.id)).length,
           totals: totalsFor(mine, team),
           status: appr ? "approved" : "open",
           approved_by_name: appr?.approved_by_name || null,
