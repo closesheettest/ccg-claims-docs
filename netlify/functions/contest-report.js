@@ -166,7 +166,7 @@ export const handler = async (event) => {
       }
     } catch { /* best-effort */ }
 
-    const { rosterByZone } = await fetchZoneResolver();
+    const { rosterByZone } = await fetchZoneResolver(start ? start.getTime() : null);
     const teams = ZONE_ORDER.map((zone) => {
       const roster = rosterByZone[zone] || [];
       if (!roster.length) return null;
@@ -259,7 +259,7 @@ async function fetchSoldJobs(since) {
   return [...byId.values()];
 }
 function soldDateMs(job) { const v = job["Sold Date"] != null ? job["Sold Date"] : job.cf_date_5; const n = Number(v); return Number.isFinite(n) && n > 0 ? n * 1000 : null; }
-async function fetchZoneResolver() {
+async function fetchZoneResolver(weekStartMs) {
   let reps = [];
   try { const res = await fetch(TMS_REP_ZONES_URL); if (res.ok) reps = (await res.json()).reps || []; } catch { /* best-effort */ }
   const rosterByZone = {}; const seen = new Set();
@@ -271,6 +271,17 @@ async function fetchZoneResolver() {
     // is_active_sales_rep at once and then reads as an ordinary rep — which is
     // how Danny Pasicolan ended up scoring for SQUAD (Neal, 2026-08-18).
     if (!r.name || !r.zone || r.active === false || r.in_training === true || r.pregrad === true) continue;
+    // GRADUATED MID-CONTEST → out for the week they graduated IN, on from the
+    // next one. They spent that week in training, so they can neither score for
+    // their team nor sit in its divisor and drag the average down. Four reps
+    // graduated on the Thursday of Week 2 and would otherwise have landed in
+    // SHARKS' divisor for a week they were never competing in (Neal,
+    // 2026-08-20). Comparing against the week's START means it self-clears:
+    // next week their graduation date is in the past and they're in.
+    if (weekStartMs && r.became_active_rep_at) {
+      const grad = Date.parse(r.became_active_rep_at);
+      if (Number.isFinite(grad) && grad >= weekStartMs) continue;
+    }
     const norm = normalizeName(r.name);
     if (seen.has(norm)) continue; seen.add(norm);
     // managed_region set = this person is the zone's MANAGER. Their points count
