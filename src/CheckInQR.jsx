@@ -17,9 +17,15 @@ import QRCode from "qrcode";
 
 const NAVY = "#0f2a4a", INK = "#16233b", MUTE = "#5b6b8c";
 
+// The code must carry the TIME CARD's own address, never window.location.origin.
+// This page is also served through the internal dashboard's /payroll/* proxy, and
+// building the code from that origin produced https://ussm-dashboards…/timecard,
+// which doesn't exist there — a printed sign that scanned to a 404.
+const APP_ORIGIN = "https://free-roof-inspections.netlify.app";
+
 export default function CheckInQR() {
-  const origin = typeof window !== "undefined" ? window.location.origin : "";
-  const link = `${origin}/timecard?checkin=1`;
+  const origin = APP_ORIGIN;
+  const link = `${origin}/checkin`;
   const [qr, setQr] = useState("");
   const [size, setSize] = useState(900);
 
@@ -77,7 +83,7 @@ export default function CheckInQR() {
         </div>
 
         <div style={{ marginTop: 22, fontSize: 14, color: MUTE }}>
-          No camera? Go to <b style={{ color: INK }}>{origin.replace(/^https?:\/\//, "")}/timecard</b>
+          No camera? Go to <b style={{ color: INK }}>{origin.replace(/^https?:\/\//, "")}/checkin</b>
         </div>
       </div>
     </div>

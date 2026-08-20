@@ -155,13 +155,29 @@ Dry runs — these show exactly who would be texted and why, and send nothing:
 call to a scheduled function, which is why each schedule is a thin wrapper around a
 plain HTTP worker — the same split `cron-harvest-nosits` uses.)
 
+## What a manager can do
+
+Beyond reading the daily board and signing the week, a manager runs their own
+department's roster from **Team → Week sign-off**:
+
+- **put someone on a shift** — choose from the shifts the office defined; they can't
+  create or retime a shift, that stays with the office
+- **add someone** to their department
+- **remove someone** — deactivates them, never deletes; their hours and recaps stay
+
+All of it is scoped hard to the departments they actually run, and a manager can't
+grant manager or office access to anybody.
+
 ## The door QR
 
 `/?mode=checkinqr` is a printable sign — big QR, print button, and a PNG download if
 you'd rather drop it into your own poster. It's linked from the office screen header
 and from My Tools.
 
-The code carries `/checkin`, which is `/timecard?checkin=1`. **Scanning checks the
+The code carries the time card's **own** address — `free-roof-inspections.netlify.app/checkin`
+— never `window.location.origin`. That matters because this page is also served through
+the dashboard's `/payroll/*` proxy, where the origin is the dashboard: a code built from
+it pointed at a URL that doesn't exist there, so a printed sign scanned to a 404. **Scanning checks the
 person in**, it doesn't just open the app: the time card reads that flag and stamps the
 check-in as soon as it loads — including straight after a first-time sign-in, because
 the flag rides through that flow in the URL.
