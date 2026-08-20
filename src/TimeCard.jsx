@@ -862,6 +862,8 @@ function Team({ me, api, onErr }) {
   const [busy, setBusy] = useState(false);
   const [sign, setSign] = useState(`${me.first_name} ${me.last_name}`.trim());
   const [note, setNote] = useState("");
+  const [shifts, setShifts] = useState([]);
+  const [adding, setAdding] = useState(null);
 
   const load = useCallback(async (week) => {
     setBusy(true);
@@ -875,6 +877,26 @@ function Team({ me, api, onErr }) {
   const decide = async (id, decision) => {
     const d = await api("decide_off", { id, decision });
     if (!d.ok) { onErr(d.error || "Couldn't record that."); return; }
+    load(ws);
+  };
+
+  useEffect(() => { (async () => { const d = await api("shifts"); if (d.ok) setShifts(d.shifts || []); })(); }, [api]);
+
+  // A manager staffs their own department: who's on which shift, who joins, who leaves.
+  const setShift = async (employeeId, shiftId) => {
+    const r = await api("set_shift", { employee_id: employeeId, shift_id: shiftId });
+    if (!r.ok) { onErr(r.error || "Couldn't set that shift."); return; }
+    load(ws);
+  };
+  const addTeammate = async (dep) => {
+    const r = await api("add_teammate", { ...adding, department_id: dep.department.id });
+    if (!r.ok) { onErr(r.error || "Couldn't add them."); return; }
+    setAdding(null); load(ws);
+  };
+  const deactivate = async (m) => {
+    if (!window.confirm(`Take ${m.employee.name} off the roster? Their hours and recaps stay.`)) return;
+    const r = await api("deactivate_teammate", { employee_id: m.employee.id });
+    if (!r.ok) { onErr(r.error || "Couldn't do that."); return; }
     load(ws);
   };
 
@@ -953,6 +975,7 @@ function Team({ me, api, onErr }) {
 
           {dep.members.map((m) => (
             <TeamMember key={m.employee.id} m={m} open={openEmp === m.employee.id}
+              shifts={shifts} onSetShift={setShift} onDeactivate={deactivate}
               onToggle={() => setOpenEmp(openEmp === m.employee.id ? "" : m.employee.id)}
               locked={dep.approval?.status === "approved"}
               onSave={async (payload) => {
@@ -961,6 +984,39 @@ function Team({ me, api, onErr }) {
                 load(ws); return true;
               }} />
           ))}
+
+          {adding ? (
+            <div style={{ ...card, display: "grid", gap: 9, borderColor: "#bfdbfe", background: "#f8fbff" }}>
+              <div style={{ fontWeight: 900, fontSize: 15 }}>Add someone to {dep.department.name}</div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <Field label="First name"><input style={fld} value={adding.first_name} onChange={(e) => setAdding({ ...adding, first_name: e.target.value })} /></Field>
+                <Field label="Last name"><input style={fld} value={adding.last_name} onChange={(e) => setAdding({ ...adding, last_name: e.target.value })} /></Field>
+              </div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <Field label="Mobile"><input style={fld} value={adding.phone} onChange={(e) => setAdding({ ...adding, phone: e.target.value })} placeholder="(813) 555-0123" /></Field>
+                <Field label="Email (optional)"><input style={fld} value={adding.email} onChange={(e) => setAdding({ ...adding, email: e.target.value })} /></Field>
+              </div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <Field label="Job title"><input style={fld} value={adding.title} onChange={(e) => setAdding({ ...adding, title: e.target.value })} /></Field>
+                <Field label="Shift">
+                  <select style={fld} value={adding.shift_id} onChange={(e) => setAdding({ ...adding, shift_id: e.target.value })}>
+                    <option value="">— none yet —</option>
+                    {shifts.map((x) => <option key={x.id} value={x.id}>{x.name} ({hhmm(x.start_time)}–{hhmm(x.end_time)})</option>)}
+                  </select>
+                </Field>
+              </div>
+              <div style={{ fontSize: 12, color: MUTE }}>They need a mobile or an email before they can sign in — you can add it later.</div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button style={btn(NAVY, { flex: 1 })} disabled={busy} onClick={() => addTeammate(dep)}>Add to {dep.department.name}</button>
+                <button style={ghost} onClick={() => setAdding(null)}>Cancel</button>
+              </div>
+            </div>
+          ) : (
+            <button style={{ ...ghost, justifySelf: "start" }}
+              onClick={() => setAdding({ first_name: "", last_name: "", phone: "", email: "", title: "", shift_id: "" })}>
+              + Add someone to {dep.department.name}
+            </button>
+          )}
 
           {dep.approval?.status === "approved" ? (
             <div style={{ background: "#ecfdf5", border: "1px solid #a7f3d0", color: "#065f46", borderRadius: 12, padding: "12px 14px", fontWeight: 700, fontSize: 14 }}>
@@ -993,7 +1049,7 @@ function Team({ me, api, onErr }) {
   );
 }
 
-function TeamMember({ m, open, onToggle, onSave, locked }) {
+function TeamMember({ m, open, onToggle, onSave, locked, shifts, onSetShift, onDeactivate }) {
   const [editing, setEditing] = useState("");
   return (
     <div style={{ ...card, padding: 0, overflow: "hidden" }}>
@@ -1014,6 +1070,18 @@ function TeamMember({ m, open, onToggle, onSave, locked }) {
 
       {open ? (
         <div style={{ borderTop: `1px solid ${LINE}`, background: "#fbfcfe" }}>
+          {shifts ? (
+            <div style={{ display: "flex", gap: 9, alignItems: "center", flexWrap: "wrap", padding: "10px 13px", borderBottom: `1px solid ${LINE}` }}>
+              <span style={{ fontSize: 12.5, fontWeight: 800, color: MUTE, textTransform: "uppercase", letterSpacing: 0.3 }}>Shift</span>
+              <select style={{ ...fld, maxWidth: 250 }} value={m.employee.shift_id || ""}
+                onChange={(e) => onSetShift(m.employee.id, e.target.value)}>
+                <option value="">— none —</option>
+                {shifts.map((x) => <option key={x.id} value={x.id}>{x.name} ({hhmm(x.start_time)}–{hhmm(x.end_time)})</option>)}
+              </select>
+              <button style={{ ...ghost, marginLeft: "auto", color: RED, borderColor: "#fecaca", padding: "7px 12px", fontSize: 12.5 }}
+                onClick={() => onDeactivate(m)}>Remove from team</button>
+            </div>
+          ) : null}
           {m.days.map((d) => {
             const e = d.entry;
             const t = DT[e?.day_type];

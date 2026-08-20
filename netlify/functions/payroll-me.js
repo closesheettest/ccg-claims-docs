@@ -56,6 +56,13 @@
 //   "approve_week"  { token, week_start, sign_name, note? } → SIGN OFF the week + lock
 //   "reopen_signoff"{ token, work_date, department_id? }     → admin only
 //   "off_queue"     { token }                               → pending requests
+//   "shifts"        { token }                               → the shift list
+//   "set_shift"     { token, employee_id, shift_id }        → put one of MY team
+//                                                             on a shift
+//   "add_teammate"  { token, first_name, last_name, ... }   → add somebody to MY
+//                                                             department
+//   "deactivate_teammate" { token, employee_id }            → take one of MY team
+//                                                             off the roster
 //   "decide_off"    { token, id, decision, note? }          → approve / deny
 //
 // Sign-off is ONCE A WEEK: after the week finishes a manager reviews their
@@ -430,6 +437,58 @@ export const handler = async (event) => {
       return cors(200, j({ ok: true }));
     }
 
+    // A manager sets which shift their own people work. They can't create or
+    // retime shifts — that stays with the office — only choose from the list.
+    if (action === "shifts") {
+      return cors(200, j({ ok: true, shifts: await allShifts() }));
+    }
+
+    if (action === "set_shift") {
+      const empId = str(body.employee_id, 64);
+      if (!(await managesEmployee(me, empId))) return cors(403, j({ ok: false, error: "That employee isn't on your team." }));
+      const shiftId = str(body.shift_id, 64);
+      if (shiftId) {
+        const sh = (await get(`payroll_shifts?id=eq.${shiftId}&active=is.true&select=id&limit=1`))[0];
+        if (!sh) return cors(404, j({ ok: false, error: "That shift doesn't exist." }));
+      }
+      await patch(`payroll_employees?id=eq.${empId}`, { shift_id: shiftId || null, updated_at: nowIso() });
+      return cors(200, j({ ok: true }));
+    }
+
+    // A manager can staff their own department: add somebody, or take them off.
+    // Scoped hard to the departments they run — never anyone else's people, and
+    // they can't grant manager or office access.
+    if (action === "add_teammate") {
+      const depts = await myDepartments(me, body.department_id);
+      if (!depts.length) return cors(400, j({ ok: false, error: "You don't run a department yet — the office sets that." }));
+      if (depts.length > 1 && !body.department_id) return cors(400, j({ ok: false, error: "Which department should they go in?" }));
+      const first = str(body.first_name, 60), last = str(body.last_name, 60);
+      if (!first || !last) return cors(400, j({ ok: false, error: "First and last name, please." }));
+      const phone = phoneKey(body.phone);
+      const email = str(body.email, 160).toLowerCase() || null;
+      if (phone) {
+        const dupe = await get(`payroll_employees?phone=eq.${phone}&select=first_name,last_name&limit=1`);
+        if (dupe.length) return cors(400, j({ ok: false, error: `That number is already on the roster (${dupe[0].first_name} ${dupe[0].last_name}).` }));
+      }
+      const shiftId = str(body.shift_id, 64) || null;
+      const row = (await post("payroll_employees", {
+        first_name: first, last_name: last, phone: phone || null, email,
+        department_id: depts[0].id, shift_id: shiftId,
+        title: str(body.title, 120) || null, pay_type: "hourly", active: true,
+      }, true))[0];
+      return cors(200, j({ ok: true, employee: { id: row?.id, name: `${first} ${last}` }, needs_login: !phone && !email }));
+    }
+
+    if (action === "deactivate_teammate") {
+      const empId = str(body.employee_id, 64);
+      if (empId === me.id) return cors(400, j({ ok: false, error: "You can't take yourself off the roster." }));
+      if (!(await managesEmployee(me, empId))) return cors(403, j({ ok: false, error: "That employee isn't on your team." }));
+      // Deactivate, never delete — their hours and recaps have to stay put.
+      await patch(`payroll_employees?id=eq.${empId}`, { active: false, updated_at: nowIso() });
+      await del(`payroll_sessions?employee_id=eq.${empId}`);
+      return cors(200, j({ ok: true }));
+    }
+
     if (action === "off_queue") {
       const depts = await myDepartments(me, body.department_id);
       const ids = await teamIds(depts);
@@ -648,7 +707,7 @@ async function departmentWeek(dept, ws) {
     }
     return {
       employee: {
-        id: e.id, name: fullName(e), title: e.title, pay_type: e.pay_type,
+        id: e.id, name: fullName(e), title: e.title, pay_type: e.pay_type, shift_id: e.shift_id,
         standard_day_hours: Number(e.standard_day_hours || 8), standard_week_hours: Number(e.standard_week_hours || 40),
       },
       days, totals: weekTotals(mine, e),
