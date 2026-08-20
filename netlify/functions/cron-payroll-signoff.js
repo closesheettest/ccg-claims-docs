@@ -5,10 +5,10 @@
 // office can run `?dry=1`, and the schedule lives here in a thin wrapper,
 // because Netlify 403s manual calls to a scheduled function.
 //
-// Every 15 minutes: the worker decides WHEN each department is due, which is
-// once its own last shift has ended (office ~5:30pm, warehouse night ~11:30pm,
-// an overnight crew the following morning). It fires at most once per
-// department per day, and skips departments with no activity.
+// Every 15 minutes; the worker decides who is due. Sign-off is WEEKLY: it pings
+// each manager on FRIDAY once that department's last shift has ended, and once
+// more on Monday morning if the week is still unsigned. Every other run is a
+// no-op, which is cheap.
 
 export const config = { schedule: "*/15 * * * *" };
 

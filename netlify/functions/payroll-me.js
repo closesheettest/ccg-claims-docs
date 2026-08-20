@@ -1,7 +1,7 @@
 // netlify/functions/payroll-me.js
 //
 // The EMPLOYEE side of payroll/timekeeping (?mode=timecard), plus the
-// department manager's DAILY review and sign-off. One login
+// department manager's daily review and their ONE weekly sign-off. One login
 // serves both: a manager is just an employee with is_manager, and sees an
 // extra Team tab.
 //
@@ -53,16 +53,16 @@
 //                                                              everyone got done today
 //   "team_week"     { token, week_start?, department_id? }  → every member's week
 //   "team_save_day" { token, employee_id, work_date, ... }  → fix a member's day
-//   "approve_day"   { token, work_date, sign_name, note? }  → SIGN OFF that day + lock
+//   "approve_week"  { token, week_start, sign_name, note? } → SIGN OFF the week + lock
 //   "reopen_signoff"{ token, work_date, department_id? }     → admin only
 //   "off_queue"     { token }                               → pending requests
 //   "decide_off"    { token, id, decision, note? }          → approve / deny
 //
-// Sign-off is PER DAY, not per week: each morning a manager reviews the day
-// that just finished for their department and signs it, which locks those
-// entries so the numbers can't move after payroll sees them, and snapshots the
-// totals. (The approvals table is keyed by department + date; its column is
-// still called week_start from when sign-off was weekly.)
+// Sign-off is ONCE A WEEK: after the week finishes a manager reviews their
+// department's whole week and signs it, which locks every entry in it so the
+// numbers can't move after payroll sees them, and snapshots the totals. They
+// still get the daily board (Team → Today) to watch the week as it happens —
+// that's for reading, not signing.
 //
 // Env: VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY.
 
@@ -406,26 +406,26 @@ export const handler = async (event) => {
       return cors(out.ok ? 200 : 400, j(out));
     }
 
-    if (action === "approve_day") {
-      const wd = dstr(body.work_date) || addDays(todayET(), -1);
+    if (action === "approve_week") {
+      const ws = weekStart(body.week_start || addDays(todayET(), -7));
       const signName = str(body.sign_name, 120);
       if (!signName) return cors(400, j({ ok: false, error: "Type your name to sign off." }));
       const depts = await myDepartments(me, body.department_id);
       if (!depts.length) return cors(400, j({ ok: false, error: "You don't manage a department yet — the office sets that." }));
       const done = [];
-      for (const d of depts) done.push(await approveDepartmentDay(me, d, wd, signName, str(body.note, 500)));
+      for (const d of depts) done.push(await approveDepartmentWeek(me, d, ws, signName, str(body.note, 500)));
       return cors(200, j({ ok: true, approved: done }));
     }
 
     if (action === "reopen_signoff") {
-      if (!me.is_admin) return cors(403, j({ ok: false, error: "Only the office can reopen a signed-off day." }));
-      const wd = dstr(body.work_date);
-      if (!wd) return cors(400, j({ ok: false, error: "Which day?" }));
+      if (!me.is_admin) return cors(403, j({ ok: false, error: "Only the office can reopen a signed-off week." }));
+      const ws = weekStart(dstr(body.week_start) || "");
+      if (!dstr(body.week_start)) return cors(400, j({ ok: false, error: "Which week?" }));
       const depts = await myDepartments(me, body.department_id);
       for (const d of depts) {
         const ids = (await get(`payroll_employees?department_id=eq.${d.id}&select=id`)).map((e) => e.id);
-        if (ids.length) await patch(`payroll_time_entries?employee_id=in.(${ids.join(",")})&work_date=eq.${wd}`, { locked: false });
-        await patch(`payroll_week_approvals?department_id=eq.${d.id}&week_start=eq.${wd}`, { status: "open", approved_at: null, approved_by: null, approved_by_name: null, updated_at: nowIso() });
+        if (ids.length) await patch(`payroll_time_entries?employee_id=in.(${ids.join(",")})&work_date=gte.${ws}&work_date=lte.${addDays(ws, 6)}`, { locked: false });
+        await patch(`payroll_week_approvals?department_id=eq.${d.id}&week_start=eq.${ws}`, { status: "open", approved_at: null, approved_by: null, approved_by_name: null, updated_at: nowIso() });
       }
       return cors(200, j({ ok: true }));
     }
@@ -530,25 +530,25 @@ async function weekFor(emp, ws) {
     get(`payroll_time_entries?employee_id=eq.${emp.id}&work_date=gte.${ws}&work_date=lte.${we}&select=*&order=work_date.asc`),
     get(`payroll_holidays?active=is.true&holiday_date=gte.${ws}&holiday_date=lte.${we}&select=holiday_date,name,paid,hours`),
     get(`payroll_week_submits?employee_id=eq.${emp.id}&week_start=eq.${ws}&select=submitted_at&limit=1`),
-    emp.department_id ? get(`payroll_week_approvals?department_id=eq.${emp.department_id}&week_start=gte.${ws}&week_start=lte.${we}&select=*`) : [],
+    emp.department_id ? get(`payroll_week_approvals?department_id=eq.${emp.department_id}&week_start=eq.${ws}&select=*&limit=1`) : [],
   ]);
   const byDate = Object.fromEntries(rows.map((r) => [r.work_date, r]));
   const holByDate = Object.fromEntries(hols.map((h) => [h.holiday_date, h]));
-  const apprByDate = Object.fromEntries((appr || []).map((a) => [a.week_start, a]));
+  const weekApproval = (appr || [])[0] || null;
   const days = [];
   for (let i = 0; i < 7; i++) {
     const d = addDays(ws, i);
     days.push({
       work_date: d, weekday: weekdayName(d), holiday: holByDate[d] || null,
-      entry: byDate[d] || null, approval: apprByDate[d] || null,
+      entry: byDate[d] || null,
     });
   }
   return {
     week_start: ws, week_end: we, days,
     totals: weekTotals(days.map((d) => d.entry).filter(Boolean), emp),
     submitted_at: submit[0]?.submitted_at || null,
-    days_signed: (appr || []).filter((a) => a.status === "approved").length,
-    locked: rows.some((r) => r.locked),
+    approval: weekApproval,
+    locked: rows.some((r) => r.locked) || weekApproval?.status === "approved",
   };
 }
 
@@ -635,7 +635,7 @@ async function departmentWeek(dept, ws) {
   const [entries, submits, appr, hols] = await Promise.all([
     ids.length ? get(`payroll_time_entries?employee_id=in.(${ids.join(",")})&work_date=gte.${ws}&work_date=lte.${we}&select=*`) : [],
     ids.length ? get(`payroll_week_submits?employee_id=in.(${ids.join(",")})&week_start=eq.${ws}&select=employee_id,submitted_at`) : [],
-    get(`payroll_week_approvals?department_id=eq.${dept.id}&week_start=gte.${ws}&week_start=lte.${we}&select=*`),
+    get(`payroll_week_approvals?department_id=eq.${dept.id}&week_start=eq.${ws}&select=*&limit=1`),
     get(`payroll_holidays?active=is.true&holiday_date=gte.${ws}&holiday_date=lte.${we}&select=holiday_date,name,paid,hours`),
   ]);
   const subBy = Object.fromEntries(submits.map((s) => [s.employee_id, s.submitted_at]));
@@ -656,14 +656,9 @@ async function departmentWeek(dept, ws) {
       flags: flagsFor(mine, e, ws),
     };
   });
-  const signedDates = new Set((appr || []).filter((a) => a.status === "approved").map((a) => a.week_start));
-  const day_status = Array.from({ length: 7 }, (_, i) => {
-    const d = addDays(ws, i);
-    return { work_date: d, weekday: weekdayName(d), signed: signedDates.has(d) };
-  });
   return {
     department: { id: dept.id, name: dept.name }, week_start: ws, week_end: we,
-    holidays: hols, day_status, days_signed: signedDates.size, members,
+    holidays: hols, approval: (appr || [])[0] || null, members,
     totals: rollup(members.map((m) => m.totals)),
   };
 }
@@ -684,28 +679,22 @@ function flagsFor(entries, emp, ws) {
   return out;
 }
 
-// Sign off ONE DAY: snapshot its totals and lock that day's entries so the
+// Sign off a WHOLE WEEK: snapshot the totals and lock every entry in it so the
 // numbers can't drift after payroll sees them.
-async function approveDepartmentDay(actor, dept, wd, signName, note) {
-  const day = await departmentDay(dept, wd);
-  const ids = day.members.map((m) => m.employee.id);
-  const entries = ids.length
-    ? await get(`payroll_time_entries?employee_id=in.(${ids.join(",")})&work_date=eq.${wd}&select=*`)
-    : [];
-  if (ids.length) await patch(`payroll_time_entries?employee_id=in.(${ids.join(",")})&work_date=eq.${wd}`, { locked: true });
-
-  const emps = ids.length ? await get(`payroll_employees?id=in.(${ids.join(",")})&select=${EMP_SEL}`) : [];
-  // One day's totals. weekTotals' OT split is a no-op here (a single day can't
-  // exceed a week), so this is just the day's worked / off / paid buckets.
-  const totals = weekTotals(entries, emps[0]);
-
+async function approveDepartmentWeek(actor, dept, ws, signName, note) {
+  const we = addDays(ws, 6);
+  const snap = await departmentWeek(dept, ws);
+  const ids = snap.members.map((m) => m.employee.id);
+  if (ids.length) {
+    await patch(`payroll_time_entries?employee_id=in.(${ids.join(",")})&work_date=gte.${ws}&work_date=lte.${we}`, { locked: true });
+  }
   await upsert("payroll_week_approvals", {
-    department_id: dept.id, week_start: wd, status: "approved",
+    department_id: dept.id, week_start: ws, status: "approved",
     approved_by: actor.id, approved_by_name: signName, approved_at: nowIso(),
-    note: note || null, totals, updated_at: nowIso(),
+    note: note || null, totals: snap.totals, updated_at: nowIso(),
   }, "department_id,week_start");
 
-  return { department: dept.name, work_date: wd, employees: ids.length, totals };
+  return { department: dept.name, week_start: ws, employees: ids.length, totals: snap.totals };
 }
 
 // An approved request becomes real days on the timecard (weekends + holidays
@@ -739,7 +728,7 @@ async function todayFor(emp) {
   const [rows, hols, appr] = await Promise.all([
     get(`payroll_time_entries?employee_id=eq.${emp.id}&work_date=eq.${wd}&select=*&limit=1`),
     get(`payroll_holidays?active=is.true&holiday_date=eq.${wd}&select=holiday_date,name,paid,hours&limit=1`),
-    emp.department_id ? get(`payroll_week_approvals?department_id=eq.${emp.department_id}&week_start=eq.${wd}&select=status&limit=1`) : [],
+    emp.department_id ? get(`payroll_week_approvals?department_id=eq.${emp.department_id}&week_start=eq.${weekStart(wd)}&select=status&limit=1`) : [],
   ]);
   const entry = rows[0] || null;
   const state = !entry ? "not_started"
@@ -778,12 +767,9 @@ async function departmentDay(dept, wantDate) {
     });
   }
   const dates = [...new Set(members.map((m) => m.work_date))];
-  const appr = dates.length
-    ? (await get(`payroll_week_approvals?department_id=eq.${dept.id}&week_start=in.(${dates.join(",")})&select=*`))[0] || null
-    : null;
   return {
     department: { id: dept.id, name: dept.name },
-    work_date: wantDate || dates[0] || null, approval: appr, members,
+    work_date: wantDate || dates[0] || null, members,
     counts: {
       working: members.filter((m) => m.state === "working").length,
       done: members.filter((m) => m.state === "done").length,

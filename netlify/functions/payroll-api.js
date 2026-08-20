@@ -371,7 +371,7 @@ export const handler = async (event) => {
         get("payroll_departments?active=is.true&select=id,name,manager_employee_id&order=name.asc"),
         get("payroll_employees?active=is.true&select=id,first_name,last_name,department_id,pay_type,is_admin,standard_day_hours,standard_week_hours"),
         get(`payroll_time_entries?work_date=gte.${ws}&work_date=lte.${we}&select=*`),
-        get(`payroll_week_approvals?week_start=gte.${ws}&week_start=lte.${we}&select=*`),
+        get(`payroll_week_approvals?week_start=eq.${ws}&select=*`),
         get(`payroll_week_submits?week_start=eq.${ws}&select=employee_id`),
       ]);
       const name = Object.fromEntries(emps.map((e) => [e.id, `${e.first_name} ${e.last_name}`.trim()]));
@@ -379,8 +379,7 @@ export const handler = async (event) => {
       const rows = depts.map((d) => {
         const team = emps.filter((e) => e.department_id === d.id);
         const mine = entries.filter((x) => team.some((t) => t.id === x.employee_id));
-        const mineAppr = approvals.filter((a) => a.department_id === d.id && a.status === "approved");
-        const appr = mineAppr.slice().sort((a, b) => String(b.week_start).localeCompare(String(a.week_start)))[0] || null;
+        const appr = approvals.find((a) => a.department_id === d.id && a.status === "approved") || null;
         return {
           id: d.id, name: d.name,
           manager_name: d.manager_employee_id ? name[d.manager_employee_id] || null : null,
@@ -388,9 +387,7 @@ export const handler = async (event) => {
           headcount: team.length,
           submitted: team.filter((t) => submitted.has(t.id)).length,
           totals: totalsFor(mine, team),
-          days_signed: mineAppr.length,
-          days_signed_dates: mineAppr.map((a) => a.week_start).sort(),
-          status: mineAppr.length >= 5 ? "approved" : mineAppr.length ? "partial" : "open",
+          status: appr ? "approved" : "open",
           approved_by_name: appr?.approved_by_name || null,
           approved_at: appr?.approved_at || null,
         };
@@ -402,7 +399,6 @@ export const handler = async (event) => {
         ok: true, week_start: ws, week_end: we, departments: rows, unassigned,
         company: totalsFor(entries, emps),
         approved_count: rows.filter((r) => r.status === "approved").length,
-        days_signed_total: rows.reduce((s, r) => s + r.days_signed, 0),
       }));
     }
 

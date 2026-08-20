@@ -89,8 +89,8 @@ not as being early for the next one.
 ## The weekly rhythm
 
 - The payroll week runs **Monday → Sunday**.
-- Employees can still open **My Week** to fix a day or fill in one they missed, and
-  tap **My week is done** at the end.
+- Employees can open **My Week** to fix a day or fill in one they missed. There's no
+  "mark my week done" step — the manager signs the week, and that's the only sign-off.
 - **Monday 8:00 AM ET** every department manager whose last week is still unsigned
   gets a text + email naming anyone who hasn't marked their week done
   (`cron-payroll-signoff`). Stragglers get pinged again at 11:00 AM.
