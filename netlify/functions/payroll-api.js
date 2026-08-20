@@ -309,20 +309,38 @@ export const handler = async (event) => {
     // is how somebody ends up never onboarding and nobody noticing.
     if (action === "invite") {
       const rows = b.missing
-        ? await get("payroll_employees?active=is.true&passcode_set_at=is.null&select=id,first_name,last_name,phone,email&order=last_name.asc")
-        : await get(`payroll_employees?id=eq.${str(b.id, 64)}&select=id,first_name,last_name,phone,email&limit=1`);
+        ? await get("payroll_employees?active=is.true&passcode_set_at=is.null&select=id,first_name,last_name,phone,email,is_manager,is_admin&order=last_name.asc")
+        : b.ids && Array.isArray(b.ids) && b.ids.length
+        ? await get(`payroll_employees?id=in.(${b.ids.map((x) => str(x, 64)).join(",")})&select=id,first_name,last_name,phone,email,is_manager,is_admin&order=last_name.asc`)
+        : await get(`payroll_employees?id=eq.${str(b.id, 64)}&select=id,first_name,last_name,phone,email,is_manager,is_admin&limit=1`);
       if (!rows.length) return cors(200, j({ ok: true, sent: [], note: "Everyone active has already signed in." }));
 
       const base = (process.env.URL || "https://free-roof-inspections.netlify.app").replace(/\/$/, "");
       const bare = `${base.replace(/^https?:\/\//, "")}/timecard`;
+      // Managers get one extra line. Without it the invite only describes the
+      // employee half, and the Friday sign-off — the reason they're in here at
+      // all — goes unmentioned until a reminder text surprises them.
+      const deptNames = Object.fromEntries(
+        (await get("payroll_departments?active=is.true&select=name,manager_employee_id"))
+          .filter((d) => d.manager_employee_id)
+          .map((d) => [d.manager_employee_id, d.name])
+      );
+
       const out = [];
       for (const e of rows) {
-        const res = { name: `${e.first_name} ${e.last_name}`.trim(), sms: null, email: null };
+        const runs = deptNames[e.id] || null;
+        const isBoss = !!(e.is_manager || e.is_admin || runs);
+        const teamSms = !isBoss ? "" :
+          `\n\nYou'll also see your team here. On Friday you'll get a reminder to sign off on ${runs ? runs + "'s" : "your team's"} week.`;
+        const teamHtml = !isBoss ? "" :
+          `<p>You'll also see <b>${runs ? runs : "your team"}</b> in here — their check-ins, what each person got done, and their time-off requests. ` +
+          `On <b>Friday</b> you'll get a reminder to sign off on the week once it's finished.</p>`;
+        const res = { name: `${e.first_name} ${e.last_name}`.trim(), manager: isBoss, sms: null, email: null };
         if (e.phone) {
           // Bare link on purpose — the https:// form gets blocked by carriers.
           // Link on its own line: easy to tap, and easy to select-and-copy if a
           // phone declines to linkify it.
-          const msg = `Hi ${e.first_name} - this is your U.S. Shingle time card.\n\n${bare}\n\nSign in with THIS mobile number (or your work email) and pick a 4-8 digit passcode. Check in when your day starts, and at the end say what you got done.`;
+          const msg = `Hi ${e.first_name} - this is your U.S. Shingle time card.\n\n${bare}\n\nSign in with THIS mobile number (or your work email) and pick a 4-8 digit passcode. Check in when your day starts, and at the end say what you got done.${teamSms}`;
           const r = await postJson("ghl-sms", { to: e.phone, name: res.name, message: msg, verify: true });
           res.sms = r?.delivered ? "delivered" : (r?.status || r?.error || r?.details?.message || "not delivered");
         }
@@ -332,6 +350,7 @@ export const handler = async (event) => {
             html: `<p>Hi ${e.first_name},</p><p>This is your time card. Sign in with your <b>mobile number</b> or your <b>work email</b>, then pick your own 4–8 digit passcode.</p>` +
               `<p><a href="${base}/?mode=timecard" style="display:inline-block;padding:12px 22px;background:#0f2a4a;color:#fff;text-decoration:none;border-radius:8px;font-weight:700;">Open my time card</a></p>` +
               `<p>Tap <b>Check in</b> when your day starts, and at the end write a quick recap of what you got done — that's what closes the day and sets your hours.</p>` +
+              teamHtml +
               `<p style="color:#64748b;font-size:13px;">U.S. Shingle &amp; Metal</p>`,
           });
           res.email = ok?.success ? "sent" : "failed";
