@@ -144,13 +144,9 @@ export default function PayrollAdmin() {
         <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 10, flexWrap: "wrap", marginBottom: 12 }}>
           <div>
             <div style={{ fontSize: 24, fontWeight: 900, color: NAVY }}>🧾 Employee Payroll</div>
-            <div style={{ fontSize: 13, color: MUTE }}>Hours, time off and the Monday sign-off for W-2 staff. Subcontractor crews are paid in the crew portal.</div>
+            <div style={{ fontSize: 13, color: MUTE }}>Hours, time off and the weekly sign-off for W-2 staff. Subcontractor crews are paid in the crew portal.</div>
           </div>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <a href="/?mode=checkinqr" target="_blank" rel="noopener noreferrer" style={{ ...ghost, textDecoration: "none" }}>🔳 Check-in QR for the door ↗</a>
-          <a href="/?mode=timecard" target="_blank" rel="noopener noreferrer" style={{ ...ghost, textDecoration: "none" }}>Open the employee time card ↗</a>
           <button style={ghost} onClick={signOut}>Sign out</button>
-        </div>
         </div>
 
         <div style={{ display: "flex", gap: 7, flexWrap: "wrap", marginBottom: 14 }}>
@@ -206,7 +202,7 @@ function SignOff({ api, onErr }) {
         </div>
         {d ? (
           <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
-            <div><div style={{ fontSize: 11, color: MUTE, fontWeight: 800 }}>DAYS SIGNED</div><div style={{ fontSize: 19, fontWeight: 900, color: d.approved_count === (d.departments || []).length ? GREEN : AMBER }}>{d.days_signed_total ?? 0}</div></div>
+            <div><div style={{ fontSize: 11, color: MUTE, fontWeight: 800 }}>SIGNED OFF</div><div style={{ fontSize: 19, fontWeight: 900, color: d.approved_count === (d.departments || []).length ? GREEN : AMBER }}>{d.approved_count}/{(d.departments || []).length}</div></div>
             <div><div style={{ fontSize: 11, color: MUTE, fontWeight: 800 }}>HOURS WORKED</div><div style={{ fontSize: 19, fontWeight: 900 }}>{d.company.worked}</div></div>
             <div><div style={{ fontSize: 11, color: MUTE, fontWeight: 800 }}>OVERTIME</div><div style={{ fontSize: 19, fontWeight: 900, color: d.company.overtime ? AMBER : INK }}>{d.company.overtime}</div></div>
             <div><div style={{ fontSize: 11, color: MUTE, fontWeight: 800 }}>PAID TIME OFF</div><div style={{ fontSize: 19, fontWeight: 900 }}>{(d.company.pto + d.company.sick + d.company.holiday).toFixed(2).replace(/\.00$/, "")}</div></div>
@@ -224,7 +220,7 @@ function SignOff({ api, onErr }) {
         <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 640 }}>
           <thead><tr>
             <th style={th}>Department</th><th style={th}>Signs off</th><th style={th}>Team</th>
-            <th style={th}>Worked</th><th style={th}>OT</th><th style={th}>Days signed</th>
+            <th style={th}>Worked</th><th style={th}>OT</th><th style={th}>Week signed</th>
           </tr></thead>
           <tbody>
             {(d?.departments || []).map((r) => (
@@ -235,8 +231,9 @@ function SignOff({ api, onErr }) {
                 <td style={{ ...td, fontWeight: 700 }}>{r.totals.worked}h</td>
                 <td style={{ ...td, color: r.totals.overtime ? AMBER : MUTE }}>{r.totals.overtime}h</td>
                 <td style={td}>
-                  <Pill color={r.days_signed >= 5 ? GREEN : r.days_signed ? AMBER : MUTE}>{r.days_signed} of 5</Pill>
-                  {r.approved_by_name ? <div style={{ fontSize: 11.5, color: MUTE, marginTop: 2 }}>last by {r.approved_by_name}</div> : null}
+                  {r.status === "approved"
+                    ? <Pill color={GREEN}>✓ {r.approved_by_name || "signed"}</Pill>
+                    : <Pill color={AMBER}>waiting</Pill>}
                 </td>
               </tr>
             ))}
@@ -1066,9 +1063,9 @@ function OfficeSignIn({ onIn }) {
         <div style={{ fontSize: 20, fontWeight: 900, color: NAVY }}>U.S. Shingle Time Card</div>
         {step === "who" ? (
           <>
-            <div style={{ fontSize: 13, color: MUTE }}>Sign in with your mobile number — staff and office use the same login.</div>
-            <input style={{ ...fld, textAlign: "center", fontSize: 17 }} type="tel" inputMode="tel" autoComplete="tel"
-              value={login} onChange={(e) => setLogin(e.target.value)} onKeyDown={(e) => e.key === "Enter" && find()} placeholder="(813) 555-0123" />
+            <div style={{ fontSize: 13, color: MUTE }}>Sign in with your mobile number or work email — staff and office use the same login.</div>
+            <input style={{ ...fld, textAlign: "center", fontSize: 16 }} autoComplete="username"
+              value={login} onChange={(e) => setLogin(e.target.value)} onKeyDown={(e) => e.key === "Enter" && find()} placeholder="(813) 555-0123  or  you@shingleusa.com" />
             <Err>{err}</Err>
             <button style={btn(NAVY)} disabled={busy} onClick={find}>{busy ? "Checking…" : "Continue"}</button>
           </>

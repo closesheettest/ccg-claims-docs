@@ -192,11 +192,11 @@ function SignIn({ onIn }) {
 
   const findMe = async () => {
     const v = login.trim();
-    if (v.replace(/\D/g, "").length < 10 && !v.includes("@")) { setErr("Type your 10-digit mobile number."); return; }
+    if (v.replace(/\D/g, "").length < 10 && !v.includes("@")) { setErr("Type your 10-digit mobile number, or your work email."); return; }
     setBusy(true); setErr("");
     const d = await call("who", { login: v });
     setBusy(false);
-    if (!d.ok || !d.found) { setErr("That number isn't on the roster. Use the mobile number the office texts you on — the one this link came to. Still stuck? Ask the office to check the number on your record."); return; }
+    if (!d.ok || !d.found) { setErr("We can't find that on the roster. Try the mobile number the office texts you on, or your work email. Still stuck? Ask the office to check your record."); return; }
     setName(d.name || ""); setStep(d.passcode_set ? "passcode" : "create");
   };
 
@@ -222,13 +222,19 @@ function SignIn({ onIn }) {
         <div style={{ ...card, display: "grid", gap: 12 }}>
           {step === "who" ? (
             <>
-              <label style={{ fontSize: 13, fontWeight: 700, color: MUTE }}>Your mobile number</label>
-              <input style={{ ...fld, fontSize: 18, letterSpacing: 0.5 }} type="tel" inputMode="tel" autoComplete="tel"
-                value={login} onChange={(e) => setLogin(formatPhone(e.target.value))}
-                onKeyDown={(e) => e.key === "Enter" && findMe()} placeholder="(813) 555-0123" />
+              <label style={{ fontSize: 13, fontWeight: 700, color: MUTE }}>Mobile number or work email</label>
+              <input style={{ ...fld, fontSize: 17 }} autoComplete="username"
+                value={login}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  // Format as a phone only while it still looks like one; the
+                  // moment it looks like an email, leave what they typed alone.
+                  setLogin(/[a-zA-Z@]/.test(v) ? v : formatPhone(v));
+                }}
+                onKeyDown={(e) => e.key === "Enter" && findMe()} placeholder="(813) 555-0123  or  you@shingleusa.com" />
               <Err>{err}</Err>
               <button style={btn(NAVY)} disabled={busy} onClick={findMe}>{busy ? "Checking…" : "Continue"}</button>
-              <div style={{ fontSize: 12, color: MUTE, textAlign: "center" }}>The mobile number the office texts you on.</div>
+              <div style={{ fontSize: 12, color: MUTE, textAlign: "center" }}>Whichever the office has for you — your mobile, or your work email.</div>
             </>
           ) : (
             <>
@@ -246,7 +252,7 @@ function SignIn({ onIn }) {
               ) : null}
               <Err>{err}</Err>
               <button style={btn(NAVY)} disabled={busy} onClick={go}>{busy ? "…" : step === "create" ? "Create & sign in" : "Sign in"}</button>
-              <button style={{ ...ghost, border: "none", color: MUTE }} onClick={() => { setStep("who"); setPass(""); setConfirm(""); setErr(""); }}>Use a different number</button>
+              <button style={{ ...ghost, border: "none", color: MUTE }} onClick={() => { setStep("who"); setPass(""); setConfirm(""); setErr(""); }}>Use something else</button>
             </>
           )}
         </div>
@@ -587,20 +593,6 @@ function MyWeek({ me, api, onErr, onChanged }) {
           onSave={save} />
       ))}
 
-      {/* week done */}
-      {!isLocked ? (
-        <div style={{ ...card, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
-          <div style={{ fontSize: 13.5, color: MUTE, flex: "1 1 200px" }}>
-            {data?.submitted_at
-              ? <>✅ You marked this week done — your manager signs off Monday.</>
-              : <>When your week is filled in, mark it done so your manager can sign off Monday morning.</>}
-          </div>
-          <button style={btn(data?.submitted_at ? MUTE : GREEN)} onClick={submitWeek}>
-            {data?.submitted_at ? "Mark done again" : "My week is done"}
-          </button>
-        </div>
-      ) : null}
-
       {/* holidays */}
       {me.holidays?.length ? (
         <div style={card}>
@@ -863,12 +855,13 @@ function TimeOff({ me, api, onErr, onChanged }) {
 // ── TEAM (department manager sign-off) ──────────────────────────────────
 function Team({ me, api, onErr }) {
   const [view, setView] = useState("today");     // today | week
-  const [jumpDate, setJumpDate] = useState("");  // set when a day chip is tapped in the week view
-  const [ws, setWs] = useState(() => mondayOf(todayET()));   // sign-off is daily; this view is the week's progress
+  const [ws, setWs] = useState(() => mondayOf(todayET()));
   const [data, setData] = useState(null);
   const [queue, setQueue] = useState([]);
   const [openEmp, setOpenEmp] = useState("");
   const [busy, setBusy] = useState(false);
+  const [sign, setSign] = useState(`${me.first_name} ${me.last_name}`.trim());
+  const [note, setNote] = useState("");
 
   const load = useCallback(async (week) => {
     setBusy(true);
@@ -885,6 +878,16 @@ function Team({ me, api, onErr }) {
     load(ws);
   };
 
+  // One sign-off for the whole week.
+  const signOffWeek = async (dep) => {
+    if (!sign.trim()) { onErr("Type your name to sign off."); return; }
+    setBusy(true); onErr("");
+    const r = await api("approve_week", { week_start: ws, department_id: dep.department.id, sign_name: sign.trim(), note });
+    setBusy(false);
+    if (!r.ok) { onErr(r.error || "Sign-off failed."); return; }
+    setNote(""); load(ws);
+  };
+
   const thisWeek = mondayOf(todayET());
   const allSigned = (data?.departments || []).every((d) => (d.days_signed || 0) >= 5);
   const needsSignoff = data && !allSigned;
@@ -893,7 +896,7 @@ function Team({ me, api, onErr }) {
     return (
       <div style={{ display: "grid", gap: 12 }}>
         <TeamViewToggle view={view} setView={setView} needsSignoff={needsSignoff} />
-        <TeamToday me={me} api={api} onErr={onErr} initialDate={jumpDate} />
+        <TeamToday me={me} api={api} onErr={onErr} />
       </div>
     );
   }
@@ -959,20 +962,26 @@ function Team({ me, api, onErr }) {
               }} />
           ))}
 
-          <div style={{ ...card, display: "grid", gap: 8 }}>
-            <div style={{ fontWeight: 900, fontSize: 15 }}>Days signed this week</div>
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-              {(dep.day_status || []).map((x) => (
-                <button key={x.work_date} onClick={() => { setView("today"); setJumpDate(x.work_date); }} style={{
-                  ...ghost, padding: "8px 11px", fontSize: 12.5,
-                  background: x.signed ? "#ecfdf5" : "#fff",
-                  borderColor: x.signed ? "#a7f3d0" : LINE,
-                  color: x.signed ? "#065f46" : NAVY,
-                }}>{x.signed ? "✅" : "○"} {x.weekday.slice(0, 3)} {pretty(x.work_date)}</button>
-              ))}
+          {dep.approval?.status === "approved" ? (
+            <div style={{ background: "#ecfdf5", border: "1px solid #a7f3d0", color: "#065f46", borderRadius: 12, padding: "12px 14px", fontWeight: 700, fontSize: 14 }}>
+              ✅ Week of {pretty(ws)} signed off by {dep.approval.approved_by_name}
+              {dep.approval.approved_at ? ` · ${new Date(dep.approval.approved_at).toLocaleString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}` : ""}
+              {dep.approval.note ? <div style={{ fontWeight: 500, marginTop: 4 }}>{dep.approval.note}</div> : null}
             </div>
-            <div style={{ fontSize: 12.5, color: MUTE }}>Sign-off happens a day at a time — tap a day to open it on the Today tab.</div>
-          </div>
+          ) : (
+            <div style={{ ...card, display: "grid", gap: 10, borderColor: "#bfdbfe", background: "#f8fbff" }}>
+              <div style={{ fontWeight: 900, fontSize: 15 }}>Sign off {dep.department.name} — week of {pretty(ws)}–{pretty(addDays(ws, 6))}</div>
+              <div style={{ fontSize: 13, color: MUTE }}>
+                One sign-off covers the whole week. It locks these hours so payroll can run them, so fix anything wrong first — tap a name to edit their days.
+                {dep.members.some((m) => m.flags.some((f) => f.kind === "missing")) ? " Some days are still blank." : ""}
+              </div>
+              <input style={fld} value={sign} onChange={(e) => setSign(e.target.value)} placeholder="Type your name to sign" />
+              <input style={fld} value={note} maxLength={200} onChange={(e) => setNote(e.target.value)} placeholder="Note (optional)" />
+              <button style={btn(GREEN)} disabled={busy} onClick={() => signOffWeek(dep)}>
+                {busy ? "…" : `✍️ Sign off ${dep.members.length} ${dep.members.length === 1 ? "person" : "people"} for the week`}
+              </button>
+            </div>
+          )}
         </div>
       ))}
 
@@ -1088,26 +1097,14 @@ function TeamViewToggle({ view, setView, needsSignoff }) {
   return <div style={{ display: "flex", gap: 8 }}>{b("today", "Today")}{b("week", "Week sign-off", needsSignoff)}</div>;
 }
 
-function TeamToday({ me, api, onErr, initialDate }) {
+function TeamToday({ me, api, onErr }) {
   const [d, setD] = useState(null);
-  const [date, setDate] = useState(initialDate || "");   // "" = each person's current shift day
-  const [sign, setSign] = useState(`${me.first_name} ${me.last_name}`.trim());
-  const [note, setNote] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [date, setDate] = useState("");   // "" = each person's current shift day
   const load = useCallback(async () => {
     const r = await api("team_today", date ? { work_date: date } : {});
     if (r.ok) setD(r); else onErr(r.error || "Couldn't load your team's day.");
   }, [api, onErr, date]);
   useEffect(() => { load(); }, [load]);
-
-  const signOff = async (dep) => {
-    if (!sign.trim()) { onErr("Type your name to sign off."); return; }
-    setBusy(true); onErr("");
-    const r = await api("approve_day", { work_date: dep.work_date, department_id: dep.department.id, sign_name: sign.trim(), note });
-    setBusy(false);
-    if (!r.ok) { onErr(r.error || "Sign-off failed."); return; }
-    setNote(""); load();
-  };
 
   const STATE = {
     working: { label: "on shift", color: NAVY },
@@ -1179,27 +1176,9 @@ function TeamToday({ me, api, onErr, initialDate }) {
           {!dep.members.length ? <div style={{ ...card, color: MUTE }}>Nobody on this team yet.</div> : null}
 
           {dep.members.length ? (
-            dep.approval?.status === "approved" ? (
-              <div style={{ background: "#ecfdf5", border: "1px solid #a7f3d0", color: "#065f46", borderRadius: 12, padding: "12px 14px", fontWeight: 700, fontSize: 14 }}>
-                ✅ {prettyLong(dep.work_date)} signed off by {dep.approval.approved_by_name}
-                {dep.approval.approved_at ? ` · ${new Date(dep.approval.approved_at).toLocaleString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}` : ""}
-                {dep.approval.note ? <div style={{ fontWeight: 500, marginTop: 4 }}>{dep.approval.note}</div> : null}
-              </div>
-            ) : (
-              <div style={{ ...card, display: "grid", gap: 10, borderColor: "#bfdbfe", background: "#f8fbff" }}>
-                <div style={{ fontWeight: 900, fontSize: 15 }}>Sign off {dep.department.name} — {prettyLong(dep.work_date)}</div>
-                <div style={{ fontSize: 13, color: MUTE }}>
-                  This locks the day's hours so payroll can run them. Fix anything wrong first.
-                  {dep.counts.missing ? ` ${dep.counts.missing} ${dep.counts.missing === 1 ? "person hasn't" : "people haven't"} checked in.` : ""}
-                  {dep.counts.working ? ` ${dep.counts.working} still on shift.` : ""}
-                </div>
-                <input style={fld} value={sign} onChange={(e) => setSign(e.target.value)} placeholder="Type your name to sign" />
-                <input style={fld} value={note} maxLength={200} onChange={(e) => setNote(e.target.value)} placeholder="Note (optional)" />
-                <button style={btn(GREEN)} disabled={busy} onClick={() => signOff(dep)}>
-                  {busy ? "…" : `✍️ Sign off ${dep.members.length} ${dep.members.length === 1 ? "person" : "people"}`}
-                </button>
-              </div>
-            )
+            <div style={{ fontSize: 12.5, color: MUTE }}>
+              This is the day as it happens. Sign-off is once a week — use the <b>Week sign-off</b> tab when the week's done.
+            </div>
           ) : null}
         </div>
       ))}
@@ -1265,7 +1244,7 @@ export function EmployeeScreens({ token, asEmployeeId, tabs }) {
             <button key={k} onClick={() => setTab(k)} style={{
               ...ghost, padding: "8px 14px",
               background: tab === k ? NAVY : "#fff", color: tab === k ? "#fff" : NAVY, borderColor: tab === k ? NAVY : LINE,
-            }}>{{ today: "Today", week: readOnly ? "Their week" : "My Week", off: "Time Off", team: "Team" }[k] || k}</button>
+            }}>{{ today: "Today", week: "My Week", off: "Time Off", team: "Team" }[k] || k}</button>
           ))}
         </div>
       </div>
