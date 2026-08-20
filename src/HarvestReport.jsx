@@ -186,6 +186,42 @@ export default function HarvestReport() {
     return rows.filter((r) => r.pin_id && (pinBucket[r.pin_id] || "inspection") === view);
   }, [rows, pinBucket, view]);
 
+  // ── Time on the map ───────────────────────────────────────────────────────
+  // "How long did they actually work it?" There's no reliable app_close — phone
+  // browsers almost never fire one (195 app_opens to 1 close), so a simple
+  // open→close span would be fiction. Instead we infer it from the spacing of a
+  // rep's OWN actions: consecutive events within SESSION_GAP_MIN are one working
+  // session, a bigger gap ends it. Time = the sum of the session spans, so a long
+  // drive between areas or a lunch break doesn't get billed as time on the map.
+  // It reads LOW rather than high on purpose — this number gets used to judge
+  // people, so it should never flatter.
+  //
+  // Built from `rows`, not `viewRows`: app_open carries no pin_id, and the
+  // Retail/Inspection view filter drops every pinless row.
+  const SESSION_GAP_MS = 30 * 60 * 1000;
+  const timeByRep = useMemo(() => {
+    const stamps = new Map();
+    for (const r of rows || []) {
+      const n = String(r.rep_name || "").trim().toLowerCase();
+      const t = Date.parse(r.created_at);
+      if (!n || !t) continue;
+      let arr = stamps.get(n); if (!arr) stamps.set(n, (arr = []));
+      arr.push(t);
+    }
+    const out = {};
+    for (const [n, arr] of stamps) {
+      arr.sort((a, b) => a - b);
+      let ms = 0, sessions = 1, start = arr[0];
+      for (let i = 1; i < arr.length; i++) {
+        if (arr[i] - arr[i - 1] > SESSION_GAP_MS) { ms += arr[i - 1] - start; sessions += 1; start = arr[i]; }
+      }
+      ms += arr[arr.length - 1] - start;
+      out[n] = { ms, sessions, first: arr[0], last: arr[arr.length - 1] };
+    }
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows]);
+
   const byRep = useMemo(() => {
     // Adopt orphaned arrivals. The GPS 'arrival' auto-fires the instant a rep nears a
     // routed stop — which can be BEFORE their rep record finishes loading, so those rows
@@ -364,6 +400,8 @@ export default function HarvestReport() {
   const fmt = (iso) => { try { return new Date(iso).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }); } catch { return "—"; } };
   const fmtT = (iso) => { try { return new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", second: "2-digit" }); } catch { return ""; } };
   const fmtDur = (s) => { if (s == null) return "—"; const m = Math.floor(s / 60), sec = Math.round(s % 60); return m ? `${m}m ${sec}s` : `${sec}s`; };
+  // Time on the map, in the units a manager reads at a glance: 6h 20m / 45m.
+  const fmtOnMap = (ms) => { if (!ms) return "—"; const mins = Math.round(ms / 60000); const h = Math.floor(mins / 60), m = mins % 60; return h ? `${h}h ${m}m` : `${m}m`; };
   const ACT_LABEL = (r) => {
     if (r.kind === "arrival") return "📍 Arrived";
     if (r.kind === "status") return `✏️ ${OUTCOME_LABELS[r.to_status] || r.to_status}`;
@@ -484,11 +522,11 @@ export default function HarvestReport() {
       {byZone.length > 0 && (
         <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
           <button type="button" onClick={() => {
-            const cols = ["Team", "Rep", "Visits", "Avg at spot (s)", "Rounds", ...OUTCOMES.map((o) => OUTCOME_LABELS[o] || o), "Not home", "Off-spot", "Far", "Last active"];
+            const cols = ["Team", "Rep", "Visits", "Avg at spot (s)", "Rounds", ...OUTCOMES.map((o) => OUTCOME_LABELS[o] || o), "Not home", "Off-spot", "Far", "On map (min)", "Last active"];
             const esc = (c) => { const s = String(c ?? ""); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
             const lines = [cols.map(esc).join(",")];
             for (const zg of byZone) for (const r of zg.reps) {
-              lines.push([zg.zone, r.name, r.visits, r.avgSpot ?? "", r.rounds ?? "", ...OUTCOMES.map((o) => r.outcomes[o] || 0), r.notHome || 0, r.offSpot || 0, r.farCount || 0, r.last ? new Date(r.last).toLocaleString() : ""].map(esc).join(","));
+              lines.push([zg.zone, r.name, r.visits, r.avgSpot ?? "", r.rounds ?? "", ...OUTCOMES.map((o) => r.outcomes[o] || 0), r.notHome || 0, r.offSpot || 0, r.farCount || 0, Math.round((timeByRep[String(r.name || "").trim().toLowerCase()]?.ms || 0) / 60000), r.last ? new Date(r.last).toLocaleString() : ""].map(esc).join(","));
             }
             const blob = new Blob([lines.join("\n")], { type: "text/csv" });
             const a = document.createElement("a");
@@ -505,7 +543,7 @@ export default function HarvestReport() {
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13.5 }}>
             <thead>
               <tr style={{ textAlign: "left", color: "#64748b", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.04em" }}>
-                {["Rep", "Visits", "Avg at spot", "Rounds", ...OUTCOMES.map((o) => OUTCOME_LABELS[o]), "Not home", ...(auditOff ? [] : ["Off-spot"]), "Last active"].map((label, i) => (
+                {["Rep", "Visits", "Avg at spot", "Rounds", ...OUTCOMES.map((o) => OUTCOME_LABELS[o]), "Not home", ...(auditOff ? [] : ["Off-spot"]), "On map", "Last active"].map((label, i) => (
                   <th key={i} style={{ padding: "8px 10px", position: "sticky", top: 0, background: "#fff", zIndex: 2, borderBottom: "1px solid #e5e7eb" }}>{label}</th>
                 ))}
               </tr>
@@ -514,13 +552,13 @@ export default function HarvestReport() {
               {byZone.map((zg) => (
                 <React.Fragment key={`team-${zg.zone}`}>
                   <tr>
-                    <td colSpan={(auditOff ? 6 : 7) + OUTCOMES.length} style={{ padding: "12px 10px 6px", fontFamily: OSWALD, fontWeight: 800, fontSize: 14.5, color: "#0f172a", background: "#f1f5f9", borderTop: "2px solid #cbd5e1" }}>
+                    <td colSpan={(auditOff ? 7 : 8) + OUTCOMES.length} style={{ padding: "12px 10px 6px", fontFamily: OSWALD, fontWeight: 800, fontSize: 14.5, color: "#0f172a", background: "#f1f5f9", borderTop: "2px solid #cbd5e1" }}>
                       🗺 {zg.zone} <span style={{ color: "#64748b", fontWeight: 600, fontSize: 12 }}>· {zg.reps.length} rep{zg.reps.length !== 1 ? "s" : ""}</span>
                     </td>
                   </tr>
                   {zg.reps.map((r) => {
                 const open = openRep === r.name;
-                const colSpan = (auditOff ? 6 : 7) + OUTCOMES.length;
+                const colSpan = (auditOff ? 7 : 8) + OUTCOMES.length;
                 return (
                 <React.Fragment key={r.name}>
                 <tr onClick={() => setOpenRep(open ? null : r.name)} style={{ borderTop: "1px solid #e5e7eb", cursor: "pointer", background: r.flagged ? "#fff7f7" : open ? "#f8fafc" : "#fff" }}>
@@ -546,6 +584,15 @@ export default function HarvestReport() {
                       {r.offSpot || 0}{r.farCount ? ` (${r.farCount}⚠️)` : ""}
                     </td>
                   )}
+                  {(() => {
+                    const tm = timeByRep[String(r.name || "").trim().toLowerCase()];
+                    return (
+                      <td style={{ padding: "9px 10px", fontWeight: tm?.ms ? 700 : 400, color: tm?.ms ? "#0f172a" : "#cbd5e1", whiteSpace: "nowrap" }}
+                        title={tm ? `${fmt(tm.first)} → ${fmt(tm.last)} · ${tm.sessions} session${tm.sessions !== 1 ? "s" : ""}. Gaps over 30 min (driving, lunch, off the app) aren't counted.` : ""}>
+                        {fmtOnMap(tm?.ms)}
+                      </td>
+                    );
+                  })()}
                   <td style={{ padding: "9px 10px", color: "#64748b", whiteSpace: "nowrap" }}>{fmt(r.last)}</td>
                 </tr>
                 {open && (
@@ -666,6 +713,9 @@ export default function HarvestReport() {
                     {OUTCOMES.map((o) => <td key={o} style={{ padding: "8px 10px", fontWeight: zg.totals.outcomes[o] ? 800 : 400, color: zg.totals.outcomes[o] ? "#0f172a" : "#cbd5e1" }}>{zg.totals.outcomes[o] || 0}</td>)}
                     <td style={{ padding: "8px 10px", fontWeight: zg.totals.notHome ? 800 : 400, color: zg.totals.notHome ? "#0f172a" : "#cbd5e1" }}>{zg.totals.notHome || 0}</td>
                     {!auditOff && <td style={{ padding: "8px 10px", fontWeight: zg.totals.offSpot ? 800 : 400, color: zg.totals.farCount ? "#b91c1c" : zg.totals.offSpot ? "#b45309" : "#cbd5e1" }}>{zg.totals.offSpot || 0}</td>}
+                    <td style={{ padding: "8px 10px", fontWeight: 800 }} title="Team total — each rep's own time added up, not wall-clock coverage.">
+                      {fmtOnMap(zg.reps.reduce((sum, r) => sum + (timeByRep[String(r.name || "").trim().toLowerCase()]?.ms || 0), 0))}
+                    </td>
                     <td style={{ padding: "8px 10px" }}></td>
                   </tr>
                 </React.Fragment>
