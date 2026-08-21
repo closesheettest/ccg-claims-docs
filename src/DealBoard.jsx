@@ -14,6 +14,7 @@
 // a different story about a deal than the master report does. That's the point:
 // the screens this replaces each decided a deal's state their own way.
 import React, { useEffect, useMemo, useState } from "react";
+import BackBar from "./BackBar";
 
 const FONT = "'Oswald', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif";
 const BODY = "system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif";
@@ -94,7 +95,8 @@ export default function DealBoard({ feed, title, tag, blurb, stats }) {
   return (
     <Shell>
       <div style={{ padding: "14px 16px 8px", borderBottom: "1px solid #e2e8f0", background: "#fff" }}>
-        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "baseline", gap: 10 }}>
+        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 10 }}>
+          <BackBar />
           <div style={{ fontFamily: FONT, fontWeight: 700, fontSize: 21, color: "#0f172a" }}>{title}{tag ? <span style={{ color: "#7c3aed" }}> {tag}</span> : null}</div>
           <div style={{ fontSize: 12.5, color: "#64748b" }}>{blurb}</div>
         </div>

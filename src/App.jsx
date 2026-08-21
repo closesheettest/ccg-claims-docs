@@ -8947,13 +8947,21 @@ function AdminDashboard() {
   }
 
   const toolTile = (item) => (
-    <button key={item.group + ":" + item.key} type="button" onClick={() => item.key === "harvest_map" ? openHarvestAdminMap() : item.key === "inspection_map" ? openInspectionAdminMap() : item.href ? window.open(item.href, "_blank", "noopener") : launchManagerTool(item.key)}
-      style={{ padding: "20px 18px", borderRadius: 20, border: item.isNew ? `2px solid ${NEW_TILE_BG}` : "2px solid #e5e7eb", background: item.isNew ? NEW_TILE_BG : "#fff", textAlign: "left", cursor: "pointer", boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
-      <div style={{ fontSize: 32, marginBottom: 8 }}>{item.emoji}</div>
-      <div style={{ fontSize: 15, fontWeight: 700, color: item.isNew ? "#fff" : "#111827", fontFamily: "'Oswald', sans-serif", marginBottom: 4 }}>{item.label}{item.href ? " ↗" : ""}</div>
-      <div style={{ fontSize: 12.5, color: item.isNew ? "#dbe4ff" : "#6b7280", lineHeight: 1.4 }}>{item.desc}</div>
-      {item.key === "roof_measure" && <RoofMeasureCompanyToggle />}
-    </button>
+    // A tile with an href is a LINK, not a button. It used to window.open into a
+    // new tab, which left people stranded — no back button, no way home, and in
+    // the installed app it escapes the app entirely. As a real link, a normal
+    // tap navigates in place (browser Back returns here) and cmd/middle-click
+    // still opens a new tab for anyone who wants one (Neal, 2026-08-21).
+    React.createElement(item.href ? "a" : "button", {
+      key: item.group + ":" + item.key,
+      ...(item.href ? { href: item.href } : { type: "button", onClick: () => item.key === "harvest_map" ? openHarvestAdminMap() : item.key === "inspection_map" ? openInspectionAdminMap() : launchManagerTool(item.key) }),
+      style: { padding: "20px 18px", borderRadius: 20, border: item.isNew ? `2px solid ${NEW_TILE_BG}` : "2px solid #e5e7eb", background: item.isNew ? NEW_TILE_BG : "#fff", textAlign: "left", cursor: "pointer", boxShadow: "0 1px 3px rgba(0,0,0,0.06)", display: "block", textDecoration: "none" },
+    },
+      <div key="e" style={{ fontSize: 32, marginBottom: 8 }}>{item.emoji}</div>,
+      <div key="l" style={{ fontSize: 15, fontWeight: 700, color: item.isNew ? "#fff" : "#111827", fontFamily: "'Oswald', sans-serif", marginBottom: 4 }}>{item.label}</div>,
+      <div key="d" style={{ fontSize: 12.5, color: item.isNew ? "#dbe4ff" : "#6b7280", lineHeight: 1.4 }}>{item.desc}</div>,
+      item.key === "roof_measure" ? <RoofMeasureCompanyToggle key="t" /> : null,
+    )
   );
 
   return shell(
@@ -17456,13 +17464,17 @@ if (!hasDamage) {
                           {/* Tiles for the selected tab (+ module) */}
                           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
                             {tiles.map(item => (
-                              <button key={item.key} type="button" onClick={() => item.key === "harvest_map" ? openHarvestAdminMap() : item.key === "inspection_map" ? openInspectionAdminMap() : item.href ? window.open(item.href, "_blank", "noopener") : setManagerSection(item.key)}
-                                style={{ padding: "24px 20px", borderRadius: 20, border: item.isNew ? `2px solid ${NEW_TILE_BG}` : "2px solid #e5e7eb", background: item.isNew ? NEW_TILE_BG : "#fff", textAlign: "left", cursor: "pointer", boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
-                                <div style={{ fontSize: 36, marginBottom: 10 }}>{item.emoji}</div>
-                                <div style={{ fontSize: 16, fontWeight: 700, color: item.isNew ? "#fff" : "#111827", fontFamily: "'Oswald', sans-serif", marginBottom: 4 }}>{item.label}{item.href ? " ↗" : ""}</div>
-                                <div style={{ fontSize: 13, color: item.isNew ? "#dbe4ff" : "#6b7280", fontFamily: "'Nunito', sans-serif", lineHeight: 1.4 }}>{item.desc}</div>
-                                {item.key === "roof_measure" && <RoofMeasureCompanyToggle />}
-                              </button>
+                              // href tiles are real links — see the note on toolTile.
+                              React.createElement(item.href ? "a" : "button", {
+                                key: item.key,
+                                ...(item.href ? { href: item.href } : { type: "button", onClick: () => item.key === "harvest_map" ? openHarvestAdminMap() : item.key === "inspection_map" ? openInspectionAdminMap() : setManagerSection(item.key) }),
+                                style: { padding: "24px 20px", borderRadius: 20, border: item.isNew ? `2px solid ${NEW_TILE_BG}` : "2px solid #e5e7eb", background: item.isNew ? NEW_TILE_BG : "#fff", textAlign: "left", cursor: "pointer", boxShadow: "0 1px 3px rgba(0,0,0,0.06)", display: "block", textDecoration: "none" },
+                              },
+                                <div key="e" style={{ fontSize: 36, marginBottom: 10 }}>{item.emoji}</div>,
+                                <div key="l" style={{ fontSize: 16, fontWeight: 700, color: item.isNew ? "#fff" : "#111827", fontFamily: "'Oswald', sans-serif", marginBottom: 4 }}>{item.label}</div>,
+                                <div key="d" style={{ fontSize: 13, color: item.isNew ? "#dbe4ff" : "#6b7280", fontFamily: "'Nunito', sans-serif", lineHeight: 1.4 }}>{item.desc}</div>,
+                                item.key === "roof_measure" ? <RoofMeasureCompanyToggle key="t" /> : null,
+                              )
                             ))}
                           </div>
                         </div>
