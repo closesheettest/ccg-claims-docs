@@ -195,8 +195,9 @@ exports.handler = async (event) => {
       // "Sam marked it dead and it keeps coming back" loop (Neal, 2026-08-21).
       const scanIsNewer = (c, pin) => {
         const scan = Number(c.date_created) * 1000;
-        const worked = pin && pin.status_updated_at ? Date.parse(pin.status_updated_at) : 0;
         if (!Number.isFinite(scan) || !scan) return false;
+        if (scan < TAKEOVER_FROM_MS) return false;          // too old to count as "they came back"
+        const worked = pin && pin.status_updated_at ? Date.parse(pin.status_updated_at) : 0;
         return !worked || scan > worked;
       };
       // One takeover: become the new lead, and keep what the door used to be.
@@ -467,6 +468,14 @@ const RAW_SET = new Set(["iq", "fb", "ai", "insp", "no_sit_reschedule"]);
 // set it and when, in extra.prev_* — so "they said no in June" is still on the
 // record, it just no longer blocks us from going back.
 const IQ_WINS_SOURCE = "iq";
+// A scan older than this never takes a door. Two reasons to hold the line here:
+// the 14th–15th of August was the double-pin outage (the tally read 555 and 905;
+// only 180 of the 15th's pins survive, and the 14th shows the 1.27M inspection-
+// lead mass load), so nothing from that window can be trusted to mean "a
+// homeowner scanned". And a genuinely old scan isn't news — we want the doors
+// people have come back to recently, not a re-run of the spring (Neal,
+// 2026-08-21). Move the date forward as the map settles.
+const TAKEOVER_FROM_MS = Date.parse("2026-08-16T00:00:00-04:00");
 // The two states an IQ scan does NOT reopen: a booked appointment and a signed
 // inspection. Those are commitments with something already on a calendar, and
 // turning one back into a raw lead would drop a real appointment off the map.
