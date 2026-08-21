@@ -215,12 +215,6 @@ function DailyReport({ daily, scrub }) {
                             <div style={{ fontSize: 12, color: "#64748b", marginBottom: 7 }}>
                               <b style={{ color: "#0f172a" }}>{cd.total}</b> of that day’s pins are on the map now, across {cd.cities.length} {cd.cities.length === 1 ? "city" : "cities"}.
                               {cd.converted > 0 && <span> {cd.converted} of them took over an inspection-lead pin at that house rather than creating a new one.</span>}
-                              {added > cd.total && (
-                                <span style={{ color: "#b45309" }}> {" "}
-                                  The <b>{added} added</b> was counted the moment those pins were inserted, and never goes down.
-                                  {" "}Since then {added - cd.total} of them {added - cd.total === 1 ? "has" : "have"} been deleted — either a duplicate at a house another pin already owned, or a lead whose JobNimbus contact stopped qualifying. Both numbers are true; they describe different moments.
-                                </span>
-                              )}
                             </div>
                             <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                               {cd.cities.map((c) => (
