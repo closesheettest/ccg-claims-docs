@@ -38,14 +38,21 @@ export const handler = async (event) => {
     // existed as an inspection lead and were taken over by an IQ lead. A takeover
     // keeps its original created_at, so without the converted_at stamp it would
     // be invisible here even though it's a new IQ pin.
+    // ONLY THE SYNC'S OWN PINS. This is the JN Sync report, and the row above
+    // counts the four sync lists — so counting every pin created that day made
+    // the drill-down disagree with its own row: 20 IQ + 1 no-sit read as 21,
+    // while the breakdown said 24 because a rep had dropped 2 self-generated
+    // pins and a referral the same day (Neal, 2026-08-21).
+    const LISTS = ["JN Instant Quote", "JN Facebook", "JN AI Bot", "JN No-Sits"];
+    const inLists = `&list_name=in.(${LISTS.map((l) => `"${l}"`).join(",")})`;
     const [fresh, converted] = await Promise.all([
       sbGetAll(
         `canvass_prospects?created_at=gte.${encodeURIComponent(start)}&created_at=lt.${encodeURIComponent(end)}` +
-        `&select=city,state,status,list_name`,
+        inLists + `&select=city,state,status,list_name`,
       ),
       sbGetAll(
         `canvass_prospects?extra->>converted_at=gte.${encodeURIComponent(start)}&extra->>converted_at=lt.${encodeURIComponent(end)}` +
-        `&created_at=lt.${encodeURIComponent(start)}&select=city,state,status,list_name`,
+        `&created_at=lt.${encodeURIComponent(start)}` + inLists + `&select=city,state,status,list_name`,
       ).catch(() => []),
     ]);
     const rows = [...fresh, ...converted];
