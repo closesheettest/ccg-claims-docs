@@ -185,7 +185,20 @@ exports.handler = async (event) => {
       // can be put back door-by-door if the field says the map has gone mad.
       // Best-effort: a logging failure must never stop a sync, but a takeover we
       // failed to record is one we can't reverse, so it's counted and reported.
-      const takeoverLog = []; let logFailed = 0;
+      const takeoverLog = []; let logFailed = 0; let staleScan = 0;
+      // "They scanned the QR code AGAIN" means the scan came AFTER we last
+      // worked the door. The candidate pool is every IQ contact since the
+      // cutoff — thousands, going back months — not just today's, so a takeover
+      // has to be tested against the pin it's taking. Without this a door a rep
+      // worked this morning gets flipped back to a raw lead by an April contact
+      // two hours later, and again every two hours after that — exactly the
+      // "Sam marked it dead and it keeps coming back" loop (Neal, 2026-08-21).
+      const scanIsNewer = (c, pin) => {
+        const scan = Number(c.date_created) * 1000;
+        const worked = pin && pin.status_updated_at ? Date.parse(pin.status_updated_at) : 0;
+        if (!Number.isFinite(scan) || !scan) return false;
+        return !worked || scan > worked;
+      };
       // One takeover: become the new lead, and keep what the door used to be.
       const patchTakeover = (pinId, prev, row, at) => (
         takeoverLog.push({
@@ -221,6 +234,7 @@ exports.handler = async (event) => {
         if (workedContacts.has(id)) {
           const own = pinByContact[id];
           if (!(key === IQ_WINS_SOURCE && own && !COMMITTED.has(own.status))) { preserved++; continue; }
+          if (!scanIsNewer(c, own)) { staleScan++; continue; }   // we worked it after they scanned — our call stands
           takeoverIds.add(own.id);
         }
         const coord = coordOf(c);
@@ -260,6 +274,7 @@ exports.handler = async (event) => {
             if (worked || rawTwin) {
               const hold = worked || rawTwin;
               if (key !== IQ_WINS_SOURCE || COMMITTED.has(hold.status)) { dupSkipped++; continue; }
+              if (!scanIsNewer(c, hold)) { staleScan++; continue; }
               claimedKeys.add(ck);
               takeoverIds.add(hold.id);
               updates.push(patchTakeover(hold.id, hold, row, nowIso));
@@ -353,7 +368,7 @@ exports.handler = async (event) => {
 
       await writeSetting(`harvest_leadsync_${key}`, {
         ok: true, enabled: true, source: def.source, created_on_or_after: cfg.created_after || null,
-        candidates: cands.length, inserted, updated, removed, preserved_worked: preserved, restatused_from_job: restatused, collapsed_dup_twins: collapsed, geocoded, skipped_ungeocoded: skipped, dup_skipped: dupSkipped, converted_from_insp: converted, takeovers_logged: takeoverLog.length - logFailed, takeovers_unlogged: logFailed,
+        candidates: cands.length, inserted, updated, removed, preserved_worked: preserved, restatused_from_job: restatused, collapsed_dup_twins: collapsed, geocoded, skipped_ungeocoded: skipped, dup_skipped: dupSkipped, converted_from_insp: converted, takeovers_logged: takeoverLog.length - logFailed, skipped_scan_older_than_our_work: staleScan, takeovers_unlogged: logFailed,
         started, finished: new Date().toISOString(),
       });
       // A CONVERSION COUNTS. 43 new IQ leads coming out of JobNimbus means 43 new
