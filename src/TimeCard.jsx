@@ -888,6 +888,7 @@ function Team({ me, api, onErr }) {
   const [note, setNote] = useState("");
   const [shifts, setShifts] = useState([]);
   const [adding, setAdding] = useState(null);
+  const [contacts, setContacts] = useState([]);
 
   const load = useCallback(async (week) => {
     setBusy(true);
@@ -905,6 +906,7 @@ function Team({ me, api, onErr }) {
   };
 
   useEffect(() => { (async () => { const d = await api("shifts"); if (d.ok) setShifts(d.shifts || []); })(); }, [api]);
+  useEffect(() => { (async () => { const d = await api("team_contacts"); if (d.ok) setContacts(d.departments || []); })(); }, [api, view]);
 
   // A manager staffs their own department: who's on which shift, who joins, who leaves.
   const setShift = async (employeeId, shiftId) => {
@@ -937,11 +939,21 @@ function Team({ me, api, onErr }) {
   const thisWeek = mondayOf(todayET());
   const allSigned = (data?.departments || []).every((d) => d.approval?.status === "approved");
   const needsSignoff = data && !allSigned;
+  const unreachable = contacts.some((d) => (d.members || []).some((m) => !m.reachable));
+
+  if (view === "contacts") {
+    return (
+      <div style={{ display: "grid", gap: 12 }}>
+        <TeamViewToggle view={view} setView={setView} needsSignoff={needsSignoff} unreachable={unreachable} />
+        <TeamContacts api={api} onErr={onErr} />
+      </div>
+    );
+  }
 
   if (view === "today") {
     return (
       <div style={{ display: "grid", gap: 12 }}>
-        <TeamViewToggle view={view} setView={setView} needsSignoff={needsSignoff} />
+        <TeamViewToggle view={view} setView={setView} needsSignoff={needsSignoff} unreachable={unreachable} />
         <TeamToday me={me} api={api} onErr={onErr} />
       </div>
     );
@@ -949,7 +961,7 @@ function Team({ me, api, onErr }) {
 
   return (
     <div style={{ display: "grid", gap: 12 }}>
-      <TeamViewToggle view={view} setView={setView} needsSignoff={needsSignoff} />
+      <TeamViewToggle view={view} setView={setView} needsSignoff={needsSignoff} unreachable={unreachable} />
       <div style={{ ...card, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: 10 }}>
         <button style={{ ...ghost, padding: "8px 12px" }} onClick={() => setWs(addDays(ws, -7))}>←</button>
         <div style={{ textAlign: "center", lineHeight: 1.2 }}>
@@ -1178,14 +1190,96 @@ function QuickEdit({ day, onSave }) {
 
 // The manager's daily read: who's on, who never checked in, and what each
 // person got done. This is the thing they open every evening.
-function TeamViewToggle({ view, setView, needsSignoff }) {
+function TeamViewToggle({ view, setView, needsSignoff, unreachable }) {
   const b = (k, label, badge) => (
     <button onClick={() => setView(k)} style={{
       ...ghost, flex: 1, padding: "10px 8px",
       background: view === k ? NAVY : "#fff", color: view === k ? "#fff" : NAVY, borderColor: view === k ? NAVY : LINE,
     }}>{label}{badge ? <span style={{ marginLeft: 6, background: view === k ? "#fff" : RED, color: view === k ? RED : "#fff", borderRadius: 999, padding: "1px 7px", fontSize: 11, fontWeight: 900 }}>!</span> : null}</button>
   );
-  return <div style={{ display: "flex", gap: 8 }}>{b("today", "Today")}{b("week", "Week sign-off", needsSignoff)}</div>;
+  return <div style={{ display: "flex", gap: 8 }}>{b("today", "Today")}{b("week", "Week sign-off", needsSignoff)}{b("contacts", "Contacts", unreachable)}</div>;
+}
+
+// A manager filling in their own team's number/email. Nobody else knows these,
+// and without one the person can't be told to check in and can't sign in.
+function TeamContacts({ api, onErr }) {
+  const [data, setData] = useState(null);
+  const [draft, setDraft] = useState({});
+  const [busy, setBusy] = useState("");
+  const [saved, setSaved] = useState("");
+
+  const load = useCallback(async () => {
+    const r = await api("team_contacts");
+    if (r.ok) setData(r.departments || []); else onErr(r.error || "Couldn't load your team.");
+  }, [api, onErr]);
+  useEffect(() => { load(); }, [load]);
+
+  const of = (m) => draft[m.id] || { phone: m.phone, email: m.email };
+  const set = (m, k, v) => setDraft((d) => ({ ...d, [m.id]: { ...of(m), [k]: v } }));
+  const dirty = (m) => {
+    const d = draft[m.id];
+    return !!d && (d.phone !== m.phone || d.email !== m.email);
+  };
+
+  const save = async (m) => {
+    const d = of(m);
+    setBusy(m.id); onErr("");
+    const r = await api("set_teammate_contact", { id: m.id, phone: d.phone, email: d.email });
+    setBusy("");
+    if (!r.ok) { onErr(r.error || "Couldn't save that."); return; }
+    setDraft((x) => { const n = { ...x }; delete n[m.id]; return n; });
+    setSaved(m.id); setTimeout(() => setSaved(""), 2200);
+    load();
+  };
+
+  if (!data) return <div style={{ ...card, color: MUTE }}>Loading…</div>;
+
+  return (
+    <div style={{ display: "grid", gap: 12 }}>
+      <div style={{ ...card, fontSize: 13.5, color: MUTE }}>
+        A mobile number or work email is how someone signs in <b>and</b> how the check-in reminder reaches them.
+        Anyone with neither can't be reminded and can't get in. A mobile number is best — the reminder texts.
+      </div>
+      {data.map((d) => {
+        const missing = d.members.filter((m) => !m.reachable);
+        return (
+          <div key={d.department.id} style={{ ...card, display: "grid", gap: 10 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 6 }}>
+              <div style={{ fontWeight: 900, fontSize: 16 }}>{d.department.name}</div>
+              {missing.length
+                ? <Pill color={RED}>{missing.length} with no way to reach them</Pill>
+                : <Pill color={GREEN}>everyone reachable</Pill>}
+            </div>
+            {d.members.map((m) => (
+              <div key={m.id} style={{
+                display: "grid", gap: 7, padding: "10px 0", borderTop: `1px solid ${LINE}`,
+              }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                  <span style={{ fontWeight: 800 }}>{m.name}</span>
+                  {m.title ? <span style={{ fontSize: 12.5, color: MUTE }}>{m.title}</span> : null}
+                  {!m.reachable ? <Pill color={RED}>no phone or email</Pill> : null}
+                  {m.reachable && !m.signed_in ? <Pill color={AMBER}>never signed in</Pill> : null}
+                  {saved === m.id ? <Pill color={GREEN}>saved</Pill> : null}
+                </div>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                  <input style={{ ...fld, width: 170 }} inputMode="tel" placeholder="Mobile number"
+                    value={of(m).phone} onChange={(e) => set(m, "phone", e.target.value)} />
+                  <input style={{ ...fld, width: 250 }} inputMode="email" placeholder="Work email"
+                    value={of(m).email} onChange={(e) => set(m, "email", e.target.value)} />
+                  <button style={{ ...btn(NAVY), padding: "9px 16px", opacity: dirty(m) ? 1 : 0.4 }}
+                    disabled={!dirty(m) || busy === m.id} onClick={() => save(m)}>
+                    {busy === m.id ? "Saving…" : "Save"}
+                  </button>
+                </div>
+              </div>
+            ))}
+            {!d.members.length ? <div style={{ fontSize: 13.5, color: MUTE }}>Nobody on this team yet.</div> : null}
+          </div>
+        );
+      })}
+      {!data.length ? <div style={{ ...card, color: MUTE }}>You don't run a department yet.</div> : null}
+    </div>
+  );
 }
 
 function TeamToday({ me, api, onErr }) {

@@ -319,3 +319,13 @@
 # so the schedule lives on this thin wrapper. Same split as cron-contest-freeze.
 [functions."cron-goback-followup"]
   schedule = "*/15 * * * *"
+
+# Monday 7 AM ET: one text AND one email to everybody, to check in and start the
+# week. Distinct from cron-shift-nudge, which chases individual stragglers off
+# their own shift start and so never reaches the many people with no shift set.
+# Fires at 11:00 and 12:00 UTC so it lands on 7 AM in both EDT and EST; the
+# worker's Monday/7-AM-ET gate is what makes it send exactly once.
+# THIN WRAPPER around payroll-monday-checkin, which must stay HTTP-callable so
+# the office can run ?dry=1.
+[functions."cron-payroll-monday"]
+  schedule = "0 11,12 * * 1"
