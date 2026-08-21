@@ -43,6 +43,7 @@ export default function DealBoard({ feed, title, tag, blurb, stats }) {
   const [q, setQ] = useState("");
   const [onlyOpen, setOnlyOpen] = useState(false);
   const [onlyNoPa, setOnlyNoPa] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);   // the "?" behind the appt flag
   const [open, setOpen] = useState(null); // expanded card id
   // JobNimbus notes, fetched when a card is opened and kept for the session.
   // The boards used to show our own app-side note log, which is empty on most
@@ -102,12 +103,54 @@ export default function DealBoard({ feed, title, tag, blurb, stats }) {
           {stats(t).map((s) => <Stat key={s.l} n={s.n} l={s.l} c={s.c} />)}
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search name, address, rep, PA…"
             style={{ flex: "1 1 220px", minWidth: 180, padding: "8px 11px", borderRadius: 9, border: "1px solid #cbd5e1", fontSize: 13.5, fontFamily: BODY }} />
-          <Toggle on={onlyOpen} set={setOnlyOpen} label="Appt not closed out" />
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+            <Toggle on={onlyOpen} set={setOnlyOpen} label="Appt not closed out" />
+            <button type="button" onClick={() => setHelpOpen(!helpOpen)} aria-label="What does this mean?"
+              title="What does this mean?"
+              style={{ width: 22, height: 22, borderRadius: "50%", cursor: "pointer", fontWeight: 800, fontSize: 12.5, lineHeight: 1,
+                border: `1.5px solid ${helpOpen ? "#1d4ed8" : "#94a3b8"}`, background: helpOpen ? "#1d4ed8" : "#fff", color: helpOpen ? "#fff" : "#64748b" }}>?</button>
+          </span>
           <Toggle on={onlyNoPa} set={setOnlyNoPa} label="No PA" />
           <button type="button" onClick={load}
             style={{ padding: "8px 13px", borderRadius: 9, border: "1px solid #cbd5e1", background: "#fff", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>↻ Refresh</button>
         </div>
       </div>
+
+      {/* What that flag means. A "?" rather than a tooltip: this gets read on a
+          tablet, where hover doesn't exist, and it's worth more than one line. */}
+      {helpOpen && (
+        <div style={{ margin: "12px 16px 0", background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 12, padding: "13px 15px", maxWidth: 760 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "baseline" }}>
+            <div style={{ fontFamily: FONT, fontWeight: 700, fontSize: 15, color: "#1e3a8a" }}>“Appt not closed out” — what it means</div>
+            <button type="button" onClick={() => setHelpOpen(false)}
+              style={{ background: "none", border: "none", color: "#64748b", fontWeight: 800, fontSize: 13, cursor: "pointer", padding: 0 }}>✕ Close</button>
+          </div>
+          <div style={{ fontSize: 13.5, color: "#1e293b", marginTop: 7, lineHeight: 1.55 }}>
+            <b>Somebody went out, and nothing came back.</b> A deal is flagged when both of these are true:
+            <div style={{ margin: "7px 0 7px 2px", display: "grid", gap: 4 }}>
+              <div>1. An appointment was booked and <b>its time has already passed</b>.</div>
+              <div>2. The deal is <b>still in an open column</b> — nobody has recorded sold, no sale, credit denied, not interested or lost.</div>
+            </div>
+            We know a visit was meant to happen, the clock says it happened, and no one ever told the system how it went.
+          </div>
+          <div style={{ fontSize: 13, color: "#334155", marginTop: 9, background: "#fff", border: "1px solid #dbeafe", borderRadius: 9, padding: "9px 11px", lineHeight: 1.5 }}>
+            <b>Why it matters:</b> each of these is misreporting itself. A deal sitting in <i>Not Worked</i> with a passed
+            appointment isn’t untouched — someone drove there. It reads as never-started only because the outcome was never
+            written down, which makes that column look worse than it is and the close rate look better than it is.
+          </div>
+          <div style={{ fontSize: 12.5, color: "#475569", marginTop: 9 }}>
+            <b>It is not a column.</b> It cuts across several at once — right now:
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 5 }}>
+              {data.columns.filter((c) => c.deals.some((d) => d.appt_open)).map((c) => (
+                <span key={c.key} style={{ fontSize: 12, fontWeight: 700, color: c.color, border: `1px solid ${c.color}55`, borderRadius: 999, padding: "2px 9px" }}>
+                  {c.label} · {c.deals.filter((d) => d.appt_open).length}
+                </span>
+              ))}
+            </div>
+            <div style={{ marginTop: 7 }}>Tap the button itself to show only these deals.</div>
+          </div>
+        </div>
+      )}
 
       {/* The board. Columns scroll sideways as a group; each column scrolls on its own. */}
       <div style={{ flex: 1, overflowX: "auto", overflowY: "hidden", background: "#f1f5f9", padding: "12px 12px 16px" }}>
