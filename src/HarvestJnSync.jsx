@@ -196,6 +196,8 @@ function DailyReport({ daily, scrub }) {
             <tr>
               <th style={{ ...th, textAlign: "left" }}>Day</th>
               <th style={th}>IQ</th><th style={th}>FB</th><th style={th}>AI</th><th style={th}>No-Sit</th>
+              <th style={th} title="Pins a rep dropped themselves — not the sync">Self-Gen</th>
+              <th style={th} title="Referral pins a rep entered">Referral</th>
               <th style={{ ...th, color: "#0f172a" }}>Added</th>
               <th style={{ ...th, borderLeft: "2px solid #e5e7eb" }}>Checked</th>
               <th style={{ ...th, color: "#b45309" }}>New Roof</th>
@@ -205,7 +207,7 @@ function DailyReport({ daily, scrub }) {
           <tbody>
             {days.map((d) => {
               const s = (real && real[d]) || daily[d] || {}, v = scrub[d] || {};
-              const added = real && real[d] ? real[d].added : (s.iq || 0) + (s.fb || 0) + (s.ai || 0) + (s.nosit || 0);
+              const added = real && real[d] ? real[d].added : (s.iq || 0) + (s.fb || 0) + (s.ai || 0) + (s.nosit || 0) + (s.selfgen || 0) + (s.referral || 0);
               const cd = cityData[d];
               const isOpen = openDay === d;
               return (
@@ -213,6 +215,7 @@ function DailyReport({ daily, scrub }) {
                 <tr onClick={() => openCities(d)} style={{ cursor: "pointer", background: isOpen ? "#f8fafc" : undefined }}>
                   <td style={td0}><span style={{ color: "#94a3b8", marginRight: 5 }}>{isOpen ? "▾" : "▸"}</span>{fmt(d)}</td>
                   <td style={td}>{s.iq || 0}</td><td style={td}>{s.fb || 0}</td><td style={td}>{s.ai || 0}</td><td style={td}>{s.nosit || 0}</td>
+                  <td style={td}>{s.selfgen || 0}</td><td style={td}>{s.referral || 0}</td>
                   <td style={{ ...td, fontWeight: 800 }}>{added}</td>
                   <td style={{ ...td, borderLeft: "2px solid #e5e7eb" }}>{v.processed || 0}</td>
                   <td style={{ ...td, fontWeight: 800, color: "#b45309" }}>{v.bad || 0}</td>
@@ -220,7 +223,7 @@ function DailyReport({ daily, scrub }) {
                 </tr>
                 {isOpen && (
                   <tr>
-                    <td colSpan={9} style={{ padding: "4px 10px 14px", background: "#f8fafc", borderBottom: "1px solid #e5e7eb" }}>
+                    <td colSpan={11} style={{ padding: "4px 10px 14px", background: "#f8fafc", borderBottom: "1px solid #e5e7eb" }}>
                       {!cd || cd.loading ? <div style={{ fontSize: 12.5, color: "#94a3b8" }}>Loading…</div>
                         : cd.error ? <div style={{ fontSize: 12.5, color: "#b91c1c" }}>{cd.error}</div>
                         : !cd.cities.length ? <div style={{ fontSize: 12.5, color: "#94a3b8" }}>No pins from that day are on the map.</div>

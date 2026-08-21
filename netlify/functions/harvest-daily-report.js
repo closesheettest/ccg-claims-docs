@@ -25,11 +25,17 @@ const SB_KEY = process.env.VITE_SUPABASE_ANON_KEY;
 const sbH = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` };
 
 // list_name is what the sync stamps on a pin it creates.
+// Every list a pin can arrive on, so the row adds up to the whole day. The
+// last two aren't the sync's doing — a rep dropped them — but leaving them out
+// made the row say 21 while the breakdown under it said 24, and a report whose
+// own numbers disagree is a report nobody trusts (Neal, 2026-08-21).
 const SOURCES = [
   ["iq", "JN Instant Quote"],
   ["fb", "JN Facebook"],
   ["ai", "JN AI Bot"],
   ["nosit", "JN No-Sits"],
+  ["selfgen", "Self-Generated"],
+  ["referral", "Referral"],
 ];
 
 export const handler = async (event) => {
