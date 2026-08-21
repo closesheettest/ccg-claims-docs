@@ -438,7 +438,14 @@ export const handler = async (event) => {
     }
 
     // ── Manager / office from here down ─────────────────────────────
-    if (!me.is_manager && !me.is_admin) return cors(403, j({ ok: false, error: "That's a manager-only screen." }));
+    // Running a department IS being a manager. This used to check only the
+    // is_manager tick, which is set separately on the People record — so
+    // naming somebody as a department's signer did NOT let them in. Jennifer
+    // Von Graupen sat like that: named as Sales' manager, no Team tab, and a
+    // Friday reminder telling her to sign off a week she couldn't open.
+    if (!me.is_manager && !me.is_admin && !(await myDepartments(me)).length) {
+      return cors(403, j({ ok: false, error: "That's a manager-only screen." }));
+    }
 
     // What everyone on the team got done today — the manager's daily read.
     if (action === "team_today") {
@@ -649,12 +656,14 @@ async function meBundle(emp) {
     config(),
     shiftOf(emp),
   ]);
-  const managed = (emp.is_manager || emp.is_admin) ? await myDepartments(emp) : [];
+  // Always ask — a department naming them as its manager counts, whether or
+  // not anyone remembered to tick is_manager.
+  const managed = await myDepartments(emp);
   return {
     id: emp.id, first_name: emp.first_name, last_name: emp.last_name, email: emp.email, phone: emp.phone,
     title: emp.title, pay_type: emp.pay_type, standard_day_hours: Number(emp.standard_day_hours || 8),
     standard_week_hours: Number(emp.standard_week_hours || 40),
-    is_manager: !!emp.is_manager, is_admin: !!emp.is_admin, passcode_set: !!emp.passcode_hash,
+    is_manager: !!emp.is_manager || managed.length > 0, is_admin: !!emp.is_admin, passcode_set: !!emp.passcode_hash,
     department: dept, balances: bal, holidays: hol, config: cfg, shift,
     manages: managed.map((d) => ({ id: d.id, name: d.name })),
     day_types: SELF_DAY_TYPES, off_types: OFF_TYPES, request_types: OFF_REQUEST_TYPES,
