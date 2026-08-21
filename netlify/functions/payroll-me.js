@@ -113,7 +113,7 @@ const REQ_TO_DAY = { pto: "pto", sick: "sick", doctor: "doctor", unpaid: "unpaid
 // Which day types burn which balance.
 // Everything an admin may do while wearing somebody else's shoes. Deliberately
 // short: reads only.
-const VIEW_AS_READ_ONLY = ["me", "today", "week", "my_time_off", "team_today", "team_week", "off_queue"];
+const VIEW_AS_READ_ONLY = ["me", "today", "week", "my_time_off", "team_today", "team_week", "off_queue", "team_contacts"];
 const PTO_TYPES = ["pto"];
 const SICK_TYPES = ["sick", "doctor"];
 
@@ -511,6 +511,63 @@ export const handler = async (event) => {
     // A manager can staff their own department: add somebody, or take them off.
     // Scoped hard to the departments they run — never anyone else's people, and
     // they can't grant manager or office access.
+    // Who on my team can actually be reached. A person with neither a number
+    // nor an email cannot be told to check in and cannot sign in either, so
+    // they are invisible to the whole system — this is the list that fixes it.
+    if (action === "team_contacts") {
+      const depts = await myDepartments(me, body.department_id);
+      if (!depts.length) return cors(200, j({ ok: true, departments: [] }));
+      const out = [];
+      for (const d of depts) {
+        const emps = await get(
+          `payroll_employees?department_id=eq.${d.id}&active=is.true&select=id,first_name,last_name,title,phone,email,passcode_set_at&order=last_name.asc`
+        );
+        out.push({
+          department: { id: d.id, name: d.name },
+          members: emps.map((e) => ({
+            id: e.id, name: fullName(e), title: e.title,
+            phone: e.phone || "", email: e.email || "",
+            signed_in: !!e.passcode_set_at,
+            reachable: !!(e.phone || e.email),
+          })),
+        });
+      }
+      return cors(200, j({ ok: true, departments: out }));
+    }
+
+    if (action === "set_teammate_contact") {
+      const id = str(body.id, 64);
+      const emp = (await get(`payroll_employees?id=eq.${id}&select=id,first_name,last_name,department_id&limit=1`))[0];
+      if (!emp) return cors(404, j({ ok: false, error: "Couldn't find that person." }));
+      const mine = await myDepartments(me);
+      if (!mine.some((d) => d.id === emp.department_id)) {
+        return cors(403, j({ ok: false, error: "They're not on your team." }));
+      }
+      // Sent blank on purpose = clear it. Sent wrong = say so rather than
+      // silently storing something they can never be reached on.
+      const rawPhone = String(body.phone ?? "").trim();
+      const phone = rawPhone ? phoneKey(rawPhone) : null;
+      if (rawPhone && !phone) {
+        return cors(400, j({ ok: false, error: "That doesn't look like a 10-digit mobile number." }));
+      }
+      const email = str(body.email, 160).toLowerCase() || null;
+      if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+        return cors(400, j({ ok: false, error: "That doesn't look like an email address." }));
+      }
+      // The number IS the login, so a duplicate would hand one person another
+      // person's time card.
+      if (phone) {
+        const dupe = await get(`payroll_employees?phone=eq.${phone}&id=neq.${id}&select=first_name,last_name&limit=1`);
+        if (dupe.length) return cors(400, j({ ok: false, error: `That number is already on ${dupe[0].first_name} ${dupe[0].last_name}'s record.` }));
+      }
+      if (email) {
+        const dupe = await get(`payroll_employees?email=eq.${encodeURIComponent(email)}&id=neq.${id}&select=first_name,last_name&limit=1`);
+        if (dupe.length) return cors(400, j({ ok: false, error: `That email is already on ${dupe[0].first_name} ${dupe[0].last_name}'s record.` }));
+      }
+      await patch(`payroll_employees?id=eq.${id}`, { phone, email, updated_at: nowIso() });
+      return cors(200, j({ ok: true, id, phone: phone || "", email: email || "" }));
+    }
+
     if (action === "add_teammate") {
       const depts = await myDepartments(me, body.department_id);
       if (!depts.length) return cors(400, j({ ok: false, error: "You don't run a department yet — the office sets that." }));
