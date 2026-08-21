@@ -49,7 +49,14 @@ export const handler = async (event) => {
   // THIS WEEK (since Monday, ET), most recent first. Office view (admin) sees
   // everyone's. Powers the map's report.
   if (/^(1|true|yes)$/i.test((p.done || "").trim())) {
-    const who = isAdmin ? "" : `&inspector_id=eq.${encodeURIComponent(inspector.id)}`;
+    // Match on ID **or** NAME. Not every path that records a result stamps
+    // inspector_id — 24 of James Harris's carried his name and an empty id — so
+    // filtering on the id alone showed him a fraction of his own week while the
+    // office report (which groups by name) credited him nearly three times as
+    // many. He'd been telling us for days that his houses weren't showing up and
+    // he was right; the two screens were keyed on different columns (Neal,
+    // 2026-08-21).
+    const who = isAdmin ? "" : `&or=(inspector_id.eq.${encodeURIComponent(inspector.id)},inspector_name.eq."${encodeURIComponent(inspector.name || "")}")`;
     const since = weekStartET();
     const done = await sbGet(
       `inspections?result=not.is.null&result_at=gte.${encodeURIComponent(since)}${who}&select=id,client_name,address,city,state,zip,result,result_at,signed_at,sales_rep_name&order=result_at.desc.nullslast&limit=500`,
