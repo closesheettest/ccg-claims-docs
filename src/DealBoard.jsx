@@ -35,6 +35,21 @@ export default function DealBoard({ feed, title, tag, blurb, stats }) {
   const [onlyOpen, setOnlyOpen] = useState(false);
   const [onlyNoPa, setOnlyNoPa] = useState(false);
   const [open, setOpen] = useState(null); // expanded card id
+  // JobNimbus notes, fetched when a card is opened and kept for the session.
+  // The boards used to show our own app-side note log, which is empty on most
+  // deals — the rep's actual write-up ("Sit no sale, 39 sq, 13 years old, 44
+  // solar panels…") lives in JN (Neal, 2026-08-21). Loaded per card rather than
+  // per board: 280 deals would be 280 JobNimbus calls on every page load.
+  const [jnNotes, setJnNotes] = useState({});   // jn_job_id → { loading, notes, error }
+  const loadNotes = async (jnid) => {
+    if (!jnid || jnNotes[jnid]) return;
+    setJnNotes((m) => ({ ...m, [jnid]: { loading: true } }));
+    try {
+      const r = await fetch(`/.netlify/functions/deal-notes?jnid=${encodeURIComponent(jnid)}`);
+      const j = await r.json();
+      setJnNotes((m) => ({ ...m, [jnid]: j.ok ? { notes: j.notes } : { error: j.error || "Couldn't load" } }));
+    } catch { setJnNotes((m) => ({ ...m, [jnid]: { error: "Couldn't reach JobNimbus" } })); }
+  };
 
   const load = async () => {
     setErr("");
@@ -101,7 +116,8 @@ export default function DealBoard({ feed, title, tag, blurb, stats }) {
               <div style={{ overflowY: "auto", padding: 9, display: "flex", flexDirection: "column", gap: 8 }}>
                 {!c.deals.length && <div style={{ color: "#cbd5e1", fontSize: 12.5, textAlign: "center", padding: "18px 6px" }}>Nothing here</div>}
                 {c.deals.map((d) => (
-                  <Card key={d.id} d={d} color={c.color} open={open === d.id} onClick={() => setOpen(open === d.id ? null : d.id)} />
+                  <Card key={d.id} d={d} color={c.color} open={open === d.id} jn={jnNotes[d.jn_job_id]}
+                    onClick={() => { const now = open === d.id ? null : d.id; setOpen(now); if (now) loadNotes(d.jn_job_id); }} />
                 ))}
               </div>
             </div>
@@ -112,7 +128,7 @@ export default function DealBoard({ feed, title, tag, blurb, stats }) {
   );
 }
 
-function Card({ d, color, open, onClick }) {
+function Card({ d, color, open, jn, onClick }) {
   return (
     <div onClick={onClick} style={{
       border: `1px solid ${d.appt_open ? "#fdba74" : "#e2e8f0"}`, borderLeft: `3px solid ${color}`,
@@ -153,7 +169,26 @@ function Card({ d, color, open, onClick }) {
           {d.booked_by && <div><b>Booked by:</b> {d.booked_by}</div>}
           {d.jn_status && <div><b>JobNimbus:</b> {d.jn_status}</div>}
           {d.last_note && <div style={{ fontStyle: "italic", color: "#64748b" }}>“{d.last_note}”{d.last_note_at ? ` — ${fmtDate(d.last_note_at)}` : ""}</div>}
-          {!d.last_note && <div style={{ color: "#94a3b8" }}>No notes on this deal.</div>}
+
+          {/* What JobNimbus knows — the rep's own words about why it's here. */}
+          <div style={{ marginTop: 5, paddingTop: 5, borderTop: "1px dashed #e2e8f0" }}>
+            <div style={{ fontSize: 10.5, fontWeight: 800, textTransform: "uppercase", letterSpacing: ".05em", color: "#94a3b8", marginBottom: 3 }}>From JobNimbus</div>
+            {!jn && <div style={{ color: "#94a3b8" }}>…</div>}
+            {jn && jn.loading && <div style={{ color: "#94a3b8" }}>Loading notes…</div>}
+            {jn && jn.error && <div style={{ color: "#b45309" }}>{jn.error}</div>}
+            {jn && jn.notes && !jn.notes.length && <div style={{ color: "#94a3b8" }}>Nothing written on this deal in JobNimbus either.</div>}
+            {jn && jn.notes && jn.notes.length > 0 && (
+              <div style={{ display: "grid", gap: 5 }}>
+                {jn.notes.slice(0, 6).map((n, idx) => (
+                  <div key={idx} style={{ borderLeft: `2px solid ${n.type === "note" ? "#7c3aed" : "#cbd5e1"}`, paddingLeft: 7 }}>
+                    <div style={{ fontSize: 10.5, color: "#94a3b8" }}>{fmtDate(n.at)} · {n.by}{n.type === "status" ? " · status" : ""}</div>
+                    <div style={{ color: n.type === "note" ? "#334155" : "#64748b", fontStyle: n.type === "note" ? "normal" : "italic" }}>{n.text}</div>
+                  </div>
+                ))}
+                {jn.notes.length > 6 && <div style={{ color: "#94a3b8" }}>+{jn.notes.length - 6} more in JobNimbus</div>}
+              </div>
+            )}
+          </div>
           {d.jn_job_id && (
             <a href={`https://app.jobnimbus.com/job/${d.jn_job_id}`} target="_blank" rel="noreferrer"
               onClick={(e) => e.stopPropagation()} style={{ color: "#0e7490", fontWeight: 700, marginTop: 2 }}>Open in JobNimbus ↗</a>
