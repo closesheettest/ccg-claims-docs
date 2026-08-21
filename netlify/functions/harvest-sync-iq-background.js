@@ -181,8 +181,20 @@ exports.handler = async (event) => {
       // Pins this run has handed to an IQ lead. They must survive the collapse
       // pass below — otherwise we take a door and immediately delete it again.
       const takeoverIds = new Set();
+      // Every takeover is also written to harvest_takeovers, so this whole pass
+      // can be put back door-by-door if the field says the map has gone mad.
+      // Best-effort: a logging failure must never stop a sync, but a takeover we
+      // failed to record is one we can't reverse, so it's counted and reported.
+      const takeoverLog = []; let logFailed = 0;
       // One takeover: become the new lead, and keep what the door used to be.
-      const patchTakeover = (pinId, prev, row, at) => fetch(
+      const patchTakeover = (pinId, prev, row, at) => (
+        takeoverLog.push({
+          pin_id: pinId, run_at: at, source: key,
+          prev_status: prev.status || null, prev_status_by: prev.status_by || null,
+          prev_status_at: prev.status_updated_at || null,
+          new_status: def.status, address: row.address || null, city: row.city || null,
+        }),
+        fetch(
         `${SB_URL}/rest/v1/canvass_prospects?id=eq.${pinId}`,
         {
           method: "PATCH", headers: { ...sbHeaders, Prefer: "return=minimal" },
@@ -198,7 +210,7 @@ exports.handler = async (event) => {
             },
           }),
         },
-      ).then((r) => r.ok);
+      ).then((r) => r.ok));
       for (const c of cands) {
         const id = c.jnid || c.id;
         // Already worked on the map (rep/RepCard set a terminal/appt status) →
@@ -272,6 +284,15 @@ exports.handler = async (event) => {
         }
       }
       const updated = (await Promise.all(updates)).filter(Boolean).length;
+      if (takeoverLog.length) {
+        for (let i = 0; i < takeoverLog.length; i += 500) {
+          const r = await fetch(`${SB_URL}/rest/v1/harvest_takeovers`, {
+            method: "POST", headers: { ...sbHeaders, Prefer: "return=minimal" },
+            body: JSON.stringify(takeoverLog.slice(i, i + 500)),
+          }).catch(() => null);
+          if (!r || !r.ok) logFailed += Math.min(500, takeoverLog.length - i);
+        }
+      }
       let inserted = 0;
       for (let i = 0; i < toInsert.length; i += 500) {
         const batch = toInsert.slice(i, i + 500);
@@ -332,7 +353,7 @@ exports.handler = async (event) => {
 
       await writeSetting(`harvest_leadsync_${key}`, {
         ok: true, enabled: true, source: def.source, created_on_or_after: cfg.created_after || null,
-        candidates: cands.length, inserted, updated, removed, preserved_worked: preserved, restatused_from_job: restatused, collapsed_dup_twins: collapsed, geocoded, skipped_ungeocoded: skipped, dup_skipped: dupSkipped, converted_from_insp: converted,
+        candidates: cands.length, inserted, updated, removed, preserved_worked: preserved, restatused_from_job: restatused, collapsed_dup_twins: collapsed, geocoded, skipped_ungeocoded: skipped, dup_skipped: dupSkipped, converted_from_insp: converted, takeovers_logged: takeoverLog.length - logFailed, takeovers_unlogged: logFailed,
         started, finished: new Date().toISOString(),
       });
       // A CONVERSION COUNTS. 43 new IQ leads coming out of JobNimbus means 43 new
