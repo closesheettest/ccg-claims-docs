@@ -150,6 +150,23 @@ export default function HarvestJnSync() {
 // added; `scrub` = { date: { bad, aging, processed } } from the Venice roof scrub.
 function DailyReport({ daily, scrub }) {
   const days = [...new Set([...Object.keys(daily || {}), ...Object.keys(scrub || {})])].sort().reverse().slice(0, 14);
+  // Tap a day → where those pins actually landed, by CITY. Not by team: a fresh
+  // IQ lead belongs to nobody yet (20 of the 24 pins on 20 Aug had no rep on
+  // them at all), so there is no team to group by and guessing one from
+  // geography would be a guess dressed as a fact. City is what we know.
+  const [openDay, setOpenDay] = useState(null);
+  const [cityData, setCityData] = useState({});   // day → { loading|error|total|cities }
+  const openCities = async (d) => {
+    const next = openDay === d ? null : d;
+    setOpenDay(next);
+    if (!next || cityData[d]) return;
+    setCityData((m) => ({ ...m, [d]: { loading: true } }));
+    try {
+      const r = await fetch(`/.netlify/functions/harvest-daily-cities?day=${encodeURIComponent(d)}`);
+      const j = await r.json();
+      setCityData((m) => ({ ...m, [d]: j.ok ? j : { error: j.error || "Couldn't load" } }));
+    } catch { setCityData((m) => ({ ...m, [d]: { error: "Couldn't reach the server" } })); }
+  };
   if (!days.length) return null;
   const fmt = (d) => { try { return new Date(d + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }); } catch { return d; } };
   const th = { textAlign: "right", padding: "6px 8px", fontSize: 11.5, fontWeight: 800, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.03em", borderBottom: "1px solid #e5e7eb" };
@@ -158,7 +175,7 @@ function DailyReport({ daily, scrub }) {
   return (
     <div style={{ border: "1px solid #e5e7eb", borderRadius: 14, padding: "16px 18px", marginTop: 8, background: "#fff", boxShadow: "0 1px 3px rgba(0,0,0,.04)" }}>
       <div style={{ fontSize: 16.5, fontWeight: 800, fontFamily: OSWALD, marginBottom: 4 }}>📊 Daily report</div>
-      <div style={{ fontSize: 12.5, color: "#64748b", marginBottom: 12 }}>New pins the sync added each day, and the Venice roof-age scrub (bad = flipped to New Roof).</div>
+      <div style={{ fontSize: 12.5, color: "#64748b", marginBottom: 12 }}>New pins the sync added each day, and the Venice roof-age scrub (bad = flipped to New Roof). <b>Tap any day</b> to see which cities those pins landed in.</div>
       <div style={{ overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 520 }}>
           <thead>
@@ -175,15 +192,46 @@ function DailyReport({ daily, scrub }) {
             {days.map((d) => {
               const s = daily[d] || {}, v = scrub[d] || {};
               const added = (s.iq || 0) + (s.fb || 0) + (s.ai || 0) + (s.nosit || 0);
+              const cd = cityData[d];
+              const isOpen = openDay === d;
               return (
-                <tr key={d}>
-                  <td style={td0}>{fmt(d)}</td>
+                <React.Fragment key={d}>
+                <tr onClick={() => openCities(d)} style={{ cursor: "pointer", background: isOpen ? "#f8fafc" : undefined }}>
+                  <td style={td0}><span style={{ color: "#94a3b8", marginRight: 5 }}>{isOpen ? "▾" : "▸"}</span>{fmt(d)}</td>
                   <td style={td}>{s.iq || 0}</td><td style={td}>{s.fb || 0}</td><td style={td}>{s.ai || 0}</td><td style={td}>{s.nosit || 0}</td>
                   <td style={{ ...td, fontWeight: 800 }}>{added}</td>
                   <td style={{ ...td, borderLeft: "2px solid #e5e7eb" }}>{v.processed || 0}</td>
                   <td style={{ ...td, fontWeight: 800, color: "#b45309" }}>{v.bad || 0}</td>
                   <td style={td}>{v.aging || 0}</td>
                 </tr>
+                {isOpen && (
+                  <tr>
+                    <td colSpan={9} style={{ padding: "4px 10px 14px", background: "#f8fafc", borderBottom: "1px solid #e5e7eb" }}>
+                      {!cd || cd.loading ? <div style={{ fontSize: 12.5, color: "#94a3b8" }}>Loading…</div>
+                        : cd.error ? <div style={{ fontSize: 12.5, color: "#b91c1c" }}>{cd.error}</div>
+                        : !cd.cities.length ? <div style={{ fontSize: 12.5, color: "#94a3b8" }}>No pins from that day are on the map.</div>
+                        : (
+                          <div>
+                            <div style={{ fontSize: 12, color: "#64748b", marginBottom: 7 }}>
+                              <b style={{ color: "#0f172a" }}>{cd.total}</b> of that day\u2019s pins are on the map now, across {cd.cities.length} {cd.cities.length === 1 ? "city" : "cities"}.
+                              {added > cd.total && (
+                                <span style={{ color: "#b45309" }}> {" "}The {added} added is the tally stamped at sync time; the dedupe pass since has merged {added - cd.total} twin pin{added - cd.total === 1 ? "" : "s"} away.</span>
+                              )}
+                            </div>
+                            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                              {cd.cities.map((c) => (
+                                <span key={c.city} title={Object.entries(c.statuses).map(([k, n]) => `${k}: ${n}`).join(" \u00b7 ")}
+                                  style={{ fontSize: 12.5, background: "#fff", border: "1px solid #cbd5e1", borderRadius: 999, padding: "3px 10px", whiteSpace: "nowrap" }}>
+                                  {c.city} <b style={{ color: "#0f172a" }}>{c.count}</b>
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                    </td>
+                  </tr>
+                )}
+                </React.Fragment>
               );
             })}
           </tbody>
