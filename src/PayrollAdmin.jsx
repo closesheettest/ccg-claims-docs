@@ -27,7 +27,7 @@
 // checks office/HR on every admin call — the routing is convenience, not the
 // security boundary.
 
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { EmployeeScreens } from "./TimeCard";
 
 const API = "/.netlify/functions/payroll-api";
@@ -499,6 +499,20 @@ function Teams({ api, onErr }) {
   const [rows, setRows] = useState(null);
   const [emps, setEmps] = useState([]);
   const [edit, setEdit] = useState(null);
+  const [open, setOpen] = useState(() => new Set());
+
+  const toggle = (id) =>
+    setOpen((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+
+  // The roster is already loaded for the manager picker, so who's on each team
+  // is a grouping, not another round trip.
+  const byDept = useMemo(() => {
+    const m = {};
+    for (const e of emps) (m[e.department_id || "__none__"] ||= []).push(e);
+    for (const k of Object.keys(m)) m[k].sort((a, b) => `${a.last_name}`.localeCompare(`${b.last_name}`));
+    return m;
+  }, [emps]);
+  const unassigned = byDept.__none__ || [];
 
   const load = useCallback(async () => {
     const [d, e] = await Promise.all([api("departments"), api("employees")]);
@@ -516,7 +530,7 @@ function Teams({ api, onErr }) {
   return (
     <div style={{ display: "grid", gap: 12 }}>
       <div style={{ ...card, fontSize: 13.5, color: MUTE }}>
-        A department is what gets signed off. Whoever you name as its manager sees a <b>Team</b> tab on their own time card Monday morning, and gets the reminder text.
+        A department is what gets signed off. Whoever you name as its manager sees a <b>Team</b> tab on their own time card, and gets a reminder text on <b>Friday</b> once the week is done. Click a department to see who's on it.
       </div>
       <div style={{ display: "flex", justifyContent: "flex-end" }}>
         <button style={btn(NAVY)} onClick={() => setEdit({ name: "", manager_employee_id: "", active: true })}>+ Add department</button>
@@ -542,24 +556,74 @@ function Teams({ api, onErr }) {
       ) : null}
       <div style={{ ...card, padding: 0, overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 520 }}>
-          <thead><tr><th style={th}>Department</th><th style={th}>Signs off</th><th style={th}>People</th><th style={th}></th></tr></thead>
+          <thead><tr><th style={th}></th><th style={th}>Department</th><th style={th}>Signs off</th><th style={th}>People</th><th style={th}></th></tr></thead>
           <tbody>
-            {(rows || []).map((r) => (
-              <tr key={r.id}>
-                <td style={{ ...td, fontWeight: 800 }}>{r.name}</td>
+            {(rows || []).map((r) => {
+              const team = byDept[r.id] || [];
+              const isOpen = open.has(r.id);
+              return (
+              <React.Fragment key={r.id}>
+              <tr style={isOpen ? { background: "#f8fbff" } : undefined}>
+                <td style={{ ...td, width: 34, paddingRight: 0 }}>
+                  <button onClick={() => toggle(r.id)} aria-expanded={isOpen} aria-label={`${isOpen ? "Hide" : "Show"} who is on ${r.name}`}
+                    style={{ background: "none", border: "none", cursor: "pointer", color: MUTE, fontSize: 12, padding: "4px 6px", lineHeight: 1 }}>
+                    {isOpen ? "▾" : "▸"}
+                  </button>
+                </td>
+                <td style={{ ...td, fontWeight: 800, cursor: "pointer" }} onClick={() => toggle(r.id)}>{r.name}</td>
                 <td style={td}>{r.manager_name || <Pill color={RED}>nobody</Pill>}</td>
-                <td style={td}>{r.headcount}</td>
+                <td style={{ ...td, cursor: "pointer" }} onClick={() => toggle(r.id)}>{r.headcount}</td>
                 <td style={{ ...td, whiteSpace: "nowrap" }}>
                   <button style={{ ...ghost, padding: "6px 10px" }} onClick={() => setEdit({ id: r.id, name: r.name, manager_employee_id: r.manager_employee_id || "", active: r.active })}>Edit</button>
                   <button style={{ ...ghost, padding: "6px 10px", marginLeft: 5, color: RED, borderColor: "#fecaca" }}
                     onClick={async () => { if (!window.confirm(`Delete ${r.name}?`)) return; const d = await api("department_delete", { id: r.id }); if (!d.ok) onErr(d.error); load(); }}>Delete</button>
                 </td>
               </tr>
-            ))}
-            {rows && !rows.length ? <tr><td style={{ ...td, color: MUTE }} colSpan={4}>No departments yet.</td></tr> : null}
+              {isOpen ? (
+                <tr>
+                  <td colSpan={5} style={{ padding: "0 14px 14px 40px", background: "#f8fbff", borderBottom: "1px solid #e2e8f0" }}>
+                    {team.length ? (
+                      <div style={{ display: "grid", gap: 5 }}>
+                        {team.map((e) => (
+                          <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", fontSize: 13.5 }}>
+                            <span style={{ fontWeight: 700, minWidth: 170 }}>{e.first_name} {e.last_name}</span>
+                            <span style={{ color: MUTE }}>{[e.title, e.shift_name].filter(Boolean).join(" · ") || "no shift set"}</span>
+                            {e.id === r.manager_employee_id ? <Pill color={NAVY}>signs off</Pill> : null}
+                            {!e.passcode_set_at ? <Pill color={AMBER}>never signed in</Pill> : null}
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div style={{ fontSize: 13.5, color: MUTE }}>
+                        Nobody is in {r.name} yet — set someone's department on their People record.
+                      </div>
+                    )}
+                  </td>
+                </tr>
+              ) : null}
+              </React.Fragment>
+            );})}
+            {rows && !rows.length ? <tr><td style={{ ...td, color: MUTE }} colSpan={5}>No departments yet.</td></tr> : null}
           </tbody>
         </table>
       </div>
+      {unassigned.length ? (
+        <div style={{ ...card, borderColor: "#fde68a", background: "#fffbeb" }}>
+          <div style={{ fontWeight: 900, marginBottom: 6 }}>
+            {unassigned.length} {unassigned.length === 1 ? "person is" : "people are"} in no department
+          </div>
+          <div style={{ fontSize: 13, color: MUTE, marginBottom: 8 }}>
+            Nobody signs off their week, so their hours never get approved. Owners and office accounts are fine here — they don't clock in.
+          </div>
+          <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
+            {unassigned.map((e) => (
+              <span key={e.id} style={{ fontSize: 13, background: "#fff", border: "1px solid #fde68a", borderRadius: 999, padding: "3px 10px" }}>
+                {e.first_name} {e.last_name}{e.is_admin ? " · office" : ""}
+              </span>
+            ))}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
