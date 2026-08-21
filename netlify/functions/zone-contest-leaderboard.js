@@ -242,7 +242,12 @@ export const handler = async (event) => {
 
     // Sale bonus: +6 flat per roof sold in JN whose Sold Date is in the window.
     // Best-effort — if JN is unavailable, the board still shows the attribute points.
+    // Matched by JOBNIMBUS ID first, name only as a fallback — JN knows Juan
+    // Carlos as "Juan Orozco", so a name match silently dropped his sale off the
+    // board (Neal, 2026-08-21). Every job carries sales_rep, which is the rep's
+    // jnid.
     const salesByNorm = new Map();
+    const salesByJn = new Map();
     let saleTotal = 0;
     try {
       if (JN_KEY) {
@@ -252,9 +257,11 @@ export const handler = async (event) => {
           if (!SOLD_STATUSES.has(status)) continue;
           const ms = soldDateMs(j);
           if (ms == null || ms < contestStart.getTime() || ms > contestEnd.getTime()) continue;
+          const rid = String(j.sales_rep || "").trim();
+          if (rid) salesByJn.set(rid, (salesByJn.get(rid) || 0) + 1);
           const nk = normalizeName(j.sales_rep_name || "");
-          if (!nk) continue;
-          salesByNorm.set(nk, (salesByNorm.get(nk) || 0) + 1);
+          if (nk) salesByNorm.set(nk, (salesByNorm.get(nk) || 0) + 1);
+          if (!rid && !nk) continue;
           saleTotal++;
         }
       }
@@ -271,7 +278,7 @@ export const handler = async (event) => {
         if (!roster.length) return null;
         let saleCount = 0;
         const reps = roster.map((m) => {
-          const sales = salesByNorm.get(m.norm) || 0;
+          const sales = (m.jnid ? salesByJn.get(m.jnid) : undefined) ?? (salesByNorm.get(m.norm) || 0);
           saleCount += sales;
           const pts = (rampByNorm.get(m.norm) || 0) + sales * CONTEST.salePoints;
           if (pts) matchedReps++;
@@ -382,7 +389,7 @@ async function fetchZoneResolver(weekStartMs) {
     if (CONTEST_EXCLUDE.has(norm)) continue; // excluded from the contest — not in the divisor
     if (seen.has(norm)) continue;
     seen.add(norm);
-    (rosterByZone[r.zone] || (rosterByZone[r.zone] = [])).push({ name: String(r.name).trim(), norm });
+    (rosterByZone[r.zone] || (rosterByZone[r.zone] = [])).push({ name: String(r.name).trim(), norm, jnid: r.jobnimbus_id || null });
   }
   return { rosterByZone };
 }

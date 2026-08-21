@@ -158,7 +158,16 @@ export const handler = async (event) => {
     } catch { /* reviews best-effort */ }
 
     // Sales per rep per day (Sold Date in window), best-effort.
-    const salesByRepDay = new Map(); // norm → Map(day → count)
+    // MATCH THE SALE TO THE REP BY JOBNIMBUS ID, not by name. JobNimbus knows
+    // Juan Carlos as "Juan Orozco" — same person, same JN id, same company
+    // email, two different names — so his Sit-Sold on 80 Springdale Road (sold
+    // 20 Aug, inside the contest window) matched nobody on the roster and
+    // scored zero. Sam spotted it missing from the scoreboard (Neal,
+    // 2026-08-21). Every job carries sales_rep, which IS the rep's jnid, so the
+    // name never has to be trusted. Name stays as a fallback for older jobs
+    // with no sales_rep set.
+    const salesByRepDay = new Map(); // norm name → Map(day → count)   [fallback]
+    const salesByJnDay = new Map();  // JN sales_rep id → Map(day → count) [primary]
     try {
       if (JN_KEY) {
         const sold = await fetchSoldJobs(Math.floor(start.getTime() / 1000) - 2 * 86400);
@@ -167,10 +176,17 @@ export const handler = async (event) => {
           if (!SOLD_STATUSES.has(st)) continue;
           const ms = soldDateMs(j);
           if (ms == null || ms < start.getTime() || ms > end.getTime()) continue;
-          const nk = normalizeName(j.sales_rep_name || ""); if (!nk) continue;
           const day = etDayKey(new Date(ms).toISOString());
-          let m = salesByRepDay.get(nk); if (!m) salesByRepDay.set(nk, (m = new Map()));
-          m.set(day, (m.get(day) || 0) + 1);
+          const rid = String(j.sales_rep || "").trim();
+          if (rid) {
+            let m = salesByJnDay.get(rid); if (!m) salesByJnDay.set(rid, (m = new Map()));
+            m.set(day, (m.get(day) || 0) + 1);
+          }
+          const nk = normalizeName(j.sales_rep_name || "");
+          if (nk) {
+            let m = salesByRepDay.get(nk); if (!m) salesByRepDay.set(nk, (m = new Map()));
+            m.set(day, (m.get(day) || 0) + 1);
+          }
         }
       }
     } catch { /* best-effort */ }
@@ -181,7 +197,7 @@ export const handler = async (event) => {
       if (!roster.length) return null;
       const reps = roster.map((m) => {
         const days = byRep.get(m.norm) || new Map();
-        const salesDays = salesByRepDay.get(m.norm) || new Map();
+        const salesDays = (m.jnid && salesByJnDay.get(m.jnid)) || salesByRepDay.get(m.norm) || new Map();
         const allDayKeys = new Set([...days.keys(), ...salesDays.keys()]);
         const totals = { booked: 0, went: 0, signed: 0, goback: 0, review: 0 };
         const dayList = [];
@@ -302,6 +318,7 @@ async function fetchZoneResolver(weekStartMs) {
     // the wrong call: silence looks like a bug.
     (rosterByZone[r.zone] || (rosterByZone[r.zone] = [])).push({
       name: String(r.name).trim(), norm,
+      jnid: r.jobnimbus_id || null,
       isManager: !!r.managed_region,
       ineligible: CONTEST_EXCLUDE.has(norm),
     });
