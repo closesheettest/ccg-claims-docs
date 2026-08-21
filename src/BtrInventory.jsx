@@ -15,6 +15,7 @@ export default function BtrInventory() {
     <DealBoard
       feed="btr-inventory"
       title="🏠 BTR Deal Inventory"
+      tag="(New)"
       blurb="Every back-to-retail deal, in the column it's actually in. Columns come from the same classifier the BTR reports use."
       stats={(t) => [
         { n: t.deals, l: "live deals" },
