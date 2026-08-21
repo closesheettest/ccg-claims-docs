@@ -155,6 +155,20 @@ function DailyReport({ daily, scrub }) {
   // them at all), so there is no team to group by and guessing one from
   // geography would be a guess dressed as a fact. City is what we know.
   const [openDay, setOpenDay] = useState(null);
+  // Counted from the map, not from the insert-time tally — see
+  // harvest-daily-report. The tally said "43 IQ / 44 added" for 20 Aug while 24
+  // of those pins were actually there; showing both numbers on one screen just
+  // raised questions (Neal, 2026-08-21).
+  const [real, setReal] = useState(null);   // day → { iq, fb, ai, nosit, added }
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await fetch("/.netlify/functions/harvest-daily-report?days=14");
+        const j = await r.json();
+        if (j.ok) setReal(Object.fromEntries(j.days.map((d) => [d.day, d])));
+      } catch { /* fall back to the tally */ }
+    })();
+  }, []);
   const [cityData, setCityData] = useState({});   // day → { loading|error|total|cities }
   const openCities = async (d) => {
     const next = openDay === d ? null : d;
@@ -175,7 +189,7 @@ function DailyReport({ daily, scrub }) {
   return (
     <div style={{ border: "1px solid #e5e7eb", borderRadius: 14, padding: "16px 18px", marginTop: 8, background: "#fff", boxShadow: "0 1px 3px rgba(0,0,0,.04)" }}>
       <div style={{ fontSize: 16.5, fontWeight: 800, fontFamily: OSWALD, marginBottom: 4 }}>📊 Daily report</div>
-      <div style={{ fontSize: 12.5, color: "#64748b", marginBottom: 12 }}>New pins the sync added each day, and the Venice roof-age scrub (bad = flipped to New Roof). <b>Tap any day</b> to see which cities those pins landed in.</div>
+      <div style={{ fontSize: 12.5, color: "#64748b", marginBottom: 12 }}>Pins from each day that are on the map now, and the Venice roof-age scrub (bad = flipped to New Roof). <b>Tap any day</b> to see which cities they landed in.</div>
       <div style={{ overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 520 }}>
           <thead>
@@ -190,8 +204,8 @@ function DailyReport({ daily, scrub }) {
           </thead>
           <tbody>
             {days.map((d) => {
-              const s = daily[d] || {}, v = scrub[d] || {};
-              const added = (s.iq || 0) + (s.fb || 0) + (s.ai || 0) + (s.nosit || 0);
+              const s = (real && real[d]) || daily[d] || {}, v = scrub[d] || {};
+              const added = real && real[d] ? real[d].added : (s.iq || 0) + (s.fb || 0) + (s.ai || 0) + (s.nosit || 0);
               const cd = cityData[d];
               const isOpen = openDay === d;
               return (
