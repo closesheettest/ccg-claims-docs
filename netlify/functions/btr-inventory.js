@@ -19,6 +19,16 @@
 
 import { retailStage } from "./_retail.js";
 
+const JN_BASE = "https://app.jobnimbus.com/api1";
+const JN_KEY = process.env.JOBNIMBUS_API_KEY;
+// Appointment-shaped JN task types: 4 Initial Appointment, 17 Appointment,
+// 24 Inspection Result Back to Retail.
+const APPT_TYPES = new Set([4, 17, 24]);
+// Only ever chased for the "Appointment Set" column, and capped. There are
+// ~5,800 appointment tasks in JN over a year — pulling them all on every board
+// load is not on, so we ask per job for the handful that need it.
+const JN_LOOKUP_CAP = 60;
+
 const SB_URL = process.env.VITE_SUPABASE_URL;
 const SB_KEY = process.env.VITE_SUPABASE_ANON_KEY;
 const sbH = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` };
@@ -88,6 +98,35 @@ export const handler = async () => {
       });
     }
     for (const k of Object.keys(buckets)) buckets[k].sort((a, b) => (b.age_days || 0) - (a.age_days || 0));
+
+    // WHEN IS THE APPOINTMENT? A retail appointment booked anywhere other than
+    // our own booking flow leaves no retail_appointments row, so the card had
+    // nothing to show — Anthony Ware sat in Appointment Set with no date while
+    // JobNimbus knew it was Fri 24 Jul, 9:00 AM (Neal, 2026-08-21). For the
+    // Appointment Set column only, ask JN for that job's appointment task.
+    if (JN_KEY) {
+      const need = buckets.appt_scheduled.filter((d) => !d.appt_at && d.jn_job_id).slice(0, JN_LOOKUP_CAP);
+      await Promise.all(need.map(async (d) => {
+        try {
+          const f = encodeURIComponent(JSON.stringify({ must: [{ term: { "related.id": d.jn_job_id } }] }));
+          const r = await fetch(`${JN_BASE}/tasks?filter=${f}&size=50`, { headers: { Authorization: `bearer ${JN_KEY}` } });
+          if (!r.ok) return;
+          const rows = (await r.json().catch(() => ({}))).results || [];
+          const appts = rows
+            .filter((t) => APPT_TYPES.has(Number(t.record_type)) && t.date_start)
+            .sort((a, b) => b.date_start - a.date_start);
+          if (!appts.length) return;
+          d.appt_at = new Date(appts[0].date_start * 1000).toISOString();
+          d.appt_from_jn = true;                       // shown so nobody mistakes it for one of ours
+          d.appt_title = appts[0].title || null;
+          d.appt_open = Date.parse(d.appt_at) < now;   // recompute now we know the date
+        } catch { /* best-effort — a card with no date is better than a failed board */ }
+      }));
+      if (buckets.appt_scheduled.filter((d) => !d.appt_at && d.jn_job_id).length > JN_LOOKUP_CAP) {
+        // Never truncate silently.
+        console.warn(`[btr-inventory] appointment lookup capped at ${JN_LOOKUP_CAP}`);
+      }
+    }
 
     const columns = COLUMNS.map((c) => ({ ...c, count: buckets[c.key].length, deals: buckets[c.key] }));
     const openStates = ["not_worked", "no_sit", "appt_scheduled", "sit_pending"];

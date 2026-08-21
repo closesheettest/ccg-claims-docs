@@ -22,6 +22,15 @@ const BODY = "system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif";
 // number is the detail.
 const ageColor = (d) => (d == null ? "#94a3b8" : d > 180 ? "#b91c1c" : d > 90 ? "#c2410c" : d > 60 ? "#a16207" : d > 30 ? "#15803d" : "#0369a1");
 const fmtDate = (iso) => (iso ? new Date(iso).toLocaleDateString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric" }) : null);
+// Card chip: short enough to sit next to the other badges, specific enough to
+// act on — the day and the hour, which is what "when is it?" actually means.
+const fmtApptChip = (iso) => {
+  if (!iso) return "";
+  const d = new Date(iso);
+  const day = d.toLocaleDateString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric" });
+  const t = d.toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" }).replace(":00", "").replace(" AM", "a").replace(" PM", "p");
+  return `${day} ${t}`;
+};
 const fmtWhen = (iso) => (iso ? new Date(iso).toLocaleString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) + " ET" : null);
 
 // feed:    the function name to load
@@ -150,7 +159,12 @@ function Card({ d, color, open, jn, onClick }) {
           ? <span style={{ fontSize: 11, fontWeight: 700, color: "#475569", border: "1px solid #e2e8f0", borderRadius: 6, padding: "1px 6px" }}>🧑 {d.rep.split(/\s+/)[0]}</span>
           : null}
         {d.not_home > 0 && <span title="Times nobody was home" style={{ fontSize: 11, color: "#b45309", border: "1px solid #fed7aa", borderRadius: 6, padding: "1px 6px" }}>🚪 {d.not_home}</span>}
-        {d.appt_at && <span style={{ fontSize: 11, color: "#475569", border: "1px solid #e2e8f0", borderRadius: 6, padding: "1px 6px" }}>📅 {fmtDate(d.appt_at)}</span>}
+        {d.appt_at && (
+          <span title={`${fmtWhen(d.appt_at)}${d.appt_from_jn ? " — from JobNimbus" : ""}${d.appt_title ? `\n${d.appt_title}` : ""}`}
+            style={{ fontSize: 11, fontWeight: 700, color: Date.parse(d.appt_at) < Date.now() ? "#b45309" : "#1d4ed8", border: `1px solid ${Date.parse(d.appt_at) < Date.now() ? "#fed7aa" : "#bfdbfe"}`, borderRadius: 6, padding: "1px 6px" }}>
+            📅 {fmtApptChip(d.appt_at)}
+          </span>
+        )}
         {d.notes > 0 && <span style={{ fontSize: 11, color: "#64748b", border: "1px solid #e2e8f0", borderRadius: 6, padding: "1px 6px" }}>📝 {d.notes}</span>}
       </div>
 
@@ -164,7 +178,8 @@ function Card({ d, color, open, jn, onClick }) {
         <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid #eef2f7", fontSize: 11.5, color: "#475569", display: "grid", gap: 3 }}>
           {d.rep && <div><b>Rep:</b> {d.rep}</div>}
           {d.pa && <div><b>PA:</b> {d.pa}{d.company ? ` · ${d.company}` : ""}</div>}
-          {d.appt_at && <div><b>Appointment:</b> {fmtWhen(d.appt_at)}</div>}
+          {d.appt_at && <div><b>Appointment:</b> {fmtWhen(d.appt_at)}{d.appt_from_jn ? " · from JobNimbus" : ""}</div>}
+          {d.appt_title && <div style={{ color: "#94a3b8" }}>{d.appt_title}</div>}
           {d.outcome && <div><b>Outcome:</b> {d.outcome}{d.outcome_by ? ` — ${d.outcome_by}` : ""}</div>}
           {d.booked_by && <div><b>Booked by:</b> {d.booked_by}</div>}
           {d.jn_status && <div><b>JobNimbus:</b> {d.jn_status}</div>}
