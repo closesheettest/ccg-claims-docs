@@ -223,6 +223,14 @@ function Card({ d, color, open, jn, onClick }) {
           {d.pa && <div><b>PA:</b> {d.pa}{d.company ? ` · ${d.company}` : ""}</div>}
           {d.appt_at && <div><b>Appointment:</b> {fmtWhen(d.appt_at)}{d.appt_from_jn ? " · from JobNimbus" : ""}</div>}
           {d.appt_title && <div style={{ color: "#94a3b8" }}>{d.appt_title}</div>}
+          {d.since_signed_days != null && <div><b>Signed:</b> {d.signed_at ? fmtDate(d.signed_at) : "—"} · {d.since_signed_days}d ago</div>}
+          {d.milestones && (
+            <div style={{ display: "grid", gap: 1, marginTop: 1 }}>
+              {[["filed", "Claim filed"], ["coverage", "Coverage opened"], ["settlement", "Settlement / iink"], ["closed", "Closed / cancelled"]]
+                .filter(([k]) => d.milestones[k])
+                .map(([k, lbl]) => <div key={k}><b>{lbl}:</b> {fmtDate(d.milestones[k])}</div>)}
+            </div>
+          )}
           {d.outcome && <div><b>Outcome:</b> {d.outcome}{d.outcome_by ? ` — ${d.outcome_by}` : ""}</div>}
           {d.booked_by && <div><b>Booked by:</b> {d.booked_by}</div>}
           {d.jn_status && <div><b>JobNimbus:</b> {d.jn_status}</div>}

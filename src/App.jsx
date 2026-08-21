@@ -36,6 +36,7 @@ import GobackSchedule from "./GobackSchedule";
 import GobackOutcome from "./GobackOutcome";
 import PaInventory from "./PaInventory";
 import BtrInventory from "./BtrInventory";
+import PaSigned from "./PaSigned";
 import ContestAdmin from "./ContestAdmin";
 import RoofTakeoff from "./RoofTakeoff";
 import InspectionVisitReport from "./InspectionVisitReport";
@@ -4500,6 +4501,7 @@ const MANAGER_TILES = [
   { group: "signing", key: "btr_inventory", isNew: true, emoji: "🏠", label: "BTR Deal Inventory (New)", desc: "Every back-to-retail deal on one board, laid out like a JobNimbus board — a column per stage (not worked, no sit, appointment set, sit pending, sold, no sale, credit denied, not interested, lost), a card per homeowner with how long it's been sitting, the rep, the appointment, and whether one came and went with no outcome recorded.", href: "/?mode=btrinventory" },
   // ── Public Adjuster ──
   { group: "pa", key: "pa_inventory_new", isNew: true, emoji: "🗂️", label: "PA Deal Inventory (New)", desc: "Every damage deal on one board, laid out like a JobNimbus board — a column per stage (needs appointment, needs reschedule, rebooked, appointment set, sit pending, signed, dead), a card per homeowner with how long it's been sitting, who has it, and whether an appointment came and went with no outcome recorded.", href: "/?mode=painventory" },
+  { group: "pa", key: "pa_signed_new", isNew: true, emoji: "✍️", label: "PA Signed Status (New)", desc: "Every claim a public adjuster has actually signed, on a board by how far it has got since — signed, claim filed, coverage opened, settlement/iink, closed. Each card shows how long it's been sitting at its current stage, who the adjuster is, and every milestone date they've stamped.", href: "/?mode=pasigned" },
   { group: "pa", key: "team_roles", emoji: "🧑‍🤝‍🧑", label: "Team Roles", desc: "One list of everyone — check Inspector and/or PA to set each person's role. Start here when setting someone up." },
   { group: "pa", key: "pamgmt", emoji: "🔌", label: "PA Management", desc: "Turn the in-app PA paperwork (LoR + PA Authorization signing) on or off." },
   { group: "pa", key: "public_adjusters", emoji: "🧑‍⚖️", label: "Public Adjusters", desc: "View the portal as a PA sees it, decide which records go into the portal, and assign a PA." },
@@ -9807,6 +9809,11 @@ export default function App() {
     // ?mode=roofmeasure — office spot-check: satellite roof measurement (Google Solar).
     if (portalMode === "roofmeasure") {
       return <RoofMeasure />;
+    }
+    // ?mode=pasigned — PA Signed Status (New): what happens to a claim AFTER
+    // the adjuster signs it (filed → coverage → settlement → closed).
+    if (portalMode === "pasigned") {
+      return <PaSigned />;
     }
     // ?mode=btrinventory — BTR Deal Inventory: every back-to-retail deal on the
     // same board, columns from the shared retail classifier.
