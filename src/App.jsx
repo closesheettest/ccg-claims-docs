@@ -35,6 +35,7 @@ import GobackBook from "./GobackBook";
 import GobackSchedule from "./GobackSchedule";
 import GobackOutcome from "./GobackOutcome";
 import PaInventory from "./PaInventory";
+import BtrInventory from "./BtrInventory";
 import ContestAdmin from "./ContestAdmin";
 import RoofTakeoff from "./RoofTakeoff";
 import InspectionVisitReport from "./InspectionVisitReport";
@@ -4492,6 +4493,7 @@ const MANAGER_TILES = [
   // ── Master Inspection Reports ──
   { group: "master_reports", key: "master_inspection_report", emoji: "📑", label: "Sales INSP Report", desc: "The whole free-roof-inspection pipeline on one page: still-to-inspect, inspected-but-no-go-back-status, retail breakdown with %s, damage with/without PA appointments, and every PA appointment that's passed (outcome, PA/company, filed date) — plus missed PA appointments.", href: "/?mode=masterinspreport" },
   { group: "master_reports", key: "pa_resched_compose", emoji: "✉️", label: "Reschedule Text Composer", desc: "Compose the personalized bulk text to homeowners whose PA appointment passed with NO paperwork signed — the link shows their damage photos + a Five Star reschedule page. Write the message + edit the pitch. BUILD/PREVIEW ONLY — nothing sends yet.", href: "/?mode=pareschedcompose" },
+  { group: "signing", key: "btr_inventory", emoji: "🏠", label: "BTR Deal Inventory", desc: "Every back-to-retail deal on one board, laid out like a JobNimbus board — a column per stage (not worked, no sit, appointment set, sit pending, sold, no sale, credit denied, not interested, lost), a card per homeowner with how long it's been sitting, the rep, the appointment, and whether one came and went with no outcome recorded.", href: "/?mode=btrinventory" },
   // ── Public Adjuster ──
   { group: "pa", key: "pa_inventory_new", emoji: "🗂️", label: "PA Deal Inventory (New)", desc: "Every damage deal on one board, laid out like a JobNimbus board — a column per stage (needs appointment, needs reschedule, rebooked, appointment set, sit pending, signed, dead), a card per homeowner with how long it's been sitting, who has it, and whether an appointment came and went with no outcome recorded.", href: "/?mode=painventory" },
   { group: "pa", key: "team_roles", emoji: "🧑‍🤝‍🧑", label: "Team Roles", desc: "One list of everyone — check Inspector and/or PA to set each person's role. Start here when setting someone up." },
@@ -9801,6 +9803,11 @@ export default function App() {
     // ?mode=roofmeasure — office spot-check: satellite roof measurement (Google Solar).
     if (portalMode === "roofmeasure") {
       return <RoofMeasure />;
+    }
+    // ?mode=btrinventory — BTR Deal Inventory: every back-to-retail deal on the
+    // same board, columns from the shared retail classifier.
+    if (portalMode === "btrinventory") {
+      return <BtrInventory />;
     }
     // ?mode=painventory — PA Deal Inventory (New): every damage deal on a
     // JobNimbus-style board, in the column it's actually in.
