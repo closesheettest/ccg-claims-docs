@@ -4440,6 +4440,10 @@ const MANAGER_TABS = [
   { key: "pa",          emoji: "🤝", label: "Public Adjuster" },
   { key: "settings",    emoji: "⚙️", label: "Settings" },
 ];
+// Royal blue. Tiles flagged isNew wear it so anything built during the PA/BTR
+// rebuild is obvious at a glance against the white ones it replaces (Neal,
+// 2026-08-21).
+const NEW_TILE_BG = "#1d4ed8";
 const MANAGER_TILES = [
   // ── Signing & Sales ──
   { group: "signing", key: "reps", emoji: "👥", label: "Sales Rep Manager", desc: "Add, import, and activate reps. \"Add\" reads from JobNimbus." },
@@ -4493,9 +4497,9 @@ const MANAGER_TILES = [
   // ── Master Inspection Reports ──
   { group: "master_reports", key: "master_inspection_report", emoji: "📑", label: "Sales INSP Report", desc: "The whole free-roof-inspection pipeline on one page: still-to-inspect, inspected-but-no-go-back-status, retail breakdown with %s, damage with/without PA appointments, and every PA appointment that's passed (outcome, PA/company, filed date) — plus missed PA appointments.", href: "/?mode=masterinspreport" },
   { group: "master_reports", key: "pa_resched_compose", emoji: "✉️", label: "Reschedule Text Composer", desc: "Compose the personalized bulk text to homeowners whose PA appointment passed with NO paperwork signed — the link shows their damage photos + a Five Star reschedule page. Write the message + edit the pitch. BUILD/PREVIEW ONLY — nothing sends yet.", href: "/?mode=pareschedcompose" },
-  { group: "signing", key: "btr_inventory", emoji: "🏠", label: "BTR Deal Inventory", desc: "Every back-to-retail deal on one board, laid out like a JobNimbus board — a column per stage (not worked, no sit, appointment set, sit pending, sold, no sale, credit denied, not interested, lost), a card per homeowner with how long it's been sitting, the rep, the appointment, and whether one came and went with no outcome recorded.", href: "/?mode=btrinventory" },
+  { group: "signing", key: "btr_inventory", isNew: true, emoji: "🏠", label: "BTR Deal Inventory", desc: "Every back-to-retail deal on one board, laid out like a JobNimbus board — a column per stage (not worked, no sit, appointment set, sit pending, sold, no sale, credit denied, not interested, lost), a card per homeowner with how long it's been sitting, the rep, the appointment, and whether one came and went with no outcome recorded.", href: "/?mode=btrinventory" },
   // ── Public Adjuster ──
-  { group: "pa", key: "pa_inventory_new", emoji: "🗂️", label: "PA Deal Inventory (New)", desc: "Every damage deal on one board, laid out like a JobNimbus board — a column per stage (needs appointment, needs reschedule, rebooked, appointment set, sit pending, signed, dead), a card per homeowner with how long it's been sitting, who has it, and whether an appointment came and went with no outcome recorded.", href: "/?mode=painventory" },
+  { group: "pa", key: "pa_inventory_new", isNew: true, emoji: "🗂️", label: "PA Deal Inventory (New)", desc: "Every damage deal on one board, laid out like a JobNimbus board — a column per stage (needs appointment, needs reschedule, rebooked, appointment set, sit pending, signed, dead), a card per homeowner with how long it's been sitting, who has it, and whether an appointment came and went with no outcome recorded.", href: "/?mode=painventory" },
   { group: "pa", key: "team_roles", emoji: "🧑‍🤝‍🧑", label: "Team Roles", desc: "One list of everyone — check Inspector and/or PA to set each person's role. Start here when setting someone up." },
   { group: "pa", key: "pamgmt", emoji: "🔌", label: "PA Management", desc: "Turn the in-app PA paperwork (LoR + PA Authorization signing) on or off." },
   { group: "pa", key: "public_adjusters", emoji: "🧑‍⚖️", label: "Public Adjusters", desc: "View the portal as a PA sees it, decide which records go into the portal, and assign a PA." },
@@ -8942,10 +8946,10 @@ function AdminDashboard() {
 
   const toolTile = (item) => (
     <button key={item.group + ":" + item.key} type="button" onClick={() => item.key === "harvest_map" ? openHarvestAdminMap() : item.key === "inspection_map" ? openInspectionAdminMap() : item.href ? window.open(item.href, "_blank", "noopener") : launchManagerTool(item.key)}
-      style={{ padding: "20px 18px", borderRadius: 20, border: "2px solid #e5e7eb", background: "#fff", textAlign: "left", cursor: "pointer", boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
+      style={{ padding: "20px 18px", borderRadius: 20, border: item.isNew ? `2px solid ${NEW_TILE_BG}` : "2px solid #e5e7eb", background: item.isNew ? NEW_TILE_BG : "#fff", textAlign: "left", cursor: "pointer", boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
       <div style={{ fontSize: 32, marginBottom: 8 }}>{item.emoji}</div>
-      <div style={{ fontSize: 15, fontWeight: 700, color: "#111827", fontFamily: "'Oswald', sans-serif", marginBottom: 4 }}>{item.label}{item.href ? " ↗" : ""}</div>
-      <div style={{ fontSize: 12.5, color: "#6b7280", lineHeight: 1.4 }}>{item.desc}</div>
+      <div style={{ fontSize: 15, fontWeight: 700, color: item.isNew ? "#fff" : "#111827", fontFamily: "'Oswald', sans-serif", marginBottom: 4 }}>{item.label}{item.href ? " ↗" : ""}</div>
+      <div style={{ fontSize: 12.5, color: item.isNew ? "#dbe4ff" : "#6b7280", lineHeight: 1.4 }}>{item.desc}</div>
       {item.key === "roof_measure" && <RoofMeasureCompanyToggle />}
     </button>
   );
@@ -17446,10 +17450,10 @@ if (!hasDamage) {
                           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
                             {tiles.map(item => (
                               <button key={item.key} type="button" onClick={() => item.key === "harvest_map" ? openHarvestAdminMap() : item.key === "inspection_map" ? openInspectionAdminMap() : item.href ? window.open(item.href, "_blank", "noopener") : setManagerSection(item.key)}
-                                style={{ padding: "24px 20px", borderRadius: 20, border: "2px solid #e5e7eb", background: "#fff", textAlign: "left", cursor: "pointer", boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
+                                style={{ padding: "24px 20px", borderRadius: 20, border: item.isNew ? `2px solid ${NEW_TILE_BG}` : "2px solid #e5e7eb", background: item.isNew ? NEW_TILE_BG : "#fff", textAlign: "left", cursor: "pointer", boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
                                 <div style={{ fontSize: 36, marginBottom: 10 }}>{item.emoji}</div>
-                                <div style={{ fontSize: 16, fontWeight: 700, color: "#111827", fontFamily: "'Oswald', sans-serif", marginBottom: 4 }}>{item.label}{item.href ? " ↗" : ""}</div>
-                                <div style={{ fontSize: 13, color: "#6b7280", fontFamily: "'Nunito', sans-serif", lineHeight: 1.4 }}>{item.desc}</div>
+                                <div style={{ fontSize: 16, fontWeight: 700, color: item.isNew ? "#fff" : "#111827", fontFamily: "'Oswald', sans-serif", marginBottom: 4 }}>{item.label}{item.href ? " ↗" : ""}</div>
+                                <div style={{ fontSize: 13, color: item.isNew ? "#dbe4ff" : "#6b7280", fontFamily: "'Nunito', sans-serif", lineHeight: 1.4 }}>{item.desc}</div>
                                 {item.key === "roof_measure" && <RoofMeasureCompanyToggle />}
                               </button>
                             ))}
