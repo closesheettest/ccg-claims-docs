@@ -229,9 +229,13 @@ export const handler = async (event) => {
     if (action === "department_save") {
       const name = str(b.name, 80);
       if (!name) return cors(400, j({ ok: false, error: "A department name is required." }));
-      const row = { name, manager_employee_id: str(b.manager_employee_id, 64) || null, active: b.active !== false };
+      const mgrId = str(b.manager_employee_id, 64) || null;
+      const row = { name, manager_employee_id: mgrId, active: b.active !== false };
       if (b.id) await patch(`payroll_departments?id=eq.${str(b.id, 64)}`, row);
       else await post("payroll_departments", row);
+      // Naming somebody the signer is the whole decision — don't also require a
+      // separate tick on their People record that everyone forgets.
+      if (mgrId) await patch(`payroll_employees?id=eq.${mgrId}`, { is_manager: true, updated_at: nowIso() });
       return cors(200, j({ ok: true }));
     }
 

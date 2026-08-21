@@ -547,7 +547,7 @@ function Teams({ api, onErr }) {
               </select>
             </Field>
           </div>
-          <div style={{ fontSize: 12.5, color: MUTE }}>Tip: also tick “can sign off a department” on that person's People record.</div>
+          <div style={{ fontSize: 12.5, color: MUTE }}>Naming someone here gives them the manager screen — no second tick needed.</div>
           <div style={{ display: "flex", gap: 8 }}>
             <button style={btn(NAVY)} onClick={save}>Save</button>
             <button style={ghost} onClick={() => setEdit(null)}>Cancel</button>
