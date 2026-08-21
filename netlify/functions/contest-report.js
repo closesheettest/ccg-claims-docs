@@ -63,8 +63,17 @@ export const handler = async (event) => {
     // request, so deactivating a rep re-scored finished weeks and even flipped a
     // winner. Serve the snapshot instead. ?fresh=1 recomputes (that's how the
     // freeze itself is taken).
-    if (qp.week && !qp.fresh && !qp.days) {
-      const frozen = await sbGet(`contest_week_results?week_no=eq.${encodeURIComponent(Number(qp.week))}&select=payload,reps_note,frozen_at&limit=1`);
+    //
+    // This has to cover the DEFAULT view as well as an explicit ?week=. The
+    // board opens on the active week without asking for one by number, and that
+    // path skipped the snapshot entirely — so on the Friday after Week 2 closed,
+    // the frozen result existed and the board still recomputed live and said
+    // SHARKS were "leading" rather than showing they'd won (Neal, 2026-08-21).
+    // The winner badge is gated on `frozen`, so missing it here quietly withheld
+    // the result from the people it belongs to.
+    const askedWeek = qp.week ? Number(qp.week) : activeWeekNo();
+    if (askedWeek && !qp.fresh && !qp.days) {
+      const frozen = await sbGet(`contest_week_results?week_no=eq.${encodeURIComponent(askedWeek)}&select=payload,reps_note,frozen_at&limit=1`);
       if (frozen && frozen[0] && frozen[0].payload) {
         return cors(200, JSON.stringify({
           ...frozen[0].payload,
@@ -298,6 +307,18 @@ async function fetchZoneResolver(weekStartMs) {
     });
   }
   return { rosterByZone };
+}
+// Which contest week are we in? Latest whose Wednesday has started. Null before
+// week 1. Mirrors the window picker below — kept as one function so the frozen
+// lookup and the live window can't disagree about which week "now" is.
+function activeWeekNo() {
+  const now = new Date();
+  let best = null;
+  WEEKS.forEach((w, idx) => {
+    const s = etDayStart(w.start);
+    if (s <= now && (!best || s > best.s)) best = { s, no: idx + 1 };
+  });
+  return best ? best.no : null;
 }
 function normalizeName(s) {
   return String(s || "").toLowerCase().replace(/["“”]([^"“”]*)["“”]/g, "").replace(/'([^']*)'/g, "").replace(/\(([^)]*)\)/g, "").replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim();
