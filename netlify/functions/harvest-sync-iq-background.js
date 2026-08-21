@@ -178,12 +178,39 @@ exports.handler = async (event) => {
       const nowIso = new Date().toISOString();
       const shouldBe = new Set();
       const toInsert = []; const updates = []; let skipped = 0, preserved = 0, dupSkipped = 0, converted = 0;
+      // Pins this run has handed to an IQ lead. They must survive the collapse
+      // pass below — otherwise we take a door and immediately delete it again.
+      const takeoverIds = new Set();
+      // One takeover: become the new lead, and keep what the door used to be.
+      const patchTakeover = (pinId, prev, row, at) => fetch(
+        `${SB_URL}/rest/v1/canvass_prospects?id=eq.${pinId}`,
+        {
+          method: "PATCH", headers: { ...sbHeaders, Prefer: "return=minimal" },
+          body: JSON.stringify({
+            ...row,
+            extra: {
+              ...row.extra,
+              converted_from: prev.status || null,
+              converted_at: at,
+              prev_status: prev.status || null,
+              prev_status_by: prev.status_by || null,
+              prev_status_at: prev.status_updated_at || null,
+            },
+          }),
+        },
+      ).then((r) => r.ok);
       for (const c of cands) {
         const id = c.jnid || c.id;
         // Already worked on the map (rep/RepCard set a terminal/appt status) →
         // the map owns it. Don't re-add it as a fresh raw lead (the dup bug) and
         // don't let its raw twin, if any, survive reconcile below.
-        if (workedContacts.has(id)) { preserved++; continue; }
+        // Their own pin is already worked. For IQ that is no longer a reason to
+        // drop the lead — the scan reopens the door (see IQ_WINS_SOURCE).
+        if (workedContacts.has(id)) {
+          const own = pinByContact[id];
+          if (!(key === IQ_WINS_SOURCE && own && !COMMITTED.has(own.status))) { preserved++; continue; }
+          takeoverIds.add(own.id);
+        }
         const coord = coordOf(c);
         shouldBe.add(id);
         if (!coord) { skipped++; continue; }
@@ -197,7 +224,11 @@ exports.handler = async (event) => {
           status: def.status, status_by: `JN ${def.source} sync`, status_updated_at: nowIso, list_name: def.list,
           extra: { jn_contact_id: id, jn_source: def.source, jn_created_sec: Number(c.date_created) || null, synced_at: nowIso },
         };
-        if (existingRaw[id]) {
+        const ownWorked = workedContacts.has(id) ? pinByContact[id] : null;
+        if (ownWorked) {
+          updates.push(patchTakeover(ownWorked.id, ownWorked, row, nowIso));
+          converted++;
+        } else if (existingRaw[id]) {
           updates.push(fetch(`${SB_URL}/rest/v1/canvass_prospects?id=eq.${existingRaw[id]}`, { method: "PATCH", headers: { ...sbHeaders, Prefer: "return=minimal" }, body: JSON.stringify(row) }).then((r) => r.ok));
         } else {
           // ── Address dedup before creating a NEW pin ─────────────────────────
@@ -212,7 +243,17 @@ exports.handler = async (event) => {
             const worked = here.find((p) => !RAW_SET.has(p.status));
             const rawTwin = here.find((p) => p.status !== "insp"); // another raw JN lead already here
             const insp = here.find((p) => p.status === "insp");
-            if (worked || rawTwin) { dupSkipped++; continue; }     // a worked/raw pin already owns this house
+            // Someone else's pin owns this house. For IQ, take it over rather
+            // than throw the lead away — same rule, same history stamp.
+            if (worked || rawTwin) {
+              const hold = worked || rawTwin;
+              if (key !== IQ_WINS_SOURCE || COMMITTED.has(hold.status)) { dupSkipped++; continue; }
+              claimedKeys.add(ck);
+              takeoverIds.add(hold.id);
+              updates.push(patchTakeover(hold.id, hold, row, nowIso));
+              converted++;
+              continue;
+            }
             if (insp) {                                            // RepCard "insp" here → IQ takes over the pin (no dup)
               claimedKeys.add(ck);
               // STAMP THE TAKEOVER. This pin keeps its original created_at, so
@@ -220,8 +261,8 @@ exports.handler = async (event) => {
               // refresh of an existing IQ pin — and a conversion IS a new IQ
               // lead. The door stopped being an inspection lead and became one
               // a homeowner asked for (Neal, 2026-08-21).
-              const convRow = { ...row, extra: { ...row.extra, converted_from: "insp", converted_at: nowIso } };
-              updates.push(fetch(`${SB_URL}/rest/v1/canvass_prospects?id=eq.${insp.id}`, { method: "PATCH", headers: { ...sbHeaders, Prefer: "return=minimal" }, body: JSON.stringify(convRow) }).then((r) => r.ok));
+              takeoverIds.add(insp.id);
+              updates.push(patchTakeover(insp.id, insp, row, nowIso));
               converted++;
               continue;
             }
@@ -257,6 +298,11 @@ exports.handler = async (event) => {
       for (const [cid, target] of Object.entries(jobStatusByContact)) {
         const pin = pinByContact[cid];
         if (!pin || pin.status === target) continue;
+        // A door this run just handed to a fresh IQ scan is NOT re-stamped from
+        // the old job status. Otherwise the scan takes the door at the top of the
+        // run and their stale "BTR - NI" job flips it straight back at the
+        // bottom — the reopening would last milliseconds (Neal, 2026-08-21).
+        if (takeoverIds.has(pin.id)) continue;
         if (repProtected(pin)) continue;                                  // rep worked THIS pin recently → keep it
         if (target === "no_sit_reschedule" && repWorkedSibling(pin)) continue; // a rep worked this house already
         rev.push(fetch(`${SB_URL}/rest/v1/canvass_prospects?id=eq.${pin.id}`, {
@@ -273,6 +319,7 @@ exports.handler = async (event) => {
       for (const pin of Object.values(pinByContact)) {
         if (!/^JN\b/i.test(String(pin.status_by || ""))) continue;   // only sync-set pins
         if (!RAW_SET.has(pin.status)) continue;                       // only raw / no-sit twins
+        if (takeoverIds.has(pin.id)) continue;                        // just handed to a fresh IQ scan — keep it
         if (repWorkedSibling(pin)) dupDrop.push(pin.id);
       }
       let collapsed = 0; if (dupDrop.length) { if (await del(dupDrop)) collapsed = dupDrop.length; }
@@ -369,6 +416,27 @@ function jobPinStatus(name) {
 // Unworked "lead" statuses — a pin in one of these is still fair game. Anything
 // else (appt / insp_sold / iq_ni / dead / lost / …) is WORKED and owns its house.
 const RAW_SET = new Set(["iq", "fb", "ai", "insp", "no_sit_reschedule"]);
+// AN IQ LEAD ALWAYS TAKES THE DOOR.
+//
+// An IQ pin means the homeowner just scanned the QR code asking about their
+// roof. That is fresh intent, and it outranks whatever the door used to be —
+// including "not interested". We want to get to them (Neal, 2026-08-21).
+//
+// Before this, an IQ lead was thrown away if the door already had ANY worked
+// pin or any other raw lead: 409 leads were dropped on a single run. So 43 new
+// IQ leads out of JobNimbus did not produce 43 IQ pins on the map, which is
+// what Neal expects and is right to expect.
+//
+// The old status is never lost — every takeover records what the pin was, who
+// set it and when, in extra.prev_* — so "they said no in June" is still on the
+// record, it just no longer blocks us from going back.
+const IQ_WINS_SOURCE = "iq";
+// The two states an IQ scan does NOT reopen: a booked appointment and a signed
+// inspection. Those are commitments with something already on a calendar, and
+// turning one back into a raw lead would drop a real appointment off the map.
+// Everything else — not interested, dead, no-sit, lost, new roof, clover,
+// inspection lead — gives way to the scan.
+const COMMITTED = new Set(["appt", "insp_sold"]);
 // A pin a human REP statused recently OWNS its house — a JN-derived re-stamp must
 // never overwrite it (Neal's rule; the "Sam marked it dead, the sync flipped it
 // back to no-sit next run" bug). Sync-set statuses (status_by "JN …") and anything
