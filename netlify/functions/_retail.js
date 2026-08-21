@@ -28,7 +28,22 @@ export function retailStage(status, outcome) {
       if (outcome === "btr_appt" || outcome === "retail_appt") return "appt_scheduled";
       return "not_worked";                                              // signed inspection, retail go-back not started
     }
-    if (/sit sold|signed contract|production review|job prep|funding|pace|upcoming install|install set|roof started|new roof|paid|commission|collection|sitsold pa/.test(s)) return "sold";
+    // "Sit Sold PA" is the PUBLIC ADJUSTER signing the homeowner — the insurance
+    // pipeline — NOT a retail sale. It was in this list, and the generic "sit
+    // sold" alternative matched it anyway, so a deal that went damage → PA →
+    // back to retail was being counted as a retail win. Kimberly Bedel sat in
+    // the Sold column at "Sitsold PA" while the rep's own recorded outcome said
+    // Not Interested (Neal, 2026-08-21). Excluded first so the deal falls
+    // through to what the rep actually recorded.
+    if (/sit ?sold pa/.test(s)) {
+      if (outcome === "sold") return "sold";       // a real retail sale on top of it still counts
+      if (outcome === "credit_denial") return "credit_denial";
+      if (outcome === "no_sale") return "no_sale";
+      if (outcome === "ni") return "declined";
+      if (outcome === "btr_appt" || outcome === "retail_appt") return "appt_scheduled";
+      return "not_worked";                          // with the PA and no retail outcome, retail hasn't happened
+    }
+    if (/sit sold|signed contract|production review|job prep|funding|pace|upcoming install|install set|roof started|new roof|paid|commission|collection/.test(s)) return "sold";
     if (s.includes("credit") && (s.includes("deni") || s.includes("declin"))) return "credit_denial";
     if (s.includes("no sale")) return "no_sale";
     if (s.includes("pending")) return "sit_pending";
