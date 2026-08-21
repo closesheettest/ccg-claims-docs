@@ -214,6 +214,7 @@ function DailyReport({ daily, scrub }) {
                           <div>
                             <div style={{ fontSize: 12, color: "#64748b", marginBottom: 7 }}>
                               <b style={{ color: "#0f172a" }}>{cd.total}</b> of that day\u2019s pins are on the map now, across {cd.cities.length} {cd.cities.length === 1 ? "city" : "cities"}.
+                              {cd.converted > 0 && <span> {cd.converted} of them took over an inspection-lead pin at that house rather than creating a new one.</span>}
                               {added > cd.total && (
                                 <span style={{ color: "#b45309" }}> {" "}The {added} added is the tally stamped at sync time; the dedupe pass since has merged {added - cd.total} twin pin{added - cd.total === 1 ? "" : "s"} away.</span>
                               )}

@@ -34,10 +34,21 @@ export const handler = async (event) => {
   const end = `${next}T04:00:00Z`;
 
   try {
-    const rows = await sbGetAll(
-      `canvass_prospects?created_at=gte.${encodeURIComponent(start)}&created_at=lt.${encodeURIComponent(end)}` +
-      `&select=city,state,status,list_name`,
-    );
+    // Pins that LANDED that day = rows created that day, PLUS pins that already
+    // existed as an inspection lead and were taken over by an IQ lead. A takeover
+    // keeps its original created_at, so without the converted_at stamp it would
+    // be invisible here even though it's a new IQ pin.
+    const [fresh, converted] = await Promise.all([
+      sbGetAll(
+        `canvass_prospects?created_at=gte.${encodeURIComponent(start)}&created_at=lt.${encodeURIComponent(end)}` +
+        `&select=city,state,status,list_name`,
+      ),
+      sbGetAll(
+        `canvass_prospects?extra->>converted_at=gte.${encodeURIComponent(start)}&extra->>converted_at=lt.${encodeURIComponent(end)}` +
+        `&created_at=lt.${encodeURIComponent(start)}&select=city,state,status,list_name`,
+      ).catch(() => []),
+    ]);
+    const rows = [...fresh, ...converted];
     const byCity = new Map();
     const statuses = {};
     for (const r of rows) {
@@ -52,7 +63,7 @@ export const handler = async (event) => {
       statuses[r.status] = (statuses[r.status] || 0) + 1;
     }
     const cities = [...byCity.values()].sort((a, b) => b.count - a.count || a.city.localeCompare(b.city));
-    return json(200, { ok: true, day, total: rows.length, cities, statuses });
+    return json(200, { ok: true, day, total: rows.length, converted: converted.length, cities, statuses });
   } catch (e) {
     return json(500, { ok: false, error: e.message || "error" });
   }

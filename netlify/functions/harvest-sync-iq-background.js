@@ -215,7 +215,13 @@ exports.handler = async (event) => {
             if (worked || rawTwin) { dupSkipped++; continue; }     // a worked/raw pin already owns this house
             if (insp) {                                            // RepCard "insp" here → IQ takes over the pin (no dup)
               claimedKeys.add(ck);
-              updates.push(fetch(`${SB_URL}/rest/v1/canvass_prospects?id=eq.${insp.id}`, { method: "PATCH", headers: { ...sbHeaders, Prefer: "return=minimal" }, body: JSON.stringify(row) }).then((r) => r.ok));
+              // STAMP THE TAKEOVER. This pin keeps its original created_at, so
+              // nothing downstream could tell a conversion from an ordinary
+              // refresh of an existing IQ pin — and a conversion IS a new IQ
+              // lead. The door stopped being an inspection lead and became one
+              // a homeowner asked for (Neal, 2026-08-21).
+              const convRow = { ...row, extra: { ...row.extra, converted_from: "insp", converted_at: nowIso } };
+              updates.push(fetch(`${SB_URL}/rest/v1/canvass_prospects?id=eq.${insp.id}`, { method: "PATCH", headers: { ...sbHeaders, Prefer: "return=minimal" }, body: JSON.stringify(convRow) }).then((r) => r.ok));
               converted++;
               continue;
             }
@@ -282,7 +288,10 @@ exports.handler = async (event) => {
         candidates: cands.length, inserted, updated, removed, preserved_worked: preserved, restatused_from_job: restatused, collapsed_dup_twins: collapsed, geocoded, skipped_ungeocoded: skipped, dup_skipped: dupSkipped, converted_from_insp: converted,
         started, finished: new Date().toISOString(),
       });
-      await bumpDailyNew(key, inserted); // rolling per-day new-pin tally for the JN Sync report
+      // A CONVERSION COUNTS. 43 new IQ leads coming out of JobNimbus means 43 new
+      // IQ pins, whether each one created a row or took over an inspection-lead
+      // pin at that house. Counting only fresh rows understated the day.
+      await bumpDailyNew(key, inserted + converted); // rolling per-day new-pin tally for the JN Sync report
     } catch (e) {
       await writeSetting(`harvest_leadsync_${key}`, { ok: false, source: def.source, error: String(e && e.message || e), started, finished: new Date().toISOString() });
     }
