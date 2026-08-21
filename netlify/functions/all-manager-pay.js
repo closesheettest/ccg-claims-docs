@@ -24,6 +24,7 @@
 //
 // Env: JOBNIMBUS_API_KEY, VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY.
 
+import { canonicalName } from "./_aliases.js";
 import { fetchSoldJobs } from "./_appt-conversion.js";
 
 const JN_KEY = process.env.JOBNIMBUS_API_KEY;
@@ -233,7 +234,10 @@ async function fetchZoneResolver() {
   const zoneOf = (id, name) => (id && byJnId[id]) || (name && byName[normalizeName(name)]) || null;
   return { zoneOf, zoneManager };
 }
-function normalizeName(n) { return String(n || "").toLowerCase().replace(/[^a-z]+/g, " ").trim(); }
+function normalizeName(n) {
+  n = canonicalName(n);   // JN spells some reps differently — see _aliases.js
+  return String(n || "").toLowerCase().replace(/[^a-z]+/g, " ").trim();
+}
 
 // ── Config (app_settings.manager_pay_config) ───────────────────────────────
 async function loadConfig() {

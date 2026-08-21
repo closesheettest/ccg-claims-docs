@@ -26,6 +26,7 @@
 // Response: { ok, week:{start,end}, total, zones:[
 //             { zone:'Zone 4', team:'HURRICANE', count:4, rank:1 }, … ] }
 
+import { canonicalName } from "./_aliases.js";
 const JN_BASE = 'https://app.jobnimbus.com/api1'
 const JN_KEY = process.env.JOBNIMBUS_API_KEY
 const TMS_REP_ZONES_URL =
@@ -275,6 +276,7 @@ async function fetchZoneResolver() {
 
 // Same normalization as zone-leaderboard.js / manager-records-api.js.
 function normalizeName(s) {
+  s = canonicalName(s);   // JN spells some reps differently — see _aliases.js
   return String(s || '')
     .toLowerCase()
     .replace(/["“”]([^"“”]*)["“”]/g, '')

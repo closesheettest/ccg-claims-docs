@@ -10,6 +10,7 @@
 //
 // Env: VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY
 
+import { canonicalName } from "./_aliases.js";
 const SB_URL = process.env.VITE_SUPABASE_URL;
 const SB_KEY = process.env.VITE_SUPABASE_ANON_KEY;
 const TMS_REP_ZONES_URL = "https://trainingmanagementsys.netlify.app/.netlify/functions/rep-zones";
@@ -139,6 +140,7 @@ async function fetchRepsInZoneBridged(targetZone, sb) {
   return out;
 }
 function normalizeName(s) {
+  s = canonicalName(s);   // JN spells some reps differently — see _aliases.js
   return String(s || "").toLowerCase().replace(/["“”]([^"“”]*)["“”]/g, "").replace(/'([^']*)'/g, "").replace(/\(([^)]*)\)/g, "").replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim();
 }
 async function sbGet(path, sb) {

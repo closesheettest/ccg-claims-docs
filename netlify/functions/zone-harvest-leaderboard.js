@@ -24,6 +24,7 @@
 //
 // Env: VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY
 
+import { canonicalName } from "./_aliases.js";
 const SB_URL = process.env.VITE_SUPABASE_URL;
 const SB_KEY = process.env.VITE_SUPABASE_ANON_KEY;
 const JN_KEY = process.env.JOBNIMBUS_API_KEY;
@@ -357,6 +358,7 @@ async function fetchZoneResolver() {
   return { zoneOf, isJunior };
 }
 function normalizeName(s) {
+  s = canonicalName(s);   // JN spells some reps differently — see _aliases.js
   return String(s || "").toLowerCase()
     .replace(/["“”]([^"“”]*)["“”]/g, "").replace(/'([^']*)'/g, "").replace(/\(([^)]*)\)/g, "")
     .replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim();

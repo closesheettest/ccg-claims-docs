@@ -14,6 +14,7 @@
 //
 // Env: JOBNIMBUS_API_KEY.
 
+import { canonicalName } from "./_aliases.js";
 import { fetchApptTaskMeta, fetchApptJobs, fetchSoldJobs, newRep, tallyAppt, tallySold, shapeRep, sumTotals, levelLabel, fetchPitchMap, attachPitch, fetchResultMap } from "./_appt-conversion.js";
 
 const JN_KEY = process.env.JOBNIMBUS_API_KEY;
@@ -105,6 +106,7 @@ async function fetchZoneResolver() {
   return (jnId, name) => (jnId && byJnId[jnId]) || byName[normalizeName(name)] || null;
 }
 function normalizeName(s) {
+  s = canonicalName(s);   // JN spells some reps differently — see _aliases.js
   return String(s || "").toLowerCase()
     .replace(/["“”]([^"“”]*)["“”]/g, "").replace(/'([^']*)'/g, "").replace(/\(([^)]*)\)/g, "")
     .replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim();
