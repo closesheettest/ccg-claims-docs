@@ -175,8 +175,8 @@ async function workDaysMap(ids) {
   const rows = await get(`app_settings?key=in.(${ids.map((i) => `payroll_workdays_${i}`).join(",")})&select=key,value`);
   for (const r of rows) {
     out[String(r.key).replace("payroll_workdays_", "")] = [...new Set(
-      String(r.value ?? "").split(",").map((x) => Number(String(x).trim()))
-        .filter((n) => Number.isInteger(n) && n >= 0 && n <= 6)
+      String(r.value ?? "").split(",").map((x) => String(x).trim()).filter((x) => x !== "")
+        .map(Number).filter((n) => Number.isInteger(n) && n >= 0 && n <= 6)
     )];
   }
   return out;
