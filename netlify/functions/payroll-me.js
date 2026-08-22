@@ -1131,8 +1131,8 @@ const DEFAULT_WORK_DAYS = [1, 2, 3, 4, 5];
 const wdKey = (id) => `payroll_workdays_${id}`;
 
 function parseDays(v) {
-  const days = String(v ?? "").split(",").map((x) => Number(String(x).trim()))
-    .filter((n) => Number.isInteger(n) && n >= 0 && n <= 6);
+  const days = String(v ?? "").split(",").map((x) => String(x).trim()).filter((x) => x !== "")
+    .map(Number).filter((n) => Number.isInteger(n) && n >= 0 && n <= 6);
   return [...new Set(days)].sort();
 }
 
