@@ -65,6 +65,7 @@ export const handler = async (event) => {
     get("payroll_holidays?active=is.true&paid=is.true&select=holiday_date"),
   ]);
   const holSet = new Set(holidays.map((h) => h.holiday_date));
+  const wdMap = await workDaysMap(emps.map((e) => e.id));
   const byShift = Object.fromEntries(shifts.map((s) => [s.id, s]));
 
   const sent = [], skipped = [];
@@ -85,6 +86,11 @@ export const handler = async (event) => {
     if (!wantCheckin && !wantRecap) continue;
 
     const entry = (await get(`payroll_time_entries?employee_id=eq.${e.id}&work_date=eq.${wd}&select=*&limit=1`))[0] || null;
+
+    // Never chase somebody on a day they don't work. Before this, a Tue–Sat
+    // crew got texted on Sundays and Mondays they were never rostered for.
+    const sched = wdMap[e.id] || DEFAULT_WORK_DAYS;
+    if (!sched.includes(dowOfDate(wd))) { skipped.push({ who: name(e), why: "not a working day for them" }); continue; }
 
     // Never chase somebody who is off, or on a paid holiday.
     if (entry && entry.day_type !== "worked") { skipped.push({ who: name(e), why: `marked ${entry.day_type}` }); continue; }
@@ -159,6 +165,23 @@ async function payrollConfig() {
 // "domain/path". Verified on two different numbers, both ways. So every SMS uses
 // smsLink(); emails keep the full https:// URL.
 const smsLink = () => `${BASE.replace(/^https?:\/\//, "")}/timecard`;
+
+// Which days each person works — app_settings row per person, see payroll-me.
+// Absent = Mon–Fri, the assumption everything made before this existed.
+const DEFAULT_WORK_DAYS = [1, 2, 3, 4, 5];
+async function workDaysMap(ids) {
+  const out = {};
+  if (!ids.length) return out;
+  const rows = await get(`app_settings?key=in.(${ids.map((i) => `payroll_workdays_${i}`).join(",")})&select=key,value`);
+  for (const r of rows) {
+    out[String(r.key).replace("payroll_workdays_", "")] = [...new Set(
+      String(r.value ?? "").split(",").map((x) => Number(String(x).trim()))
+        .filter((n) => Number.isInteger(n) && n >= 0 && n <= 6)
+    )];
+  }
+  return out;
+}
+function dowOfDate(s) { return new Date(`${s}T12:00:00Z`).getUTCDay(); }
 function name(e) { return `${e.first_name} ${e.last_name}`.trim(); }
 function greeting(shift) { return mins(shift.start_time) < 720 ? "morning" : mins(shift.start_time) < 1020 ? "afternoon" : "evening"; }
 function wrap(m) { return ((m % 1440) + 1440) % 1440; }

@@ -366,8 +366,8 @@ export const handler = async (event) => {
       if (end < start) return cors(400, j({ ok: false, error: "The end date is before the start date." }));
       const partial = !!body.partial;
       const perDay = partial ? clampNum(body.hours_per_day, 0.5, 12) : Number(me.standard_day_hours || 8);
-      const days = await workDaysBetween(start, end);
-      if (!days.length) return cors(400, j({ ok: false, error: "That range is all weekend/holiday — nothing to request." }));
+      const days = await workDaysBetween(start, end, await workDaysOf(me.id));
+      if (!days.length) return cors(400, j({ ok: false, error: "That range is all days off / holiday — nothing to request." }));
       const totalDays = partial ? round2((perDay * days.length) / Number(me.standard_day_hours || 8)) : days.length;
       const row = (await post("payroll_time_off", {
         employee_id: me.id, request_type: type, start_date: start, end_date: end,
@@ -405,7 +405,7 @@ export const handler = async (event) => {
       // signed-off day is payroll's now, so it's reported instead of altered.
       let removed = 0; const locked = [];
       if (wasApproved) {
-        const dates = await workDaysBetween(req.start_date, req.end_date);
+        const dates = await workDaysBetween(req.start_date, req.end_date, await workDaysOf(req.employee_id));
         for (const d of dates) {
           const ex = (await get(`payroll_time_entries?employee_id=eq.${req.employee_id}&work_date=eq.${d}&select=id,locked,source&limit=1`))[0];
           if (!ex || ex.source !== "auto") continue;
@@ -573,6 +573,20 @@ export const handler = async (event) => {
       }
       await patch(`payroll_employees?id=eq.${id}`, { phone, email, updated_at: nowIso() });
       return cors(200, j({ ok: true, id, phone: phone || "", email: email || "" }));
+    }
+
+    if (action === "set_work_days") {
+      const empId = str(body.employee_id, 64);
+      if (!(await managesEmployee(me, empId))) return cors(403, j({ ok: false, error: "That employee isn't on your team." }));
+      const days = parseDays(Array.isArray(body.days) ? body.days.join(",") : body.days);
+      // No days at all is a real answer (someone on leave), but it silences
+      // every reminder for them, so it has to be deliberate rather than a
+      // mis-click that quietly stops their check-ins.
+      if (!days.length && !body.confirm_none) {
+        return cors(400, j({ ok: false, error: "That's no working days at all — they'd stop getting check-in reminders. Tick the days they work, or confirm you mean none." }));
+      }
+      await upsert("app_settings", { key: wdKey(empId), value: days.join(",") }, "key");
+      return cors(200, j({ ok: true, employee_id: empId, work_days: days }));
     }
 
     if (action === "add_teammate") {
@@ -820,20 +834,22 @@ async function departmentWeek(dept, ws) {
     get(`payroll_week_approvals?department_id=eq.${dept.id}&week_start=eq.${ws}&select=*&limit=1`),
     get(`payroll_holidays?active=is.true&holiday_date=gte.${ws}&holiday_date=lte.${we}&select=holiday_date,name,paid,hours`),
   ]);
+  const wdMap = await workDaysMap(emps.map((e) => e.id));
   const members = emps.map((e) => {
+    const sched = wdMap[e.id] || DEFAULT_WORK_DAYS;
     const mine = entries.filter((x) => x.employee_id === e.id).sort((a, b) => a.work_date.localeCompare(b.work_date));
     const days = [];
     for (let i = 0; i < 7; i++) {
       const d = addDays(ws, i);
-      days.push({ work_date: d, weekday: weekdayName(d), entry: mine.find((x) => x.work_date === d) || null });
+      days.push({ work_date: d, weekday: weekdayName(d), scheduled: sched.includes(dowOf(d)), entry: mine.find((x) => x.work_date === d) || null });
     }
     return {
       employee: {
-        id: e.id, name: fullName(e), title: e.title, pay_type: e.pay_type, shift_id: e.shift_id,
+        id: e.id, name: fullName(e), title: e.title, pay_type: e.pay_type, shift_id: e.shift_id, work_days: sched,
         standard_day_hours: Number(e.standard_day_hours || 8), standard_week_hours: Number(e.standard_week_hours || 40),
       },
       days, totals: weekTotals(mine, e),
-      flags: flagsFor(mine, e, ws),
+      flags: flagsFor(mine, e, ws, sched),
     };
   });
   return {
@@ -845,12 +861,16 @@ async function departmentWeek(dept, ws) {
 
 // The things a manager should look at before signing: missing days, late
 // arrivals, overtime, nobody-marked-it-done.
-function flagsFor(entries, emp, ws) {
+function flagsFor(entries, emp, ws, sched) {
   const out = [];
   const byDate = Object.fromEntries(entries.map((e) => [e.work_date, e]));
+  const days = Array.isArray(sched) ? sched : DEFAULT_WORK_DAYS;
+  // Only days they're actually scheduled for. This used to hard-code Mon–Fri,
+  // so somebody working Tue–Sat was flagged for a blank Monday they were never
+  // meant to work, and their blank Saturday went unnoticed.
   let missing = 0;
-  for (let i = 0; i < 5; i++) { if (!byDate[addDays(ws, i)]) missing++; }   // Mon–Fri
-  if (missing) out.push({ kind: "missing", label: `${missing} weekday${missing > 1 ? "s" : ""} blank` });
+  for (let i = 0; i < 7; i++) { const d = addDays(ws, i); if (days.includes(dowOf(d)) && !byDate[d]) missing++; }
+  if (missing) out.push({ kind: "missing", label: `${missing} scheduled day${missing > 1 ? "s" : ""} blank` });
   const t = weekTotals(entries, emp);
   if (t.overtime > 0) out.push({ kind: "ot", label: `${t.overtime} hrs OT` });
   if (t.late_minutes > 0) out.push({ kind: "late", label: `${t.late_minutes} min late` });
@@ -883,7 +903,7 @@ async function materializeTimeOff(req) {
   const emp = (await get(`payroll_employees?id=eq.${req.employee_id}&select=${EMP_SEL}&limit=1`))[0];
   if (!emp) return 0;
   const dayHrs = Number(emp.standard_day_hours || 8) || 8;
-  const dates = await workDaysBetween(req.start_date, req.end_date);
+  const dates = await workDaysBetween(req.start_date, req.end_date, await workDaysOf(req.employee_id));
   const dayType = REQ_TO_DAY[req.request_type] || "other";
   const perDay = req.partial ? Number(req.hours_per_day || 0) : dayHrs;
   let placed = 0;
@@ -1099,14 +1119,42 @@ async function config() {
   try { cfg = rows[0]?.value ? JSON.parse(rows[0].value) : {}; } catch { cfg = {}; }
   return { standard_day_hours: 8, standard_week_hours: 40, ot_after_hours: 40, signoff_deadline_hour: 11, ...cfg };
 }
+// ── WHICH DAYS SOMEBODY WORKS ────────────────────────────────────────────
+// Stored one app_settings row per person (`payroll_workdays_<id>` = "1,2,3,4,5",
+// 0 Sun … 6 Sat) rather than a column on payroll_employees. Deliberate: this
+// project has twice been stalled by waiting on a schema change, and app_settings
+// is the established migration-free store. One row PER PERSON, not one shared
+// blob, so two managers saving at the same moment can't clobber each other.
+//
+// Absent = Mon–Fri, which is what the whole system silently assumed before.
+const DEFAULT_WORK_DAYS = [1, 2, 3, 4, 5];
+const wdKey = (id) => `payroll_workdays_${id}`;
+
+function parseDays(v) {
+  const days = String(v ?? "").split(",").map((x) => Number(String(x).trim()))
+    .filter((n) => Number.isInteger(n) && n >= 0 && n <= 6);
+  return [...new Set(days)].sort();
+}
+
+// Batched — departmentWeek would otherwise do one query per person.
+async function workDaysMap(ids) {
+  const out = {};
+  if (!ids.length) return out;
+  const rows = await get(`app_settings?key=in.(${ids.map((i) => wdKey(i)).join(",")})&select=key,value`);
+  for (const r of rows) out[String(r.key).replace("payroll_workdays_", "")] = parseDays(r.value);
+  return out;
+}
+async function workDaysOf(id) { return (await workDaysMap([id]))[id] || DEFAULT_WORK_DAYS; }
+
 // Weekdays in a range that aren't holidays — what a time-off request consumes.
-async function workDaysBetween(start, end) {
+// `days` is that person's schedule; omitted falls back to Mon–Fri.
+async function workDaysBetween(start, end, days) {
   const hols = await get(`payroll_holidays?active=is.true&holiday_date=gte.${start}&holiday_date=lte.${end}&select=holiday_date`);
   const holSet = new Set(hols.map((h) => h.holiday_date));
+  const sched = Array.isArray(days) ? days : DEFAULT_WORK_DAYS;
   const out = [];
   for (let d = start; d <= end; d = addDays(d, 1)) {
-    const dow = dowOf(d);
-    if (dow === 0 || dow === 6) continue;
+    if (!sched.includes(dowOf(d))) continue;
     if (holSet.has(d)) continue;
     out.push(d);
     if (out.length > 120) break;
