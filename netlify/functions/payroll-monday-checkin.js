@@ -17,6 +17,15 @@
 // scheduled function, which is the same trap payroll-nudge hit.
 //   ?dry=1            who would be contacted, sends nothing
 //   ?force=1          ignore the Monday/7am gate (for a dry run any day)
+//   ?welcome=1        preview the go-live wording on any date
+//
+// GO-LIVE: on the date in app_settings.payroll_go_live everyone gets the longer
+// WELCOME wording instead — what this is, how to sign in, what to do each day.
+// Folded in here rather than built as its own 7 AM cron on purpose: two crons
+// at the same minute means two texts and two emails landing together on the one
+// morning we most want to look organised. On that date it also ignores the
+// "doesn't work Mondays" skip, because everyone needs telling the system exists
+// whether or not Monday is one of their days.
 //
 // Env: VITE_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY (or VITE_SUPABASE_ANON_KEY), URL.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -38,6 +47,10 @@ export const handler = async (event) => {
   if (!force && (now.dow !== 1 || now.hour !== 7)) {
     return out(200, { ok: true, skipped: "not 7 AM ET Monday", now });
   }
+
+  const goLiveRow = await get("app_settings?key=eq.payroll_go_live&select=value&limit=1");
+  const goLive = String(goLiveRow[0]?.value || "").slice(0, 10);
+  const welcome = q.welcome === "1" || (!!goLive && goLive === now.date);
 
   const [emps, holidays] = await Promise.all([
     get("payroll_employees?active=is.true&select=id,first_name,last_name,phone,email,is_admin,department_id&order=last_name.asc"),
@@ -66,8 +79,9 @@ export const handler = async (event) => {
   const sent = [], skipped = [];
   for (const e of emps) {
     const who = `${e.first_name} ${e.last_name}`.trim();
-    // Somebody whose week doesn't start on Monday shouldn't be told to check in.
-    if (!(wdMap[e.id] || DEFAULT_WORK_DAYS).includes(1)) { skipped.push({ who, why: "doesn't work Mondays" }); continue; }
+    // Somebody whose week doesn't start on Monday shouldn't be told to check in
+    // — but the go-live welcome goes to everyone regardless.
+    if (!welcome && !(wdMap[e.id] || DEFAULT_WORK_DAYS).includes(1)) { skipped.push({ who, why: "doesn't work Mondays" }); continue; }
     if (done.has(e.id)) { skipped.push({ who, why: "already checked in or off today" }); continue; }
     if (!e.phone && !e.email) { skipped.push({ who, why: "no phone or email on file" }); continue; }
 
@@ -76,25 +90,41 @@ export const handler = async (event) => {
     const res = { who, sms: null, email: null };
     if (e.phone) {
       // Bare link — a scheme gets the whole message blocked by the carrier.
-      const msg = `Good morning ${e.first_name} - new week. Check in for today:\n\n${SMS_LINK}\n\nAt the end of the day, say what you got done.`;
+      const msg = welcome
+        ? `Good morning ${e.first_name} - U.S. Shingle time cards start today.\n\n${SMS_LINK}\n\nSign in with THIS mobile number (or your work email) and pick a 4-8 digit passcode. Two taps a day: check in when you start, and at the end say what you got done. That's what records your hours.`
+        : `Good morning ${e.first_name} - new week. Check in for today:\n\n${SMS_LINK}\n\nAt the end of the day, say what you got done.`;
       const r = await postJson("ghl-sms", { to: e.phone, name: who, message: msg, verify: true });
       res.sms = r?.delivered ? "delivered" : (r?.status || r?.error || "not delivered");
     }
     if (e.email) {
+      const btn = `<p><a href="${BASE}/?mode=timecard" style="display:inline-block;padding:12px 22px;background:#0f2a4a;color:#fff;text-decoration:none;border-radius:8px;font-weight:700;">${welcome ? "Open my time card" : "Check in"}</a></p>`;
+      const body = welcome
+        ? `<p>Good morning ${e.first_name},</p>` +
+          `<p><b>Time cards start today.</b> This is how your hours get recorded from now on — it replaces the paper sheet.</p>` +
+          `<h3 style="margin:20px 0 6px;font-size:16px">Signing in</h3>` +
+          `<p style="margin:0">Use your <b>mobile number</b> or your <b>work email</b>, then pick your own 4–8 digit passcode. Nobody sets it for you and nobody else can see it.</p>` +
+          btn +
+          `<h3 style="margin:20px 0 6px;font-size:16px">Your day — two taps</h3>` +
+          `<p style="margin:0 0 6px"><b>1. Check in</b> when you start.</p>` +
+          `<p style="margin:0"><b>2. At the end, write a quick recap</b> of what you got done. That's what closes the day and sets your hours — without it the day stays open.</p>` +
+          `<h3 style="margin:20px 0 6px;font-size:16px">Also in there</h3>` +
+          `<p style="margin:0">Your week so far, your time-off requests and what you have left, and the company holidays. Ask for a day off in there rather than by text — it goes straight to your manager.</p>` +
+          `<p style="margin:14px 0 0">Add it to your phone's home screen and it opens like an app.</p>` +
+          `<p style="color:#475569">Stuck, or your name or details are wrong? Tell your manager.</p>`
+        : `<p>Good morning ${e.first_name},</p><p>New week — check in to start your day.</p>` + btn +
+          `<p>At the end of the day, write a quick recap of what you got done — that's what closes the day and sets your hours.</p>`;
       const ok = await postJson("send-email", {
-        to: e.email, subject: "Check in for the day", fromName: "U.S. Shingle Time Cards",
-        html: `<div style="font:15px/1.6 -apple-system,Segoe UI,sans-serif;color:#0f2a4a">` +
-          `<p>Good morning ${e.first_name},</p><p>New week — check in to start your day.</p>` +
-          `<p><a href="${BASE}/?mode=timecard" style="display:inline-block;padding:12px 22px;background:#0f2a4a;color:#fff;text-decoration:none;border-radius:8px;font-weight:700;">Check in</a></p>` +
-          `<p>At the end of the day, write a quick recap of what you got done — that's what closes the day and sets your hours.</p>` +
-          `<p style="color:#64748b;font-size:13px;">U.S. Shingle &amp; Metal</p></div>`,
+        to: e.email, subject: welcome ? "Your U.S. Shingle time card starts today" : "Check in for the day",
+        fromName: "U.S. Shingle Time Cards",
+        html: `<div style="font:15px/1.6 -apple-system,Segoe UI,sans-serif;color:#0f2a4a;max-width:640px">${body}` +
+          `<p style="color:#64748b;font-size:13px;margin-top:24px">U.S. Shingle &amp; Metal</p></div>`,
       });
       res.email = ok?.success ? "sent" : "failed";
     }
     sent.push(res);
   }
 
-  return out(200, { ok: true, date: now.date, dry, force, contacted: sent.length, sent, skipped });
+  return out(200, { ok: true, date: now.date, dry, force, welcome, go_live: goLive || null, contacted: sent.length, sent, skipped });
 };
 
 
