@@ -46,6 +46,16 @@ export default function HarvestTraining({ track, userType, userKey, name, toolLa
   }, [track]);
 
   const scrollTop = () => { try { topRef.current?.scrollTo({ top: 0, behavior: "smooth" }); } catch { /* ignore */ } };
+  // FIX WHAT YOU MISSED. Scoring 19 out of 20 used to be a dead end: "not quite
+  // yet", back to the lessons, retake the whole thing. 26 of the 27 people ever
+  // marked failed had scored 80% or better, several of them three times over —
+  // so the gate wasn't teaching anyone anything, it was just standing in the
+  // way. Now the misses come back with their choices attached: get them right
+  // and you're at 100% and through. The point is that they learn it, not that
+  // they pass first time (Neal, 2026-08-22).
+  const [fixes, setFixes] = useState({});      // qid → chosen index on the retry
+  const [fixSaving, setFixSaving] = useState(false);
+  const [fixDone, setFixDone] = useState(false);
   const correctChoice = (q) => (q.choices || [])[q.correct_index];
 
   const submit = async () => {
@@ -107,33 +117,86 @@ export default function HarvestTraining({ track, userType, userKey, name, toolLa
         <div style={{ textAlign: "center", padding: "10px 0 18px" }}>
           <div style={{ fontSize: 44 }}>{result.passed ? "🎉" : "📚"}</div>
           <div style={{ fontSize: 24, fontWeight: 800, fontFamily: OSWALD, color: result.passed ? "#16a34a" : "#b45309" }}>
-            {result.passed ? "You passed!" : "Not quite yet"}
+            {result.passed ? "You passed!" : "Almost — let’s fix these"}
           </div>
-          <div style={{ fontSize: 15, color: "#475569", marginTop: 4 }}>You scored <b>{result.score}%</b> (need {PASS_PCT}%).</div>
+          <div style={{ fontSize: 15, color: "#475569", marginTop: 4 }}>You scored <b>{result.score}%</b>. {result.passed ? "" : "Fix the ones below and you’re in."}</div>
         </div>
 
         {result.wrong.length > 0 && (
           <div style={{ marginBottom: 18 }}>
             <div style={{ fontSize: 13, fontWeight: 800, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 8 }}>
-              {result.passed ? "Review — what you missed" : `You missed ${result.wrong.length}`}
+              {result.passed ? "Review — what you missed" : `Fix these ${result.wrong.length} and you're done`}
             </div>
-            <div style={{ display: "grid", gap: 8 }}>
-              {result.wrong.map((q) => (
-                <div key={q.id} style={{ background: "#fff7ed", border: "1px solid #fed7aa", borderRadius: 10, padding: "10px 12px" }}>
-                  <div style={{ fontSize: 13.5, fontWeight: 700, color: "#0f172a" }}>{q.prompt}</div>
-                  {result.passed
-                    ? <div style={{ fontSize: 13, color: "#166534", marginTop: 3 }}>✓ Correct answer: <b>{correctChoice(q)}</b></div>
-                    : <div style={{ fontSize: 12.5, color: "#9a3412", marginTop: 3 }}>Re-read the section below to get this one — then you'll retake it.</div>}
-                </div>
-              ))}
+            <div style={{ display: "grid", gap: 10 }}>
+              {result.wrong.map((q) => {
+                const picked = fixes[q.id];
+                const right = picked != null && picked === q.correct_index;
+                return (
+                  <div key={q.id} style={{ background: right ? "#f0fdf4" : "#fff7ed", border: `1px solid ${right ? "#bbf7d0" : "#fed7aa"}`, borderRadius: 10, padding: "10px 12px" }}>
+                    <div style={{ fontSize: 13.5, fontWeight: 700, color: "#0f172a" }}>{q.prompt}</div>
+                    {result.passed ? (
+                      <div style={{ fontSize: 13, color: "#166534", marginTop: 3 }}>✓ Correct answer: <b>{correctChoice(q)}</b></div>
+                    ) : (
+                      <>
+                        <div style={{ display: "grid", gap: 5, marginTop: 8 }}>
+                          {(q.choices || []).map((c, ci) => {
+                            const chosen = picked === ci;
+                            const isRight = ci === q.correct_index;
+                            const show = picked != null;
+                            return (
+                              <button key={ci} type="button" disabled={right}
+                                onClick={() => setFixes((m) => ({ ...m, [q.id]: ci }))}
+                                style={{
+                                  textAlign: "left", padding: "8px 10px", borderRadius: 8, fontSize: 13, cursor: right ? "default" : "pointer",
+                                  border: `1px solid ${show && isRight ? "#16a34a" : chosen ? "#dc2626" : "#e5e7eb"}`,
+                                  background: show && isRight ? "#dcfce7" : chosen ? "#fee2e2" : "#fff",
+                                  color: "#0f172a", fontWeight: chosen || (show && isRight) ? 700 : 400,
+                                }}>
+                                {c}{show && isRight ? "  ✓" : chosen && !isRight ? "  ✗" : ""}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        {picked != null && !right && (
+                          <div style={{ fontSize: 12.5, color: "#9a3412", marginTop: 6 }}>Not that one — the right answer is highlighted. Tap it so it sticks.</div>
+                        )}
+                        {right && <div style={{ fontSize: 12.5, color: "#166534", marginTop: 6, fontWeight: 700 }}>✓ Got it.</div>}
+                      </>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}
 
-        {result.passed ? (
+        {result.passed || fixDone ? (
           <button type="button" onClick={() => onPass && onPass()} style={btn("#16a34a")}>{preview ? "✅ Looks good — close preview" : `✅ Enter ${toolLabel}`}</button>
         ) : (
-          <button type="button" onClick={() => { setStage("lesson"); scrollTop(); }} style={btn("#b45309")}>📖 Back to the lessons</button>
+          <>
+            {result.wrong.every((q) => fixes[q.id] === q.correct_index) ? (
+              <button type="button" disabled={fixSaving} onClick={async () => {
+                setFixSaving(true);
+                // Recorded as its own attempt, so the history still shows the
+                // first score honestly — attempt 1: 95 and failed, attempt 2:
+                // corrected and passed.
+                if (!preview) {
+                  try {
+                    await supabase.from("harvest_training_results").insert({
+                      user_type: userType, user_key: userKey, name: name || null, track,
+                      score: 100, passed: true, wrong_section_ids: [],
+                    });
+                  } catch { /* non-fatal — don't strand them over a log write */ }
+                }
+                setFixSaving(false); setFixDone(true); scrollTop();
+              }} style={btn("#16a34a")}>{fixSaving ? "Saving…" : `✅ All corrected — enter ${toolLabel}`}</button>
+            ) : (
+              <div style={{ fontSize: 13, color: "#64748b", textAlign: "center", marginBottom: 10 }}>
+                Pick the right answer on each one above to finish.
+              </div>
+            )}
+            <button type="button" onClick={() => { setStage("lesson"); scrollTop(); }} style={btn("#94a3b8")}>📖 Back to the lessons</button>
+          </>
         )}
       </Screen>
     );
