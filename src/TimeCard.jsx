@@ -914,6 +914,17 @@ function Team({ me, api, onErr }) {
     if (!r.ok) { onErr(r.error || "Couldn't set that shift."); return; }
     load(ws);
   };
+  // Which days of the week they're expected. Drives the check-in reminders,
+  // the Monday morning call, and which blank days count against them.
+  const setWorkDays = async (employeeId, days) => {
+    let r = await api("set_work_days", { employee_id: employeeId, days });
+    if (!r.ok && !days.length) {
+      if (!window.confirm("No working days at all means they stop getting check-in reminders. Is that what you want?")) return;
+      r = await api("set_work_days", { employee_id: employeeId, days, confirm_none: true });
+    }
+    if (!r.ok) { onErr(r.error || "Couldn't save those days."); return; }
+    load(ws);
+  };
   const addTeammate = async (dep) => {
     const r = await api("add_teammate", { ...adding, department_id: dep.department.id });
     if (!r.ok) { onErr(r.error || "Couldn't add them."); return; }
@@ -1011,7 +1022,7 @@ function Team({ me, api, onErr }) {
 
           {dep.members.map((m) => (
             <TeamMember key={m.employee.id} m={m} open={openEmp === m.employee.id}
-              shifts={shifts} onSetShift={setShift} onDeactivate={deactivate}
+              shifts={shifts} onSetShift={setShift} onSetWorkDays={setWorkDays} onDeactivate={deactivate}
               onToggle={() => setOpenEmp(openEmp === m.employee.id ? "" : m.employee.id)}
               locked={dep.approval?.status === "approved"}
               onSave={async (payload) => {
@@ -1085,7 +1096,9 @@ function Team({ me, api, onErr }) {
   );
 }
 
-function TeamMember({ m, open, onToggle, onSave, locked, shifts, onSetShift, onDeactivate }) {
+const DOW = [["1", "Mon"], ["2", "Tue"], ["3", "Wed"], ["4", "Thu"], ["5", "Fri"], ["6", "Sat"], ["0", "Sun"]];
+
+function TeamMember({ m, open, onToggle, onSave, locked, shifts, onSetShift, onSetWorkDays, onDeactivate }) {
   const [editing, setEditing] = useState("");
   return (
     <div style={{ ...card, padding: 0, overflow: "hidden" }}>
@@ -1117,6 +1130,26 @@ function TeamMember({ m, open, onToggle, onSave, locked, shifts, onSetShift, onD
                 onClick={() => onDeactivate(m)}>Remove from team</button>
             </div>
           ) : null}
+          {onSetWorkDays ? (
+            <div style={{ display: "flex", gap: 9, alignItems: "center", flexWrap: "wrap", padding: "10px 13px", borderBottom: `1px solid ${LINE}` }}>
+              <span style={{ fontSize: 12.5, fontWeight: 800, color: MUTE, textTransform: "uppercase", letterSpacing: 0.3 }}>Works</span>
+              <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+                {DOW.map(([n, label]) => {
+                  const dow = Number(n);
+                  const days = m.employee.work_days || [1, 2, 3, 4, 5];
+                  const on = days.includes(dow);
+                  return (
+                    <button key={n} onClick={() => onSetWorkDays(m.employee.id, on ? days.filter((x) => x !== dow) : [...days, dow].sort())}
+                      aria-pressed={on} style={{
+                        ...ghost, padding: "6px 11px", fontSize: 12.5, fontWeight: 800,
+                        background: on ? NAVY : "#fff", color: on ? "#fff" : MUTE, borderColor: on ? NAVY : LINE,
+                      }}>{label}</button>
+                  );
+                })}
+              </div>
+              <span style={{ fontSize: 12, color: MUTE, marginLeft: "auto" }}>Reminders only go out on these days</span>
+            </div>
+          ) : null}
           {m.days.map((d) => {
             const e = d.entry;
             const t = DT[e?.day_type];
@@ -1125,7 +1158,8 @@ function TeamMember({ m, open, onToggle, onSave, locked, shifts, onSetShift, onD
                 <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 13px" }}>
                   <div style={{ width: 62, fontSize: 12.5, fontWeight: 800, color: MUTE }}>{d.weekday.slice(0, 3)} {pretty(d.work_date)}</div>
                   <div style={{ flex: 1, fontSize: 13.5, color: e ? INK : MUTE }}>
-                    {!e ? "—" : e.day_type === "worked"
+                    {!e && d.scheduled === false ? <span style={{ color: "#94a3b8" }}>not scheduled</span>
+                      : !e ? "—" : e.day_type === "worked"
                       ? `${e.hours}h${e.time_in && e.time_out ? ` (${hhmm(e.time_in)}–${hhmm(e.time_out)})` : ""}${e.off_type ? ` +${e.off_hours}h ${DT[e.off_type]?.label || e.off_type}` : ""}`
                       : `${t?.emoji || ""} ${t?.label || e.day_type}`}
                     {e?.note ? <span style={{ color: MUTE }}> · {e.note}</span> : null}

@@ -61,9 +61,13 @@ export const handler = async (event) => {
   const entries = await get(`payroll_time_entries?work_date=eq.${now.date}&select=employee_id,checked_in_at,day_type`);
   const done = new Set(entries.filter((e) => e.checked_in_at || e.day_type !== "worked").map((e) => e.employee_id));
 
+  const wdMap = await workDaysMap(emps.map((e) => e.id));
+
   const sent = [], skipped = [];
   for (const e of emps) {
     const who = `${e.first_name} ${e.last_name}`.trim();
+    // Somebody whose week doesn't start on Monday shouldn't be told to check in.
+    if (!(wdMap[e.id] || DEFAULT_WORK_DAYS).includes(1)) { skipped.push({ who, why: "doesn't work Mondays" }); continue; }
     if (done.has(e.id)) { skipped.push({ who, why: "already checked in or off today" }); continue; }
     if (!e.phone && !e.email) { skipped.push({ who, why: "no phone or email on file" }); continue; }
 
@@ -93,6 +97,23 @@ export const handler = async (event) => {
   return out(200, { ok: true, date: now.date, dry, force, contacted: sent.length, sent, skipped });
 };
 
+
+// Which days each person works — app_settings row per person, see payroll-me.
+// Absent = Mon–Fri, the assumption everything made before this existed.
+const DEFAULT_WORK_DAYS = [1, 2, 3, 4, 5];
+async function workDaysMap(ids) {
+  const out = {};
+  if (!ids.length) return out;
+  const rows = await get(`app_settings?key=in.(${ids.map((i) => `payroll_workdays_${i}`).join(",")})&select=key,value`);
+  for (const r of rows) {
+    out[String(r.key).replace("payroll_workdays_", "")] = [...new Set(
+      String(r.value ?? "").split(",").map((x) => Number(String(x).trim()))
+        .filter((n) => Number.isInteger(n) && n >= 0 && n <= 6)
+    )];
+  }
+  return out;
+}
+function dowOfDate(s) { return new Date(`${s}T12:00:00Z`).getUTCDay(); }
 function nowET() {
   const p = new Intl.DateTimeFormat("en-US", {
     timeZone: "America/New_York", weekday: "short", year: "numeric", month: "2-digit",
