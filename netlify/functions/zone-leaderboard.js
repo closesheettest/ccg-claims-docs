@@ -26,6 +26,8 @@
 // Response: { ok, week: { start, end }, total, zones: [
 //             { zone: 'Zone 3', team: 'SHARKS', count: 4, rank: 1 }, … ] }
 
+import { canonicalName } from "./_aliases.js";
+
 const SB_URL = process.env.VITE_SUPABASE_URL
 const SB_KEY = process.env.VITE_SUPABASE_ANON_KEY
 const TMS_REP_ZONES_URL =
@@ -111,7 +113,7 @@ export const handler = async (event) => {
       counts[zone] = (counts[zone] || 0) + 1
       // Per-rep tally for the dashboard drill-down (rep name + count only —
       // no homeowner or address, so this stays safe on the public feed).
-      const rep = (signerName || '—').trim() || '—'
+      const rep = canonicalName((signerName || '—').trim()) || '—'
       const m = repsByZone[zone] || (repsByZone[zone] = new Map())
       m.set(rep, (m.get(rep) || 0) + 1)
       ;(dealsByZone[zone] = dealsByZone[zone] || []).push({ rep, label: titleAddr(r.address) || (r.client_name || '').trim() || 'Signed inspection' , city: (r.city || '').trim() || null })

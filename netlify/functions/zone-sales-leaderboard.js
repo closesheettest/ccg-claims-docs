@@ -166,12 +166,17 @@ export const handler = async (event) => {
       if (soldMs == null || soldMs < startMs || soldMs > endMs) continue
 
       const zone = zoneOf(j.sales_rep, j.sales_rep_name)
-      if (!zone) { unattributed++; if (debug) matched.push({ name: j.name, rep: j.sales_rep_name || null, status: j.status_name, sold: new Date(soldMs).toISOString(), zone: null }); continue }
+      if (!zone) { unattributed++; if (debug) matched.push({ name: j.name, rep: canonicalName(j.sales_rep_name) || null, status: j.status_name, sold: new Date(soldMs).toISOString(), zone: null }); continue }
       counts[zone] = (counts[zone] || 0) + 1
       // Per-deal detail for the dashboard drill-down. We deliberately show
       // the CUSTOMER NAME (primary contact), not the JN job name — job
       // names embed the street address and the dashboard is public.
-      const rep = (j.sales_rep_name || '—').trim()
+      // DISPLAY the name his team uses, not the one JobNimbus stores. The
+      // alias was already applied to MATCHING, so the zone and the money were
+      // always right — but the row still read "Juan Orozco", so Sam scanned the
+      // board for Juan Carlos, didn't find him, and reported the sale missing
+      // (Neal, 2026-08-22).
+      const rep = canonicalName((j.sales_rep_name || '—').trim())
       const customer = (j.primary && j.primary.name ? String(j.primary.name) : '')
         .replace(/\s+/g, ' ').trim() || '—'
       const amount = Number(j.approved_estimate_total) || 0
@@ -179,7 +184,7 @@ export const handler = async (event) => {
       // sold, not just who sold it (Neal, 2026-08-18). Straight off the JN job.
       const city = (j.city ? String(j.city) : '').trim() || null
       ;(dealsByZone[zone] = dealsByZone[zone] || []).push({ rep, customer, city, amount })
-      if (debug) matched.push({ name: j.name, rep: j.sales_rep_name || null, status: j.status_name, sold: new Date(soldMs).toISOString(), zone })
+      if (debug) matched.push({ name: j.name, rep: canonicalName(j.sales_rep_name) || null, status: j.status_name, sold: new Date(soldMs).toISOString(), zone })
     }
 
     const zones = ZONE_ORDER.map((zone) => {
